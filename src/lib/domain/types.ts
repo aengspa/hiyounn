@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Core domain types for the Vibe Coding Security Agent.
  *
  * Design principle: evidence over AI guesswork. Every finding carries
@@ -300,12 +300,18 @@ export interface Project {
   lastScanDate?: string;
   /** 사용자가 붙여넣은 소스 코드(AI 스캔 대상). 서버에만 보관. */
   sourceCode?: string;
+  /** 업로드된 소스 zip 파일명(있는 경우). */
+  sourceZipName?: string;
   createdAt: string;
 }
 
 export interface User {
   id: string;
   email: string;
+  name?: string;
+  /** scrypt 해시("salt:key"). 평문 비밀번호는 절대 저장하지 않음. */
+  passwordHash?: string;
+  createdAt?: string;
 }
 
 // Severity counts used across dashboards.
