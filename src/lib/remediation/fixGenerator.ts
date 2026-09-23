@@ -100,6 +100,287 @@ export function generateFix(finding: SecurityFinding): FixAttempt {
     };
   }
 
+  if (key.startsWith("xss:")) {
+    const file = finding.location?.file ?? "src/components/Comment.tsx";
+    const bad = finding.evidence.find((e) => e.kind === "source_code")?.content;
+    return {
+      id: id("fix"),
+      findingId: finding.id,
+      source: "deterministic",
+      summary: "Render user input as text instead of raw HTML (or sanitize it).",
+      plainExplanation:
+        "이 변경은 사용자 입력을 HTML로 직접 넣지 않고 일반 텍스트로 렌더링합니다. 꼭 HTML이 필요하면 신뢰할 수 있는 정제 라이브러리를 거치도록 합니다.",
+      diffs: [
+        {
+          file,
+          patch: [
+            `- ${bad ?? `<div dangerouslySetInnerHTML={{ __html: userInput }} />`}`,
+            `+ <div>{userInput}</div>  // 텍스트로 렌더링 (React가 자동 인코딩)`,
+            `+ // HTML이 반드시 필요하면: dangerouslySetInnerHTML={{ __html: sanitize(userInput) }}`,
+          ].join("\n"),
+        },
+      ],
+      applied: false,
+      createdAt: now(),
+    };
+  }
+
+  if (key.startsWith("inj:")) {
+    const file = finding.location?.file ?? "src/api/search/route.ts";
+    const bad = finding.evidence.find((e) => e.kind === "source_code")?.content ?? "";
+    const isEval = /eval|Function|exec/.test(bad);
+    return {
+      id: id("fix"),
+      findingId: finding.id,
+      source: "deterministic",
+      summary: isEval
+        ? "Remove dynamic code/command execution and use a safe alternative."
+        : "Use parameterized queries instead of string concatenation.",
+      plainExplanation: isEval
+        ? "이 변경은 입력값으로 코드를 실행하는 위험한 부분을 제거하고, 안전한 처리 방식으로 바꿉니다."
+        : "이 변경은 쿼리에 입력값을 직접 붙이지 않고, 파라미터로 전달해 인젝션을 막습니다.",
+      diffs: [
+        {
+          file,
+          patch: isEval
+            ? [
+                `- ${bad || `const parsed = eval(req.query.expr);`}`,
+                `+ const parsed = JSON.parse(req.query.expr); // eval 대신 안전한 파싱`,
+              ].join("\n")
+            : [
+                `- ${bad || "const rows = await db.query(`SELECT * FROM notes WHERE title = '${q}'`);"}`,
+                "+ const rows = await db.query(\"SELECT * FROM notes WHERE title = $1\", [q]); // 파라미터 바인딩",
+              ].join("\n"),
+        },
+      ],
+      applied: false,
+      createdAt: now(),
+    };
+  }
+
+  if (key.startsWith("trav:")) {
+    const file = finding.location?.file ?? "src/api/download/route.ts";
+    const bad = finding.evidence.find((e) => e.kind === "source_code")?.content;
+    return {
+      id: id("fix"),
+      findingId: finding.id,
+      source: "deterministic",
+      summary: "Normalize the path and confine it to a base directory (and whitelist the file name).",
+      plainExplanation:
+        "이 변경은 사용자가 준 파일 이름을 정규화한 뒤, 허용된 폴더 밖으로 벗어나지 않는지 확인합니다. 벗어나면 요청을 거부합니다.",
+      diffs: [
+        {
+          file,
+          patch: [
+            `- ${bad ?? `const data = readFileSync(path.join("./uploads", name));`}`,
+            `+ const base = path.resolve("./uploads");`,
+            `+ const target = path.resolve(base, path.basename(name)); // 파일명만 사용`,
+            `+ if (!target.startsWith(base + path.sep)) {`,
+            `+   return new Response("forbidden", { status: 403 });`,
+            `+ }`,
+            `+ const data = readFileSync(target);`,
+          ].join("\n"),
+        },
+      ],
+      applied: false,
+      createdAt: now(),
+    };
+  }
+
+  if (key.startsWith("expose:")) {
+    const file = finding.location?.file ?? "src/api/profile/route.ts";
+    return {
+      id: id("fix"),
+      findingId: finding.id,
+      source: "deterministic",
+      summary: "Return only whitelisted fields; strip sensitive fields from the response.",
+      plainExplanation:
+        "이 변경은 응답에 필요한 필드만 골라 담아, 비밀번호 해시 같은 민감한 값이 밖으로 나가지 않게 합니다.",
+      diffs: [
+        {
+          file,
+          patch: [
+            `- return Response.json(user);`,
+            `+ const { id, email, fullName } = user; // 민감 필드(passwordHash, token 등) 제외`,
+            `+ return Response.json({ id, email, fullName });`,
+          ].join("\n"),
+        },
+      ],
+      applied: false,
+      createdAt: now(),
+    };
+  }
+
+  if (key.startsWith("bfla:")) {
+    return {
+      id: id("fix"),
+      findingId: finding.id,
+      source: "deterministic",
+      summary: "Add a server-side role check to admin-only routes.",
+      plainExplanation:
+        "이 변경은 관리자 전용 경로에 서버측 역할(role) 검사를 추가합니다. 관리자가 아니면 403으로 거부해, 일반 사용자가 관리자 기능을 쓰지 못하게 합니다.",
+      diffs: [
+        {
+          file: finding.location?.file ?? "src/app/api/admin/users/route.ts",
+          patch: [
+            `  export async function GET(req) {`,
+            `+   const session = await getSession(req);`,
+            `+   // 관리자 역할이 아니면 접근 거부(함수 수준 권한 검사)`,
+            `+   if (session?.user?.role !== "admin") {`,
+            `+     return json({ error: "forbidden" }, 403);`,
+            `+   }`,
+            `    // ... 관리자 작업 ...`,
+            `  }`,
+          ].join("\n"),
+        },
+      ],
+      applied: false,
+      createdAt: now(),
+    };
+  }
+
+  if (key.startsWith("cookie:")) {
+    return {
+      id: id("fix"),
+      findingId: finding.id,
+      source: "deterministic",
+      summary: "Set HttpOnly, Secure, and SameSite on session cookies.",
+      plainExplanation:
+        "이 변경은 세션 쿠키에 보호 속성을 추가합니다. 스크립트가 못 읽게(HttpOnly), HTTPS에서만 전송되게(Secure), 다른 사이트 요청엔 안 실리게(SameSite) 합니다.",
+      diffs: [
+        {
+          file: finding.location?.file ?? "src/lib/authActions.ts",
+          patch: [
+            `- cookies().set(SESSION_COOKIE, token, { path: "/" });`,
+            `+ cookies().set(SESSION_COOKIE, token, {`,
+            `+   httpOnly: true,`,
+            `+   secure: true,`,
+            `+   sameSite: "lax",`,
+            `+   path: "/",`,
+            `+ });`,
+          ].join("\n"),
+        },
+      ],
+      applied: false,
+      createdAt: now(),
+    };
+  }
+
+  if (key.startsWith("brute:")) {
+    return {
+      id: id("fix"),
+      findingId: finding.id,
+      source: "deterministic",
+      summary: "Add rate limiting / lockout to the login endpoint.",
+      plainExplanation:
+        "이 변경은 로그인 시도 횟수를 IP·계정 단위로 제한해, 연속 실패가 일정 횟수를 넘으면 잠시 차단(429)합니다. 자동화된 비밀번호 대입을 막습니다.",
+      diffs: [
+        {
+          file: "src/middleware.ts",
+          patch: [
+            `+ // 로그인 경로 레이트 리밋(예시). 실서비스는 Redis/Upstash 권장.`,
+            `+ const hits = new Map<string, { n: number; ts: number }>();`,
+            `+ export function middleware(req) {`,
+            `+   if (req.nextUrl.pathname.startsWith("/api/auth/login")) {`,
+            `+     const key = req.ip ?? "unknown";`,
+            `+     const rec = hits.get(key) ?? { n: 0, ts: Date.now() };`,
+            `+     if (Date.now() - rec.ts > 60_000) { rec.n = 0; rec.ts = Date.now(); }`,
+            `+     rec.n++; hits.set(key, rec);`,
+            `+     if (rec.n > 5) return new Response("Too Many Requests", { status: 429 });`,
+            `+   }`,
+            `+ }`,
+          ].join("\n"),
+        },
+      ],
+      applied: false,
+      createdAt: now(),
+    };
+  }
+
+  if (key.startsWith("enum:")) {
+    return {
+      id: id("fix"),
+      findingId: finding.id,
+      source: "deterministic",
+      summary: "Return identical responses for valid and invalid accounts (and uniform timing).",
+      plainExplanation:
+        "이 변경은 로그인 실패 시 계정이 있든 없든 똑같은 일반 메시지와 상태코드를 반환하도록 통일합니다. 응답 시간 차이도 없애기 위해, 계정이 없을 때도 더미 비밀번호 검증을 수행합니다.",
+      diffs: [
+        {
+          file: finding.location?.file ?? "src/lib/authActions.ts",
+          patch: [
+            `- if (!user) return { error: "가입되지 않은 이메일입니다." };`,
+            `- if (!verifyPassword(password, user.passwordHash)) return { error: "비밀번호가 틀렸습니다." };`,
+            `+ // 계정 유무를 드러내지 않도록 동일한 일반 메시지 + 균일 타이밍`,
+            `+ const invalid = { error: "이메일 또는 비밀번호가 올바르지 않습니다." };`,
+            `+ const hash = user?.passwordHash ?? DUMMY_HASH; // 없어도 더미 검증(타이밍 균일화)`,
+            `+ const ok = verifyPassword(password, hash);`,
+            `+ if (!user || !ok) return invalid;`,
+          ].join("\n"),
+        },
+      ],
+      applied: false,
+      createdAt: now(),
+    };
+  }
+
+  if (key.startsWith("tls:")) {
+    return {
+      id: id("fix"),
+      findingId: finding.id,
+      source: "deterministic",
+      summary: "Redirect all HTTP to HTTPS and enable HSTS.",
+      plainExplanation:
+        "이 변경은 모든 평문(HTTP) 요청을 HTTPS로 돌리고, 브라우저가 항상 HTTPS로만 접속하도록 HSTS 헤더를 추가합니다.",
+      diffs: [
+        {
+          file: "next.config.js",
+          patch: [
+            `+   async headers() {`,
+            `+     return [{`,
+            `+       source: "/(.*)",`,
+            `+       headers: [`,
+            `+         { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },`,
+            `+       ],`,
+            `+     }];`,
+            `+   },`,
+            `+   // 호스팅(예: Vercel/Nginx)에서 http→https 강제 리다이렉트도 함께 설정하세요.`,
+          ].join("\n"),
+        },
+      ],
+      applied: false,
+      createdAt: now(),
+    };
+  }
+
+  if (key.startsWith("exposed:")) {
+    return {
+      id: id("fix"),
+      findingId: finding.id,
+      source: "deterministic",
+      summary: "Block sensitive paths and disable debug routes in production.",
+      plainExplanation:
+        "이 변경은 .env, .git 같은 민감 경로 접근을 차단하고, 디버그 라우트를 프로덕션에서 끄는 리다이렉트/거부 규칙을 추가합니다.",
+      diffs: [
+        {
+          file: "next.config.js",
+          patch: [
+            `+   async redirects() {`,
+            `+     // 민감 경로를 외부에서 접근하지 못하도록 차단(404 처리)`,
+            `+     return [`,
+            `+       { source: "/.env", destination: "/404", permanent: false },`,
+            `+       { source: "/.git/:path*", destination: "/404", permanent: false },`,
+            `+       { source: "/debug", destination: "/404", permanent: false },`,
+            `+     ];`,
+            `+   },`,
+          ].join("\n"),
+        },
+      ],
+      applied: false,
+      createdAt: now(),
+    };
+  }
+
   if (key.startsWith("rls:")) {
     return {
       id: id("fix"),
@@ -183,7 +464,17 @@ export async function generateFixSmart(
     key.startsWith("idor:") ||
     key.startsWith("secret:") ||
     key.startsWith("headers:") ||
-    key.startsWith("rls:");
+    key.startsWith("rls:") ||
+    key.startsWith("xss:") ||
+    key.startsWith("inj:") ||
+    key.startsWith("expose:") ||
+    key.startsWith("trav:") ||
+    key.startsWith("exposed:") ||
+    key.startsWith("tls:") ||
+    key.startsWith("enum:") ||
+    key.startsWith("brute:") ||
+    key.startsWith("cookie:") ||
+    key.startsWith("bfla:");
 
   // 결정적으로 잘 아는 취약점은 규칙 기반이 더 정확 → 그대로 사용.
   if (deterministicKnown || !isConfigured()) {

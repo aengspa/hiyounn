@@ -14,10 +14,21 @@ import { HeaderScanner } from "@/lib/scanners/headerScanner";
 import { AuthorizationScanner } from "@/lib/scanners/authorizationScanner";
 import { DependencyScanner } from "@/lib/scanners/dependencyScanner";
 import { BaaSConfigScanner } from "@/lib/scanners/baasScanner";
+import { StaticWebScanner } from "@/lib/scanners/staticWebScanner";
+import { ExposedEndpointScanner } from "@/lib/scanners/exposedEndpointScanner";
+import { TlsScanner } from "@/lib/scanners/tlsScanner";
+import { UserEnumerationScanner } from "@/lib/scanners/userEnumerationScanner";
+import { BruteForceScanner } from "@/lib/scanners/bruteForceScanner";
+import { CookieScanner } from "@/lib/scanners/cookieScanner";
+import { BflaScanner } from "@/lib/scanners/bflaScanner";
 import { AiCodeScanner } from "@/lib/scanners/aiCodeScanner";
 import { now, SCAN_STEP_LABELS, id } from "@/lib/util";
-import { getRules, registryDigest, POLICY_VERSION } from "@/lib/rules/registry";
-import { ruleForScanner, ruleIdForVerificationKey } from "@/lib/rules/scannerBinding";
+import { getRule, getRules, registryDigest, POLICY_VERSION } from "@/lib/rules/registry";
+import {
+  ruleForScanner,
+  ruleIdForVerificationKey,
+  STATIC_WEB_RULES,
+} from "@/lib/rules/scannerBinding";
 import {
   assertRegisteredRule,
   assertRegisteredTool,
@@ -57,7 +68,14 @@ export class SecurityOrchestrator {
       new DependencyScanner(),
       new BaaSConfigScanner(),
       new AuthorizationScanner(),
+      new StaticWebScanner(),
       new HeaderScanner(),
+      new ExposedEndpointScanner(),
+      new TlsScanner(),
+      new UserEnumerationScanner(),
+      new BruteForceScanner(),
+      new CookieScanner(),
+      new BflaScanner(),
       new AiCodeScanner(),
     ];
   }
@@ -74,6 +92,22 @@ export class SecurityOrchestrator {
       return this.getScanner("header-cors-scanner");
     if (key.startsWith("dep:")) return this.getScanner("dependency-scanner");
     if (key.startsWith("rls:")) return this.getScanner("baas-config-scanner");
+    if (
+      key.startsWith("xss:") ||
+      key.startsWith("inj:") ||
+      key.startsWith("expose:") ||
+      key.startsWith("trav:")
+    )
+      return this.getScanner("static-web-scanner");
+    if (key.startsWith("exposed:"))
+      return this.getScanner("exposed-endpoint-scanner");
+    if (key.startsWith("tls:")) return this.getScanner("tls-scanner");
+    if (key.startsWith("enum:"))
+      return this.getScanner("user-enumeration-scanner");
+    if (key.startsWith("brute:"))
+      return this.getScanner("bruteforce-scanner");
+    if (key.startsWith("cookie:")) return this.getScanner("cookie-scanner");
+    if (key.startsWith("bfla:")) return this.getScanner("bfla-scanner");
     return undefined;
   }
 
@@ -94,45 +128,20 @@ export class SecurityOrchestrator {
     const selectedChecks: PlannedCheck[] = [];
     const coverageGaps: CoverageGap[] = [];
 
+    const applicableNames = new Set(applicable.map((s) => s.name));
+
     for (const scanner of applicable) {
       const rule = ruleForScanner(scanner.name);
-      if (!rule) continue; // 규칙에 매이지 않은 스캐너(AI)는 계획에 넣지 않음
+      if (!rule) continue; // 단일 규칙에 매이지 않은 스캐너는 아래에서 별도 처리
+      this.planRule(rule, context, selectedChecks, coverageGaps);
+    }
 
-      const gate = this.gateRule(rule, context);
-      if (gate.blocked) {
-        for (const chk of rule.checks) {
-          coverageGaps.push({
-            ruleId: rule.id,
-            checkId: chk.id,
-            reason: gate.reason,
-          });
-        }
-        continue;
-      }
-
-      const prereq = evaluatePrerequisites(rule, context);
-      for (const chk of rule.checks) {
-        // 이 검사의 method 선행조건이 부족하면 개별 갭으로 기록.
-        const methodMissing = (rule.prerequisites[chk.method] ?? []).filter(
-          (c) => prereq.missing.includes(c)
-        );
-        if (methodMissing.length > 0) {
-          coverageGaps.push({
-            ruleId: rule.id,
-            checkId: chk.id,
-            reason: `선행 조건 부족: ${methodMissing.join(", ")}`,
-          });
-          continue;
-        }
-        selectedChecks.push({
-          ruleId: rule.id,
-          ruleVersion: rule.version,
-          componentId: context.projectId,
-          checkId: chk.id,
-          toolId: chk.toolId,
-          tier: rule.execution.tier,
-          prerequisiteStatus: "READY",
-        });
+    // 정적 웹 스캐너는 여러 규칙(WEB-003/004/005)을 담당한다. 스캐너가
+    // 적용 대상이면 각 규칙을 개별적으로 게이트에 통과시켜 계획에 반영한다.
+    if (applicableNames.has("static-web-scanner")) {
+      for (const ruleId of STATIC_WEB_RULES) {
+        const rule = getRule(ruleId);
+        if (rule) this.planRule(rule, context, selectedChecks, coverageGaps);
       }
     }
 
@@ -146,6 +155,49 @@ export class SecurityOrchestrator {
       selectedChecks,
       coverageGaps,
     };
+  }
+
+  /**
+   * 단일 규칙을 게이트에 통과시켜 selectedChecks 또는 coverageGaps에 반영한다.
+   * (여러 규칙을 담당하는 스캐너를 위해 규칙별 로직을 분리.)
+   */
+  private planRule(
+    rule: SecurityRule,
+    context: ProjectContext,
+    selectedChecks: PlannedCheck[],
+    coverageGaps: CoverageGap[]
+  ): void {
+    const gate = this.gateRule(rule, context);
+    if (gate.blocked) {
+      for (const chk of rule.checks) {
+        coverageGaps.push({ ruleId: rule.id, checkId: chk.id, reason: gate.reason });
+      }
+      return;
+    }
+
+    const prereq = evaluatePrerequisites(rule, context);
+    for (const chk of rule.checks) {
+      const methodMissing = (rule.prerequisites[chk.method] ?? []).filter((c) =>
+        prereq.missing.includes(c)
+      );
+      if (methodMissing.length > 0) {
+        coverageGaps.push({
+          ruleId: rule.id,
+          checkId: chk.id,
+          reason: `선행 조건 부족: ${methodMissing.join(", ")}`,
+        });
+        continue;
+      }
+      selectedChecks.push({
+        ruleId: rule.id,
+        ruleVersion: rule.version,
+        componentId: context.projectId,
+        checkId: chk.id,
+        toolId: chk.toolId,
+        tier: rule.execution.tier,
+        prerequisiteStatus: "READY",
+      });
+    }
   }
 
   /** 규칙에 대해 게이트를 실행하고 차단 여부/사유를 반환(예외를 잡아서 사유화). */
@@ -196,6 +248,15 @@ export class SecurityOrchestrator {
       }
 
       if (rule) testedCategories.add(rule.titleKo);
+      if (scanner.name === "static-web-scanner") {
+        // 여러 규칙을 담당: 계획에 포함된 정적 웹 규칙 제목을 카테고리로 추가.
+        for (const ruleId of STATIC_WEB_RULES) {
+          if (plannedRuleIds.has(ruleId)) {
+            const r = getRule(ruleId);
+            if (r) testedCategories.add(r.titleKo);
+          }
+        }
+      }
       if (scanner.name === "ai-code-scanner") testedCategories.add("AI 분석 발견");
     }
 

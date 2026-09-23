@@ -1,13 +1,15 @@
 import type { SecurityScanner, ProjectContext } from "@/lib/scanners/types";
 import type { SecurityFinding, SecurityEvidence } from "@/lib/domain/types";
 import { id, now } from "@/lib/util";
+import { safeFetch } from "@/lib/net/safeFetch";
 
 /**
  * REAL scanner (with safe fallback). Checks HTTP security headers and CORS.
  *
- * If a deployment URL is present it performs a single, non-destructive GET and
- * inspects the response headers — this is safe DAST (read-only, no attack
- * payloads). If the fetch fails or no URL is present, it analyzes the project's
+ * If a deployment URL is present it performs a single, non-destructive GET via
+ * the SSRF-safe fetch layer (src/lib/net/safeFetch) and inspects the response
+ * headers — read-only, no attack payloads, internal address ranges blocked.
+ * If the fetch fails or no URL is present, it analyzes the project's
  * next.config for a missing-headers signal instead. The two paths are clearly
  * separated and both produce real, evidence-backed findings.
  */
@@ -36,11 +38,9 @@ export class HeaderScanner implements SecurityScanner {
 
     if (context.deploymentUrl) {
       try {
-        const res = await fetchWithTimeout(context.deploymentUrl, 5000);
-        headers = {};
-        res.headers.forEach((v, k) => {
-          headers![k.toLowerCase()] = v;
-        });
+        // SSRF 안전 계층 경유: 내부 대역 차단 + 리다이렉트 재검증 + 상한.
+        const res = await safeFetch(context.deploymentUrl, { timeoutMs: 5000 });
+        headers = res.headers;
         rawHeaderDump = Object.entries(headers)
           .map(([k, v]) => `${k}: ${v}`)
           .join("\n");
@@ -147,20 +147,5 @@ export class HeaderScanner implements SecurityScanner {
     }
 
     return findings;
-  }
-}
-
-async function fetchWithTimeout(url: string, ms: number): Promise<Response> {
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), ms);
-  try {
-    // Read-only GET. No attack payloads — safe DAST.
-    return await fetch(url, {
-      method: "GET",
-      redirect: "follow",
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(t);
   }
 }
