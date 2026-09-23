@@ -56,7 +56,7 @@ export default async function FindingPage({
         backHref={`/dashboard/scans/${finding.scanId}`}
         backLabel="스캔 결과"
       />
-      <main className="mx-auto max-w-4xl px-6 py-8">
+      <main className="w-full px-8 py-8">
         {/* 헤더 */}
         <div className="flex flex-wrap items-center gap-2">
           <SeverityBadge severity={finding.severity} />

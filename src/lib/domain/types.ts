@@ -236,12 +236,19 @@ export interface Project {
   lastScanDate?: string;
   /** 사용자가 붙여넣은 소스 코드(AI 스캔 대상). 서버에만 보관. */
   sourceCode?: string;
+  /** 업로드한 소스 코드 zip 파일 이름(메타데이터). */
+  sourceZipName?: string;
   createdAt: string;
 }
 
 export interface User {
   id: string;
   email: string;
+  /** Display name (optional). */
+  name?: string;
+  /** scrypt password hash, formatted "salt:derivedKey" (both hex). Absent for the seeded demo user. */
+  passwordHash?: string;
+  createdAt?: string;
 }
 
 // Severity counts used across dashboards.

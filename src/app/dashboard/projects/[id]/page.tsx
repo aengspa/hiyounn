@@ -44,7 +44,7 @@ export default async function ProjectPage({
         <RunScanButton projectId={project.id} />
       </PageHeader>
 
-      <main className="mx-auto max-w-5xl px-6 py-8">
+      <main className="w-full px-8 py-8">
         {drift && (
           <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
             <p className="font-medium text-amber-900">

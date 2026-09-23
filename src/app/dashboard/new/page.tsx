@@ -4,24 +4,53 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 
+const MAX_ZIP_BYTES = 25 * 1024 * 1024; // 25MB
+
 export default function NewProjectPage() {
   const router = useRouter();
   const [name, setName] = useState("");
-  const [repositoryUrl, setRepositoryUrl] = useState("");
   const [deploymentUrl, setDeploymentUrl] = useState("");
-  const [sourceCode, setSourceCode] = useState("");
+  const [sourceZip, setSourceZip] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  function onZipChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setError(null);
+    const file = e.target.files?.[0] ?? null;
+    if (file) {
+      const isZip =
+        file.name.toLowerCase().endsWith(".zip") ||
+        file.type === "application/zip" ||
+        file.type === "application/x-zip-compressed";
+      if (!isZip) {
+        setError("zip 파일만 업로드할 수 있습니다.");
+        setSourceZip(null);
+        e.target.value = "";
+        return;
+      }
+      if (file.size > MAX_ZIP_BYTES) {
+        setError("zip 파일은 25MB 이하여야 합니다.");
+        setSourceZip(null);
+        e.target.value = "";
+        return;
+      }
+    }
+    setSourceZip(file);
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
+      const form = new FormData();
+      form.append("name", name);
+      form.append("deploymentUrl", deploymentUrl);
+      if (sourceZip) form.append("sourceZip", sourceZip);
+
       const res = await fetch("/api/projects", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, repositoryUrl, deploymentUrl, sourceCode }),
+        body: form,
       });
       const data = await res.json();
       if (!res.ok || data.error) {
@@ -40,7 +69,6 @@ export default function NewProjectPage() {
     <>
       <PageHeader
         title="프로젝트 추가"
-        subtitle="저장소와 배포 주소를 연결하면 에이전트가 무엇을 점검할지 파악합니다."
         backHref="/dashboard"
         backLabel="프로젝트"
       />
@@ -54,51 +82,50 @@ export default function NewProjectPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="예: 내 노트 앱"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
             />
           </Field>
 
           <Field
-            label="GitHub 저장소 주소"
-            hint="소스 코드를 점검하고 기술 스택을 자동으로 감지합니다."
-          >
-            <input
-              value={repositoryUrl}
-              onChange={(e) => setRepositoryUrl(e.target.value)}
-              placeholder="https://github.com/내계정/내저장소"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-            />
-          </Field>
-
-          <Field
-            label="배포된 앱 주소"
-            hint="본인이 소유한 대상만 입력하세요. 읽기 전용 헤더/CORS 점검에 사용됩니다."
+            label="테스트 배포 주소"
+            hint="본인이 소유한 테스트 환경만 입력하세요. 읽기 전용 헤더/CORS 점검에 사용됩니다."
           >
             <input
               value={deploymentUrl}
               onChange={(e) => setDeploymentUrl(e.target.value)}
-              placeholder="https://내앱.example.com"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              placeholder="https://test.내앱.example.com"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
             />
           </Field>
 
           <Field
-            label="소스 코드 붙여넣기 (선택)"
-            hint="바이브코딩으로 만든 서비스의 코드를 붙여넣으면 AI가 직접 분석합니다. 여러 파일은 '// file: 경로' 주석으로 구분하세요."
+            label="소스 코드 (zip 파일)"
+            hint="프로젝트 소스 코드를 zip으로 압축해 업로드하세요. 최대 25MB."
           >
-            <textarea
-              value={sourceCode}
-              onChange={(e) => setSourceCode(e.target.value)}
-              rows={10}
-              placeholder={`// file: app/api/users/[id]/route.ts\nexport async function GET(req, { params }) {\n  const user = await db.users.findUnique({ where: { id: params.id } });\n  return Response.json(user);\n}`}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-            />
+            <label className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-dashed border-slate-300 px-3 py-3 text-sm transition hover:border-slate-400 hover:bg-slate-50">
+              <span className="truncate text-slate-600">
+                {sourceZip ? (
+                  <span className="font-medium text-slate-800">
+                    {sourceZip.name}{" "}
+                    <span className="font-normal text-slate-400">
+                      ({(sourceZip.size / 1024 / 1024).toFixed(1)}MB)
+                    </span>
+                  </span>
+                ) : (
+                  "클릭해서 zip 파일 선택"
+                )}
+              </span>
+              <span className="shrink-0 rounded-md bg-slate-100 px-3 py-1 text-slate-600">
+                파일 선택
+              </span>
+              <input
+                type="file"
+                accept=".zip,application/zip,application/x-zip-compressed"
+                onChange={onZipChange}
+                className="hidden"
+              />
+            </label>
           </Field>
-
-          <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
-            앞으로 Supabase, Firebase, AWS 연결을 추가할 수 있도록 설계되어 있으며,
-            이 화면을 바꾸지 않고 확장할 수 있습니다.
-          </p>
 
           {error && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
@@ -109,7 +136,7 @@ export default function NewProjectPage() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-lg bg-brand-600 px-4 py-2.5 font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+            className="w-full rounded-lg bg-slate-800 px-4 py-2.5 font-medium text-white hover:bg-slate-900 disabled:opacity-60"
           >
             {submitting ? "생성 중…" : "프로젝트 만들기"}
           </button>

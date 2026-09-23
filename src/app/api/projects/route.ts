@@ -12,36 +12,56 @@ export async function GET() {
   }
 }
 
+const MAX_ZIP_BYTES = 25 * 1024 * 1024; // 25MB
+
 export async function POST(req: NextRequest) {
   try {
     const uid = await getCurrentUserId();
-    const body = await req.json().catch(() => ({}));
 
-    // 입력 검증.
-    const name = typeof body.name === "string" ? body.name.trim() : "";
+    // JSON과 multipart/form-data(파일 업로드) 요청을 모두 지원.
+    const contentType = req.headers.get("content-type") ?? "";
+    let name = "";
+    let rawDeploymentUrl: unknown;
+    let sourceZipName: string | undefined;
+
+    if (contentType.includes("multipart/form-data")) {
+      const form = await req.formData();
+      name = typeof form.get("name") === "string" ? String(form.get("name")).trim() : "";
+      rawDeploymentUrl = form.get("deploymentUrl") ?? undefined;
+
+      const zip = form.get("sourceZip");
+      if (zip instanceof File && zip.size > 0) {
+        const isZip =
+          zip.name.toLowerCase().endsWith(".zip") ||
+          zip.type === "application/zip" ||
+          zip.type === "application/x-zip-compressed";
+        if (!isZip) {
+          return ok({ error: "zip 파일만 업로드할 수 있습니다." }, 400);
+        }
+        if (zip.size > MAX_ZIP_BYTES) {
+          return ok({ error: "zip 파일은 25MB 이하여야 합니다." }, 400);
+        }
+        sourceZipName = zip.name;
+        // NOTE: zip 압축 해제 및 코드 스캔 연동은 후속 단계에서 구현.
+      }
+    } else {
+      const body = await req.json().catch(() => ({}));
+      name = typeof body.name === "string" ? body.name.trim() : "";
+      rawDeploymentUrl = body.deploymentUrl;
+    }
+
     if (!name) {
       return ok({ error: "프로젝트 이름을 입력해 주세요." }, 400);
     }
-    const repositoryUrl = validateUrl(body.repositoryUrl);
-    const deploymentUrl = validateUrl(body.deploymentUrl);
-    if (body.repositoryUrl && repositoryUrl === null) {
-      return ok({ error: "저장소 주소가 올바른 URL이 아닙니다." }, 400);
-    }
-    if (body.deploymentUrl && deploymentUrl === null) {
+    const deploymentUrl = validateUrl(rawDeploymentUrl);
+    if (rawDeploymentUrl && deploymentUrl === null) {
       return ok({ error: "배포 주소가 올바른 URL이 아닙니다." }, 400);
     }
 
-    // 붙여넣은 소스 코드(선택). 과도한 크기는 방지.
-    const sourceCode =
-      typeof body.sourceCode === "string"
-        ? body.sourceCode.slice(0, 100000)
-        : undefined;
-
     const project = createProject(uid, {
       name,
-      repositoryUrl: repositoryUrl ?? undefined,
       deploymentUrl: deploymentUrl ?? undefined,
-      sourceCode,
+      sourceZipName,
     });
     return ok({ project }, 201);
   } catch (err) {

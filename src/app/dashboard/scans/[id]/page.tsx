@@ -60,7 +60,7 @@ export default async function ScanResultsPage({
         backHref={`/dashboard/projects/${scan.projectId}`}
         backLabel="프로젝트"
       />
-      <main className="mx-auto max-w-5xl px-6 py-8">
+      <main className="w-full px-8 py-8">
         {/* 요약 */}
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <p

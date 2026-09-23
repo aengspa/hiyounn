@@ -41,7 +41,7 @@ export default async function DashboardPage() {
         subtitle="프로젝트를 등록한 뒤 보안 스캔을 실행하세요."
         action={{ href: "/dashboard/new", label: "프로젝트 추가" }}
       />
-      <main className="mx-auto max-w-6xl px-6 py-8">
+      <main className="w-full px-8 py-8">
         {rows.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center">
             <p className="text-slate-600">아직 등록된 프로젝트가 없습니다.</p>
@@ -53,7 +53,7 @@ export default async function DashboardPage() {
             </Link>
           </div>
         ) : (
-          <div className="grid gap-5 md:grid-cols-2">
+          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {rows.map(({ project, latest, counts, resolved, drift }) => (
               <Link
                 key={project.id}

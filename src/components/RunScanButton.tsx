@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 
 interface Step {
@@ -14,6 +15,9 @@ export function RunScanButton({ projectId }: { projectId: string }) {
   const [running, setRunning] = useState(false);
   const [steps, setSteps] = useState<Step[]>([]);
   const [currentIdx, setCurrentIdx] = useState(-1);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
 
   async function run() {
     setRunning(true);
@@ -46,13 +50,16 @@ export function RunScanButton({ projectId }: { projectId: string }) {
       <button
         onClick={run}
         disabled={running}
-        className="rounded-lg bg-brand-600 px-4 py-2 font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+        className="rounded-lg bg-slate-800 px-4 py-2 font-medium text-white hover:bg-slate-900 disabled:opacity-60"
       >
         {running ? "스캔 중…" : "보안 스캔 실행"}
       </button>
 
-      {running && steps.length > 0 && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+      {mounted &&
+        running &&
+        steps.length > 0 &&
+        createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
             <h3 className="text-lg font-semibold text-slate-900">
               보안 스캔을 실행하는 중
@@ -74,7 +81,7 @@ export function RunScanButton({ projectId }: { projectId: string }) {
                         done
                           ? "bg-emerald-100 text-emerald-700"
                           : active
-                            ? "bg-brand-100 text-brand-700"
+                            ? "bg-slate-200 text-slate-700"
                             : "bg-slate-100 text-slate-400"
                       }`}
                     >
@@ -92,15 +99,16 @@ export function RunScanButton({ projectId }: { projectId: string }) {
                       {s.label}
                     </span>
                     {active && (
-                      <span className="ml-auto h-2 w-2 animate-ping rounded-full bg-brand-500" />
+                      <span className="ml-auto h-2 w-2 animate-ping rounded-full bg-slate-500" />
                     )}
                   </li>
                 );
               })}
             </ol>
           </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </>
   );
 }

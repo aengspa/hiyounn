@@ -20,18 +20,18 @@ export function PageHeader({
 }: Props) {
   return (
     <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/85 backdrop-blur">
-      <div className="mx-auto max-w-6xl px-6 py-4">
+      <div className="px-8 py-4">
         {backHref && (
           <Link
             href={backHref}
-            className="mb-1 inline-block text-sm text-brand-600 hover:underline"
+            className="mb-1 inline-block text-sm text-slate-600 hover:underline"
           >
             ← {backLabel ?? "뒤로"}
           </Link>
         )}
         <div className="flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl font-bold text-slate-900">{title}</h1>
+            <h1 className="text-3xl font-bold text-slate-900">{title}</h1>
             {subtitle && (
               <p className="mt-0.5 text-sm text-slate-500">{subtitle}</p>
             )}
@@ -41,7 +41,7 @@ export function PageHeader({
             {action && (
               <Link
                 href={action.href}
-                className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+                className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-900"
               >
                 {action.label}
               </Link>

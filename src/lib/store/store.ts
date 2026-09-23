@@ -99,6 +99,51 @@ function ensureSeed() {
 ensureSeed();
 
 // ─────────────────────────────────────────────────────────────
+// Users (auth)
+// ─────────────────────────────────────────────────────────────
+
+export class EmailInUseError extends Error {
+  constructor() {
+    super("An account with this email already exists");
+    this.name = "EmailInUseError";
+  }
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+export function findUserByEmail(email: string): User | undefined {
+  const key = normalizeEmail(email);
+  return [...db.users.values()].find((u) => u.email.toLowerCase() === key);
+}
+
+export function getUserById(userId: string): User | undefined {
+  return db.users.get(userId);
+}
+
+/**
+ * Create a new account. `passwordHash` must already be a scrypt hash
+ * ("salt:key"); the store never sees or stores a plaintext password.
+ */
+export function createUser(input: {
+  email: string;
+  passwordHash: string;
+  name?: string;
+}): User {
+  if (findUserByEmail(input.email)) throw new EmailInUseError();
+  const user: User = {
+    id: id("user"),
+    email: normalizeEmail(input.email),
+    name: input.name?.trim() || undefined,
+    passwordHash: input.passwordHash,
+    createdAt: now(),
+  };
+  db.users.set(user.id, user);
+  return user;
+}
+
+// ─────────────────────────────────────────────────────────────
 // Ownership helpers
 // ─────────────────────────────────────────────────────────────
 
@@ -144,6 +189,7 @@ export function createProject(
     repositoryUrl?: string;
     deploymentUrl?: string;
     sourceCode?: string;
+    sourceZipName?: string;
   }
 ): Project {
   const p: Project = {
@@ -153,6 +199,7 @@ export function createProject(
     repositoryUrl: input.repositoryUrl?.trim() || undefined,
     deploymentUrl: input.deploymentUrl?.trim() || undefined,
     sourceCode: input.sourceCode?.trim() || undefined,
+    sourceZipName: input.sourceZipName?.trim() || undefined,
     currentCommit: "b72c42d",
     createdAt: now(),
   };
