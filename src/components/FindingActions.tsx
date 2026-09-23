@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type {
   FixAttempt,
   VerificationResult,
@@ -27,6 +28,15 @@ export function FindingActions({
     initialVerification
   );
   const [busy, setBusy] = useState<string | null>(null);
+  const [confirmingFix, setConfirmingFix] = useState(false);
+  const searchParams = useSearchParams();
+
+  // 스캔 보고서에서 "수정 시작"으로 넘어온 경우(?fix=1) 확인 게이트를 자동으로 연다.
+  useEffect(() => {
+    if (searchParams.get("fix") === "1" && !fix) {
+      setConfirmingFix(true);
+    }
+  }, [searchParams, fix]);
 
   async function generateFix() {
     setBusy("generate");
@@ -96,15 +106,45 @@ export function FindingActions({
         </div>
       )}
 
+      {/* 수정 확인 게이트 */}
+      {!fix && confirmingFix && (
+        <div className="rounded-lg border border-slate-300 bg-slate-50 p-4">
+          <p className="font-medium text-slate-800">이 취약점을 수정할까요?</p>
+          <p className="mt-1 text-sm text-slate-600">
+            확인을 누르면 AI가 수정안을 생성합니다. 생성된 수정안을 검토한 뒤
+            직접 적용·검증할 수 있습니다.
+          </p>
+          <div className="mt-4 flex gap-3">
+            <button
+              onClick={() => {
+                setConfirmingFix(false);
+                generateFix();
+              }}
+              disabled={busy !== null}
+              className="rounded-lg bg-slate-800 px-4 py-2 font-medium text-white hover:bg-slate-900 disabled:opacity-60"
+            >
+              {busy === "generate" ? "생성 중…" : "확인, 수정안 생성"}
+            </button>
+            <button
+              onClick={() => setConfirmingFix(false)}
+              disabled={busy !== null}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 font-medium text-slate-700 hover:bg-slate-50"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 액션 버튼 */}
       <div className="flex flex-wrap gap-3">
-        {!fix && (
+        {!fix && !confirmingFix && (
           <button
-            onClick={generateFix}
+            onClick={() => setConfirmingFix(true)}
             disabled={busy !== null}
             className="rounded-lg bg-brand-600 px-4 py-2 font-medium text-white hover:bg-brand-700 disabled:opacity-60"
           >
-            {busy === "generate" ? "생성 중…" : "AI 수정안 생성"}
+            AI 수정안 생성
           </button>
         )}
         {fix && !fix.applied && (

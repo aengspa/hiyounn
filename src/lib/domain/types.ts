@@ -283,6 +283,20 @@ export interface Scan {
   scope: ScanScope;
   /** 규칙 기반 실행 계획(선택 검사 + 커버리지 갭). Phase A. */
   plan?: ScanPlan;
+  /** 스캔 완료 후 생성한 요약 보고서(AI 또는 결정적). */
+  report?: ScanReport;
+}
+
+/** 스캔 결과 요약 보고서. AI 설정 시 LLM 생성, 아니면 결정적 요약. */
+export interface ScanReport {
+  /** 한 문단 요약(한국어). */
+  summary: string;
+  /** 핵심 포인트(불릿). */
+  highlights: string[];
+  /** 권장 다음 단계(한국어). */
+  recommendation: string;
+  generatedAt: string;
+  source: "llm" | "deterministic";
 }
 
 // ─────────────────────────────────────────────────────────────
