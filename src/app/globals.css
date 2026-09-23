@@ -2,19 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─────────────────────────────────────────────────────────────
+   Dark theme — deep navy + cyan/blue accent.
+   Structure and class names are unchanged; we remap the common
+   light utility classes to dark values so the whole app adopts
+   the dark concept in one place.
+   ───────────────────────────────────────────────────────────── */
 :root {
-  --bg: #f8fafc;
-  --panel: #ffffff;
-  --border: #e2e8f0;
-  --text: #0f172a;
-  --muted: #64748b;
+  --bg: #060b1a; /* page background (deep navy) */
+  --panel: #0e1730; /* card / panel */
+  --panel-2: #131f3d; /* raised / hover panel */
+  --border: #22304f; /* subtle borders */
+  --text: #e6edf7; /* primary text */
+  --muted: #93a4c3; /* secondary text */
+  --accent: #38bdf8; /* cyan accent */
 }
 
 html,
 body {
   padding: 0;
   margin: 0;
-  background: var(--bg);
+  background:
+    radial-gradient(1200px 600px at 70% -10%, rgba(56, 189, 248, 0.12), transparent 60%),
+    radial-gradient(900px 500px at 10% 10%, rgba(79, 70, 229, 0.1), transparent 55%),
+    var(--bg);
+  background-attachment: fixed;
   color: var(--text);
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     Helvetica, Arial, sans-serif;
@@ -36,4 +48,58 @@ a {
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* ── Remap light utilities → dark palette ─────────────────────
+   These override Tailwind's generated utilities so existing
+   markup (bg-white, text-slate-900, etc.) renders in dark mode.
+*/
+@layer utilities {
+  /* Surfaces */
+  .bg-white { background-color: var(--panel) !important; }
+  .bg-slate-50 { background-color: var(--panel) !important; }
+  .bg-slate-100 { background-color: var(--panel-2) !important; }
+  .bg-slate-200 { background-color: #1c2b4d !important; }
+
+  /* Translucent header background */
+  .bg-white\/80 { background-color: rgba(14, 23, 48, 0.8) !important; }
+  .bg-white\/85 { background-color: rgba(14, 23, 48, 0.85) !important; }
+
+  /* Buttons that were slate/gray now read as blue in the dark concept */
+  .bg-slate-800 { background-color: #2563eb !important; }
+  .bg-slate-900 { background-color: #1d4ed8 !important; }
+  .hover\:bg-slate-900:hover { background-color: #1d4ed8 !important; }
+  .hover\:bg-slate-200:hover { background-color: rgba(37, 99, 235, 0.25) !important; }
+  .hover\:bg-slate-100:hover { background-color: var(--panel-2) !important; }
+  .hover\:bg-slate-50:hover { background-color: var(--panel-2) !important; }
+
+  /* Text */
+  .text-slate-900 { color: var(--text) !important; }
+  .text-slate-800 { color: #dbe4f2 !important; }
+  .text-slate-700 { color: #c4d0e6 !important; }
+  .text-slate-600 { color: var(--muted) !important; }
+  .text-slate-500 { color: #7e90b0 !important; }
+  .text-slate-400 { color: #6b7d9d !important; }
+
+  /* Borders */
+  .border-slate-100 { border-color: #1a2744 !important; }
+  .border-slate-200 { border-color: var(--border) !important; }
+  .border-slate-300 { border-color: #2b3c5f !important; }
+  .border-slate-800 { border-color: #2b3c5f !important; }
+
+  /* Accent: brand indigo → cyan family for the dark concept */
+  .text-brand-600, .text-brand-700 { color: var(--accent) !important; }
+  .bg-brand-50 { background-color: rgba(56, 189, 248, 0.12) !important; }
+  .bg-brand-600 { background-color: #2563eb !important; }
+  .hover\:bg-brand-700:hover { background-color: #1d4ed8 !important; }
+  .border-brand-200 { border-color: rgba(56, 189, 248, 0.35) !important; }
+  .border-brand-300 { border-color: rgba(56, 189, 248, 0.5) !important; }
+
+  /* Inputs */
+  input, textarea, select {
+    color: var(--text);
+  }
+  input::placeholder, textarea::placeholder {
+    color: #5f7196;
+  }
 }

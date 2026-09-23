@@ -3,7 +3,7 @@ import Link from "next/link";
 export function TopNav() {
   return (
     <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/80 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
+      <div className="flex w-full items-center justify-between px-8 py-3">
         <Link href="/" className="flex items-center gap-2 font-semibold">
           <ShieldIcon />
           <span>바이브 보안 에이전트</span>
