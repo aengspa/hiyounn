@@ -15,26 +15,26 @@ import type { User } from "@/lib/domain/types";
  * which enforces per-user ownership — keeping authorization checks in one place.
  */
 
-function sessionUserId(): string | null {
+async function sessionUserId(): Promise<string | null> {
   const token = cookies().get(SESSION_COOKIE)?.value;
   const userId = readSessionToken(token);
   if (!userId) return null;
-  // Confirm the user still exists (survives across hot reloads, not restarts).
-  return getUserById(userId) ? userId : null;
+  // Confirm the user still exists in the store.
+  return (await getUserById(userId)) ? userId : null;
 }
 
 export async function getCurrentUserId(): Promise<string> {
-  return sessionUserId() ?? DEMO_USER.id;
+  return (await sessionUserId()) ?? DEMO_USER.id;
 }
 
 /** The authenticated user, or null when running as the anonymous demo user. */
 export async function getCurrentUser(): Promise<User | null> {
-  const uid = sessionUserId();
+  const uid = await sessionUserId();
   if (!uid) return null;
-  return getUserById(uid) ?? null;
+  return (await getUserById(uid)) ?? null;
 }
 
 /** True when a real (non-demo) user is signed in. */
 export async function isAuthenticated(): Promise<boolean> {
-  return sessionUserId() !== null;
+  return (await sessionUserId()) !== null;
 }

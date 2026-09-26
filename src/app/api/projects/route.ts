@@ -6,7 +6,7 @@ import { ok, handleApiError } from "@/lib/api";
 export async function GET() {
   try {
     const uid = await getCurrentUserId();
-    return ok({ projects: listProjects(uid) });
+    return ok({ projects: await listProjects(uid) });
   } catch (err) {
     return handleApiError(err);
   }
@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
         ? body.sourceCode.slice(0, 100000)
         : undefined;
 
-    const project = createProject(uid, {
+    const project = await createProject(uid, {
       name,
       repositoryUrl: repositoryUrl ?? undefined,
       deploymentUrl: deploymentUrl ?? undefined,

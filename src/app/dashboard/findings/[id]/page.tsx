@@ -41,14 +41,14 @@ export default async function FindingPage({
   const uid = await getCurrentUserId();
   let finding;
   try {
-    finding = getFinding(params.id, uid);
+    finding = await getFinding(params.id, uid);
   } catch (e) {
     if (e instanceof NotFoundError || e instanceof NotAuthorizedError)
       notFound();
     throw e;
   }
-  const fix = getFixForFinding(params.id, uid) ?? null;
-  const verification = getVerification(params.id, uid) ?? null;
+  const fix = (await getFixForFinding(params.id, uid)) ?? null;
+  const verification = (await getVerification(params.id, uid)) ?? null;
   const isAi = finding.verificationKey?.startsWith("ai:") ?? false;
 
   return (

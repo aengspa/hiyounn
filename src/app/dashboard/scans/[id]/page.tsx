@@ -30,13 +30,13 @@ export default async function ScanResultsPage({
   const uid = await getCurrentUserId();
   let scan;
   try {
-    scan = getScan(params.id, uid);
+    scan = await getScan(params.id, uid);
   } catch (e) {
     if (e instanceof NotFoundError || e instanceof NotAuthorizedError)
       notFound();
     throw e;
   }
-  const findings = getFindingsForScan(params.id, uid).sort(
+  const findings = (await getFindingsForScan(params.id, uid)).sort(
     (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]
   );
 

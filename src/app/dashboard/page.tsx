@@ -13,26 +13,28 @@ function emptyCounts(): SeverityCounts {
 
 export default async function DashboardPage() {
   const uid = await getCurrentUserId();
-  const projects = listProjects(uid);
+  const projects = await listProjects(uid);
 
-  const rows = projects.map((p) => {
-    const scans = listScans(p.id, uid);
-    const latest = scans[0];
-    const counts = emptyCounts();
-    let resolved = 0;
-    if (latest) {
-      const findings = getFindingsForScan(latest.id, uid);
-      for (const f of findings) {
-        counts[f.severity] += 1;
-        if (f.status === "resolved") resolved += 1;
+  const rows = await Promise.all(
+    projects.map(async (p) => {
+      const scans = await listScans(p.id, uid);
+      const latest = scans[0];
+      const counts = emptyCounts();
+      let resolved = 0;
+      if (latest) {
+        const findings = await getFindingsForScan(latest.id, uid);
+        for (const f of findings) {
+          counts[f.severity] += 1;
+          if (f.status === "resolved") resolved += 1;
+        }
       }
-    }
-    const drift =
-      p.lastScannedCommit && p.currentCommit
-        ? p.lastScannedCommit !== p.currentCommit
-        : false;
-    return { project: p, latest, counts, resolved, drift };
-  });
+      const drift =
+        p.lastScannedCommit && p.currentCommit
+          ? p.lastScannedCommit !== p.currentCommit
+          : false;
+      return { project: p, latest, counts, resolved, drift };
+    })
+  );
 
   return (
     <>

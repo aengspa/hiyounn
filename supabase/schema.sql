@@ -1,200 +1,115 @@
 -- ─────────────────────────────────────────────────────────────
--- Vibe Coding Security Agent — Supabase schema (Phase 2 target)
+-- Vibe Coding Security Agent — Supabase schema
 --
--- Row Level Security (RLS) is ENABLED on every table. Each policy binds rows
--- to their owning user via auth.uid(). This is the app's own defense against
--- the IDOR class of bug it detects: even if an API authorization check were
--- missed, the database refuses cross-user reads.
+-- Persistent store for the app. Solves the Vercel problem where an in-memory
+-- Map is not shared across serverless function invocations: every project /
+-- scan / finding now lives in Postgres and is visible to every function.
 --
--- The in-memory store in src/lib/store/store.ts mirrors this ownership model
--- so switching DATA_STORE=supabase later needs no schema change.
+-- AUTH & OWNERSHIP MODEL
+-- ----------------------
+-- The MVP ships its own dependency-free auth (scrypt password hashes + a
+-- signed HttpOnly cookie), so it does NOT use Supabase Auth. There is no
+-- auth.uid() at the database layer. Instead:
+--   1. The server connects with the SERVICE ROLE key (bypasses RLS).
+--   2. The application's store layer enforces per-user ownership on every
+--      read/write (the app's own defense against the IDOR class of bug it
+--      detects). See src/lib/store/*.
+--
+-- RLS is still ENABLED with a deny-by-default posture so that the public anon
+-- key can never read or write these tables directly. When Supabase Auth is
+-- adopted later, replace app_users with auth.users, switch owner_id back to
+-- uuid, and add auth.uid()-based policies.
+--
+-- Ids are TEXT to match the app's own id() generator (e.g. "proj_...").
+-- Rich nested domain objects (evidence, diffs, verification results, scope,
+-- plan, report) are stored as JSONB to keep the mapping simple and lossless.
 -- ─────────────────────────────────────────────────────────────
 
--- Users are managed by Supabase Auth (auth.users). We reference auth.uid().
+-- ── app_users ─────────────────────────────────────────────────
+create table if not exists public.app_users (
+  id            text primary key,
+  email         text not null unique,
+  name          text,
+  password_hash text,
+  created_at    timestamptz not null default now()
+);
 
 -- ── projects ──────────────────────────────────────────────────
 create table if not exists public.projects (
-  id                 uuid primary key default gen_random_uuid(),
-  owner_id           uuid not null references auth.users (id) on delete cascade,
-  name               text not null,
-  repository_url     text,
-  deployment_url     text,
+  id                  text primary key,
+  owner_id            text not null references public.app_users (id) on delete cascade,
+  name                text not null,
+  repository_url      text,
+  deployment_url      text,
+  source_code         text,
+  source_zip_name     text,
   last_scanned_commit text,
-  current_commit     text,
-  last_scan_date     timestamptz,
-  created_at         timestamptz not null default now()
+  current_commit      text,
+  last_scan_date      timestamptz,
+  handler_fixed       boolean not null default false,
+  created_at          timestamptz not null default now()
 );
+create index if not exists projects_owner_idx on public.projects (owner_id);
 
 -- ── scans ─────────────────────────────────────────────────────
 create table if not exists public.scans (
-  id            uuid primary key default gen_random_uuid(),
-  project_id    uuid not null references public.projects (id) on delete cascade,
+  id            text primary key,
+  project_id    text not null references public.projects (id) on delete cascade,
   status        text not null default 'queued',
   commit_sha    text,
   started_at    timestamptz not null default now(),
   completed_at  timestamptz,
-  scope         jsonb not null default '{}'::jsonb
+  finding_ids   jsonb not null default '[]'::jsonb,
+  scope         jsonb not null default '{}'::jsonb,
+  plan          jsonb,
+  report        jsonb
 );
+create index if not exists scans_project_idx on public.scans (project_id);
 
 -- ── findings ──────────────────────────────────────────────────
+-- The full SecurityFinding domain object is stored in `data` (JSONB). A few
+-- columns are surfaced for indexing / querying convenience.
 create table if not exists public.findings (
-  id                    uuid primary key default gen_random_uuid(),
-  scan_id               uuid not null references public.scans (id) on delete cascade,
-  title                 text not null,
-  severity              text not null,
-  category              text not null,
-  owasp                 text,
-  cwe                   text,
-  cvss                  numeric,
-  description           text not null,
-  human_readable_impact text not null,
-  why_it_matters        text not null,
-  location_file         text,
-  location_line         int,
-  remediation           text,
-  status                text not null default 'detected',
-  simulated             boolean not null default false,
-  verification_key      text,
-  created_at            timestamptz not null default now(),
-  updated_at            timestamptz not null default now()
+  id          text primary key,
+  scan_id     text not null references public.scans (id) on delete cascade,
+  severity    text not null,
+  status      text not null default 'detected',
+  data        jsonb not null,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
 );
-
--- ── evidence ──────────────────────────────────────────────────
-create table if not exists public.evidence (
-  id          uuid primary key default gen_random_uuid(),
-  finding_id  uuid not null references public.findings (id) on delete cascade,
-  kind        text not null,
-  label       text not null,
-  content     text not null,
-  masked      boolean not null default false,
-  language    text
-);
+create index if not exists findings_scan_idx on public.findings (scan_id);
 
 -- ── fix_attempts ──────────────────────────────────────────────
 create table if not exists public.fix_attempts (
-  id                uuid primary key default gen_random_uuid(),
-  finding_id        uuid not null references public.findings (id) on delete cascade,
-  source            text not null default 'deterministic',
-  summary           text not null,
-  plain_explanation text not null,
-  diffs             jsonb not null default '[]'::jsonb,
-  applied           boolean not null default false,
-  created_at        timestamptz not null default now()
-);
-
--- ── verification_tests ────────────────────────────────────────
-create table if not exists public.verification_tests (
-  id          uuid primary key default gen_random_uuid(),
-  finding_id  uuid not null references public.findings (id) on delete cascade,
-  label       text not null,
-  before      jsonb,
-  after       jsonb,
-  outcome     text not null,
+  id          text primary key,
+  finding_id  text not null references public.findings (id) on delete cascade,
+  applied     boolean not null default false,
+  data        jsonb not null,
   created_at  timestamptz not null default now()
 );
+create index if not exists fixes_finding_idx on public.fix_attempts (finding_id);
 
--- ── regression_tests ──────────────────────────────────────────
-create table if not exists public.regression_tests (
-  id          uuid primary key default gen_random_uuid(),
-  finding_id  uuid not null references public.findings (id) on delete cascade,
-  checks      jsonb not null default '[]'::jsonb,
-  outcome     text not null,
+-- ── verifications ─────────────────────────────────────────────
+-- One VerificationResult per finding (latest wins). Stored whole as JSONB.
+create table if not exists public.verifications (
+  finding_id  text primary key references public.findings (id) on delete cascade,
+  data        jsonb not null,
   created_at  timestamptz not null default now()
 );
 
 -- ─────────────────────────────────────────────────────────────
--- Row Level Security
+-- Row Level Security — deny-by-default.
+--
+-- RLS is enabled with NO permissive policies for the anon/authenticated roles,
+-- so the public anon key cannot touch these tables. The server uses the
+-- service-role key, which bypasses RLS; ownership is enforced in the app's
+-- store layer. This is the "second line of defense" posture described above.
 -- ─────────────────────────────────────────────────────────────
 
-alter table public.projects           enable row level security;
-alter table public.scans              enable row level security;
-alter table public.findings           enable row level security;
-alter table public.evidence           enable row level security;
-alter table public.fix_attempts       enable row level security;
-alter table public.verification_tests enable row level security;
-alter table public.regression_tests   enable row level security;
-
--- Projects: owner-only, all operations.
-create policy "projects_owner" on public.projects
-  for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
-
--- Scans: accessible only if the parent project belongs to the caller.
-create policy "scans_via_project" on public.scans
-  for all using (
-    exists (select 1 from public.projects p
-            where p.id = scans.project_id and p.owner_id = auth.uid())
-  ) with check (
-    exists (select 1 from public.projects p
-            where p.id = scans.project_id and p.owner_id = auth.uid())
-  );
-
--- Findings: accessible only via an owned scan -> project.
-create policy "findings_via_scan" on public.findings
-  for all using (
-    exists (
-      select 1 from public.scans s
-      join public.projects p on p.id = s.project_id
-      where s.id = findings.scan_id and p.owner_id = auth.uid()
-    )
-  ) with check (
-    exists (
-      select 1 from public.scans s
-      join public.projects p on p.id = s.project_id
-      where s.id = findings.scan_id and p.owner_id = auth.uid()
-    )
-  );
-
--- Helper macro pattern for finding-child tables (evidence, fixes, tests).
-create policy "evidence_via_finding" on public.evidence
-  for all using (
-    exists (
-      select 1 from public.findings f
-      join public.scans s on s.id = f.scan_id
-      join public.projects p on p.id = s.project_id
-      where f.id = evidence.finding_id and p.owner_id = auth.uid()
-    )
-  ) with check (
-    exists (
-      select 1 from public.findings f
-      join public.scans s on s.id = f.scan_id
-      join public.projects p on p.id = s.project_id
-      where f.id = evidence.finding_id and p.owner_id = auth.uid()
-    )
-  );
-
-create policy "fixes_via_finding" on public.fix_attempts
-  for all using (
-    exists (
-      select 1 from public.findings f
-      join public.scans s on s.id = f.scan_id
-      join public.projects p on p.id = s.project_id
-      where f.id = fix_attempts.finding_id and p.owner_id = auth.uid()
-    )
-  ) with check (
-    exists (
-      select 1 from public.findings f
-      join public.scans s on s.id = f.scan_id
-      join public.projects p on p.id = s.project_id
-      where f.id = fix_attempts.finding_id and p.owner_id = auth.uid()
-    )
-  );
-
-create policy "vtests_via_finding" on public.verification_tests
-  for all using (
-    exists (
-      select 1 from public.findings f
-      join public.scans s on s.id = f.scan_id
-      join public.projects p on p.id = s.project_id
-      where f.id = verification_tests.finding_id and p.owner_id = auth.uid()
-    )
-  ) with check (true);
-
-create policy "rtests_via_finding" on public.regression_tests
-  for all using (
-    exists (
-      select 1 from public.findings f
-      join public.scans s on s.id = f.scan_id
-      join public.projects p on p.id = s.project_id
-      where f.id = regression_tests.finding_id and p.owner_id = auth.uid()
-    )
-  ) with check (true);
+alter table public.app_users     enable row level security;
+alter table public.projects      enable row level security;
+alter table public.scans         enable row level security;
+alter table public.findings      enable row level security;
+alter table public.fix_attempts  enable row level security;
+alter table public.verifications enable row level security;

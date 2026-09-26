@@ -74,7 +74,8 @@ src/
     scanners/                      SecurityScanner interface + orchestrator + scanners
     demo/                          Bundled vulnerable app + project fixture
     remediation/fixGenerator.ts    Fix generation (separate from verification)
-    store/store.ts                 Repository w/ ownership authorization
+    store/                         Store facade (store.ts) + memory & supabase
+                                   backends, both ownership-checked (IDOR-proof)
     auth.ts                        Auth seam (Supabase Auth pluggable)
 supabase/schema.sql                Postgres schema with RLS on every table
 ```
@@ -119,7 +120,30 @@ npm run build
 ## Environment variables
 
 See `.env.example`. Client-safe keys use the `NEXT_PUBLIC_` prefix; the Supabase
-service role key and LLM key are server-only and must never be exposed.
+service role key, `AUTH_SECRET`, and LLM key are server-only and must never be
+exposed.
+
+| Variable | When required | Purpose |
+|---|---|---|
+| `AUTH_SECRET` | **Production** | Stable HMAC key for session cookies. Without it the app throws at startup in production (a random per-process fallback would break sessions across serverless invocations). Generate with `openssl rand -hex 32`. |
+| `DATA_STORE` | Always (defaults to `memory`) | `memory` for local dev; `supabase` for any deployment. |
+| `NEXT_PUBLIC_SUPABASE_URL` | `DATA_STORE=supabase` | Supabase project URL. |
+| `SUPABASE_SERVICE_ROLE_KEY` | `DATA_STORE=supabase` | Server-only. Used by the store layer; bypasses RLS. |
+| `LLM_PROVIDER` / `LLM_API_KEY` | Optional | Enable AI scan/fix summaries. Defaults to deterministic behavior. |
+
+## Deploying (Vercel)
+
+The default `memory` store keeps data in a per-process `Map`. On Vercel each
+serverless invocation may run in a different process, so a scan created by one
+request is invisible to the request that renders its result page — the page
+404s. **Use the Supabase store in production:**
+
+1. Create a Supabase project and run `supabase/schema.sql` in the SQL editor.
+2. In Vercel project settings, set environment variables:
+   - `DATA_STORE=supabase`
+   - `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`
+   - `AUTH_SECRET` (a fixed 32-byte hex string)
+3. Redeploy. Projects, scans, and findings now persist across all requests.
 
 ## Roadmap (phased)
 

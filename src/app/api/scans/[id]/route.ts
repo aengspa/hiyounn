@@ -9,8 +9,8 @@ export async function GET(
 ) {
   try {
     const uid = await getCurrentUserId();
-    const scan = getScan(params.id, uid);
-    const findings = getFindingsForScan(params.id, uid);
+    const scan = await getScan(params.id, uid);
+    const findings = await getFindingsForScan(params.id, uid);
     return ok({ scan, findings });
   } catch (err) {
     return handleApiError(err);

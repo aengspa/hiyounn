@@ -21,13 +21,25 @@ export default async function ProjectPage({
   const uid = await getCurrentUserId();
   let project;
   try {
-    project = getProject(params.id, uid);
+    project = await getProject(params.id, uid);
   } catch (e) {
     if (e instanceof NotFoundError || e instanceof NotAuthorizedError)
       notFound();
     throw e;
   }
-  const scans = listScans(params.id, uid);
+  const scans = await listScans(params.id, uid);
+  // Precompute per-scan finding counts (JSX can't await).
+  const scanSummaries = await Promise.all(
+    scans.map(async (scan) => {
+      const findings = await getFindingsForScan(scan.id, uid);
+      return {
+        scan,
+        total: findings.length,
+        crit: findings.filter((f) => f.severity === "critical").length,
+        resolved: findings.filter((f) => f.status === "resolved").length,
+      };
+    })
+  );
   const drift =
     project.lastScannedCommit &&
     project.currentCommit &&
@@ -84,10 +96,7 @@ export default async function ProjectPage({
           </p>
         ) : (
           <div className="mt-3 divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
-            {scans.map((scan) => {
-              const findings = getFindingsForScan(scan.id, uid);
-              const crit = findings.filter((f) => f.severity === "critical").length;
-              const resolved = findings.filter((f) => f.status === "resolved").length;
+            {scanSummaries.map(({ scan, total, crit, resolved }) => {
               return (
                 <Link
                   key={scan.id}
@@ -100,7 +109,7 @@ export default async function ProjectPage({
                     </p>
                     <p className="text-sm text-slate-500">
                       커밋 <span className="font-mono">{scan.commitSha}</span> ·{" "}
-                      {findings.length}건 발견
+                      {total}건 발견
                     </p>
                   </div>
                   <div className="text-sm text-slate-600">

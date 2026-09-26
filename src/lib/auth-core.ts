@@ -35,11 +35,28 @@ export const SESSION_COOKIE = "vsa_session";
 export const SESSION_MAX_AGE = 60 * 60 * 24 * 7; // 7 days (seconds)
 
 /**
- * Secret for signing sessions. In production set AUTH_SECRET; for local dev a
- * stable per-process fallback keeps you logged in across hot reloads.
+ * Secret for signing sessions.
+ *
+ * Production MUST set AUTH_SECRET. Without it, a per-process random fallback
+ * would differ between serverless invocations on Vercel — a session signed by
+ * one function would be rejected by the next, silently logging users out. We
+ * fail loudly instead of shipping that footgun.
+ *
+ * Outside production a stable per-process fallback keeps you logged in across
+ * dev hot reloads without any setup.
  */
 function sessionSecret(): string {
   if (process.env.AUTH_SECRET) return process.env.AUTH_SECRET;
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "AUTH_SECRET must be set in production. Generate one with " +
+        "`openssl rand -hex 32` (or `node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"`) " +
+        "and set it as an environment variable. Without a stable secret, " +
+        "sessions break across serverless invocations."
+    );
+  }
+
   const g = globalThis as unknown as { __vsa_auth_secret?: string };
   if (!g.__vsa_auth_secret) g.__vsa_auth_secret = randomBytes(32).toString("hex");
   return g.__vsa_auth_secret;

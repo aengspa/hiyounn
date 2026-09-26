@@ -10,7 +10,7 @@ export async function POST(
 ) {
   try {
     const uid = await getCurrentUserId();
-    const finding = applyFix(params.id, uid);
+    const finding = await applyFix(params.id, uid);
     return ok({ finding });
   } catch (err) {
     return handleApiError(err);

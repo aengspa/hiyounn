@@ -13,9 +13,9 @@ export async function GET(
 ) {
   try {
     const uid = await getCurrentUserId();
-    const finding = getFinding(params.id, uid);
-    const fix = getFixForFinding(params.id, uid);
-    const verification = getVerification(params.id, uid);
+    const finding = await getFinding(params.id, uid);
+    const fix = await getFixForFinding(params.id, uid);
+    const verification = await getVerification(params.id, uid);
     return ok({ finding, fix, verification });
   } catch (err) {
     return handleApiError(err);

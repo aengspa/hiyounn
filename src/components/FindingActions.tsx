@@ -29,7 +29,23 @@ export function FindingActions({
   );
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmingFix, setConfirmingFix] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const searchParams = useSearchParams();
+
+  /** POST helper: checks response.ok and surfaces server error messages. */
+  async function postJson(path: string): Promise<any> {
+    const res = await fetch(path, { method: "POST" });
+    let data: any = null;
+    try {
+      data = await res.json();
+    } catch {
+      data = null;
+    }
+    if (!res.ok) {
+      throw new Error(data?.error ?? `요청에 실패했습니다 (${res.status}).`);
+    }
+    return data;
+  }
 
   // 스캔 보고서에서 "수정 시작"으로 넘어온 경우(?fix=1) 확인 게이트를 자동으로 연다.
   useEffect(() => {
@@ -40,36 +56,46 @@ export function FindingActions({
 
   async function generateFix() {
     setBusy("generate");
-    const res = await fetch(`/api/findings/${findingId}/generate-fix`, {
-      method: "POST",
-    });
-    const data = await res.json();
-    if (data.fix) setFix(data.fix);
-    setBusy(null);
+    setError(null);
+    try {
+      const data = await postJson(`/api/findings/${findingId}/generate-fix`);
+      if (data?.fix) setFix(data.fix);
+      else throw new Error("수정안을 생성하지 못했습니다.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "수정안 생성에 실패했습니다.");
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function applyFix() {
     setBusy("apply");
-    const res = await fetch(`/api/findings/${findingId}/apply-fix`, {
-      method: "POST",
-    });
-    const data = await res.json();
-    if (data.finding) {
-      setStatus(data.finding.status);
-      setFix((f) => (f ? { ...f, applied: true } : f));
+    setError(null);
+    try {
+      const data = await postJson(`/api/findings/${findingId}/apply-fix`);
+      if (data?.finding) {
+        setStatus(data.finding.status);
+        setFix((f) => (f ? { ...f, applied: true } : f));
+      } else throw new Error("수정을 적용하지 못했습니다.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "수정 적용에 실패했습니다.");
+    } finally {
+      setBusy(null);
     }
-    setBusy(null);
   }
 
   async function verify() {
     setBusy("verify");
-    const res = await fetch(`/api/findings/${findingId}/verify`, {
-      method: "POST",
-    });
-    const data = await res.json();
-    if (data.finding) setStatus(data.finding.status);
-    if (data.result) setVerification(data.result);
-    setBusy(null);
+    setError(null);
+    try {
+      const data = await postJson(`/api/findings/${findingId}/verify`);
+      if (data?.finding) setStatus(data.finding.status);
+      if (data?.result) setVerification(data.result);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "검증에 실패했습니다.");
+    } finally {
+      setBusy(null);
+    }
   }
 
   const canVerify =
@@ -166,6 +192,15 @@ export function FindingActions({
           </button>
         )}
       </div>
+
+      {error && (
+        <p
+          role="alert"
+          className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+        >
+          {error}
+        </p>
+      )}
 
       {/* 수정안 diff */}
       {fix && (
