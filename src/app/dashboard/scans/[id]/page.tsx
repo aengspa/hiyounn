@@ -18,6 +18,7 @@ import {
 } from "@/components/ui";
 import { SEVERITY_ORDER } from "@/lib/domain/types";
 import type { Severity, ScanScope, ScanPlan } from "@/lib/domain/types";
+import { ScanReportPanel } from "@/components/ScanReportPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,9 @@ export default async function ScanResultsPage({
       ? `배포 전에 확인이 필요한 심각한 문제가 ${counts.critical}건 있습니다.`
       : "점검한 범위 안에서는 심각한 취약점이 발견되지 않았습니다.";
 
+  // 심각도순으로 정렬된 findings 중 아직 해결되지 않은 첫 항목(수정 진입점).
+  const firstFixable = findings.find((f) => f.status !== "resolved");
+
   return (
     <>
       <PageHeader
@@ -81,6 +85,14 @@ export default async function ScanResultsPage({
             <Metric label="수정·검증 완료" value={fixedVerified} tone="ok" />
           </div>
         </section>
+
+        {/* AI 보고서 + 수정 확인 */}
+        {scan.report && (
+          <ScanReportPanel
+            report={scan.report}
+            firstFixableFindingId={firstFixable?.id}
+          />
+        )}
 
         {/* 스캔 범위 */}
         <ScanScopePanel scope={scan.scope} />

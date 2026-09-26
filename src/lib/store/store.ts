@@ -10,6 +10,7 @@ import { toTestStatus } from "@/lib/domain/types";
 import { id, now } from "@/lib/util";
 import { buildDemoContext } from "@/lib/demo/demoContext";
 import { SecurityOrchestrator } from "@/lib/scanners/orchestrator";
+import { generateScanReport } from "@/lib/reporting/reportGenerator";
 import { generateFixSmart } from "@/lib/remediation/fixGenerator";
 
 /**
@@ -267,6 +268,14 @@ export async function runScan(projectId: string, ownerId: string): Promise<Scan>
     db.findings.set(f.id, f);
     scan.findingIds.push(f.id);
   }
+
+  // 스캔 완료 후 요약 보고서 생성(AI 설정 시 LLM, 아니면 결정적 요약).
+  try {
+    scan.report = await generateScanReport(findings, scope);
+  } catch {
+    // 보고서 생성 실패가 스캔 자체를 실패시키지는 않는다.
+  }
+
   db.scans.set(scan.id, scan);
 
   // reset any prior applied-fix state for a fresh scan
