@@ -8,7 +8,7 @@ import type {
 } from "@/lib/domain/types";
 import { toTestStatus } from "@/lib/domain/types";
 import { id, now } from "@/lib/util";
-import { buildDemoContext } from "@/lib/demo/demoContext";
+import { contextForProject } from "@/lib/scanners/contextFor";
 import { SecurityOrchestrator } from "@/lib/scanners/orchestrator";
 import { generateScanReport } from "@/lib/reporting/reportGenerator";
 import { generateFixSmart } from "@/lib/remediation/fixGenerator";
@@ -56,6 +56,8 @@ interface ProjectRow {
   current_commit: string | null;
   last_scan_date: string | null;
   handler_fixed: boolean;
+  is_demo?: boolean | null;
+  deployment_authorized?: boolean | null;
   created_at: string;
 }
 interface ScanRow {
@@ -114,6 +116,8 @@ function toProject(r: ProjectRow): Project {
     lastScannedCommit: r.last_scanned_commit ?? undefined,
     currentCommit: r.current_commit ?? undefined,
     lastScanDate: r.last_scan_date ?? undefined,
+    isDemo: r.is_demo ?? undefined,
+    deploymentAuthorized: r.deployment_authorized ?? undefined,
     createdAt: r.created_at,
   };
 }
@@ -245,6 +249,7 @@ export class SupabaseStore implements StoreBackend {
       repositoryUrl?: string;
       deploymentUrl?: string;
       sourceCode?: string;
+      deploymentAuthorized?: boolean;
     }
   ): Promise<Project> {
     const row: Partial<ProjectRow> = {
@@ -254,8 +259,10 @@ export class SupabaseStore implements StoreBackend {
       repository_url: input.repositoryUrl?.trim() || null,
       deployment_url: input.deploymentUrl?.trim() || null,
       source_code: input.sourceCode?.trim() || null,
+      deployment_authorized: input.deploymentAuthorized ?? false,
       current_commit: "b72c42d",
       handler_fixed: false,
+      is_demo: false,
       created_at: now(),
     };
     const [inserted] = await insertRows<ProjectRow>("projects", row);
@@ -303,14 +310,7 @@ export class SupabaseStore implements StoreBackend {
     const project = await this.requireProject(projectId, ownerId);
     const commit = project.currentCommit ?? "b72c42d";
 
-    const context = buildDemoContext(project.id, {
-      name: project.name,
-      repositoryUrl: project.repositoryUrl,
-      deploymentUrl: project.deploymentUrl,
-      commitSha: commit,
-      userSource: project.sourceCode,
-    });
-
+    const context = contextForProject(project);
     const { findings, scope, plan } = await this.orchestrator.run(context);
 
     const scan: Scan = {
@@ -398,13 +398,7 @@ export class SupabaseStore implements StoreBackend {
 
   async scanPlan(projectId: string, ownerId: string): Promise<unknown> {
     const project = await this.requireProject(projectId, ownerId);
-    const context = buildDemoContext(project.id, {
-      name: project.name,
-      repositoryUrl: project.repositoryUrl,
-      deploymentUrl: project.deploymentUrl,
-      commitSha: project.currentCommit,
-      userSource: project.sourceCode,
-    });
+    const context = contextForProject(project);
     return this.orchestrator.plan(context);
   }
 
@@ -495,11 +489,7 @@ export class SupabaseStore implements StoreBackend {
       `id=eq.${encodeURIComponent(finding.scanId)}&select=project_id`
     );
     const project = await this.requireProject(scanRow!.project_id, ownerId);
-    const context = buildDemoContext(project.id, {
-      name: project.name,
-      repositoryUrl: project.repositoryUrl,
-      deploymentUrl: project.deploymentUrl,
-      commitSha: project.currentCommit,
+    const context = contextForProject(project, {
       fixedHandler: await this.handlerFixed(project.id),
     });
 

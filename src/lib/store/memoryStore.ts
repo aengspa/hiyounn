@@ -8,7 +8,7 @@ import type {
 } from "@/lib/domain/types";
 import { toTestStatus } from "@/lib/domain/types";
 import { id, now } from "@/lib/util";
-import { buildDemoContext } from "@/lib/demo/demoContext";
+import { contextForProject } from "@/lib/scanners/contextFor";
 import { SecurityOrchestrator } from "@/lib/scanners/orchestrator";
 import { generateScanReport } from "@/lib/reporting/reportGenerator";
 import { generateFixSmart } from "@/lib/remediation/fixGenerator";
@@ -83,6 +83,7 @@ export class MemoryStore implements StoreBackend {
         lastScannedCommit: undefined,
         currentCommit: "b72c42d",
         lastScanDate: undefined,
+        isDemo: true,
         createdAt: now(),
       };
       db.projects.set(p.id, p);
@@ -161,6 +162,7 @@ export class MemoryStore implements StoreBackend {
       repositoryUrl?: string;
       deploymentUrl?: string;
       sourceCode?: string;
+      deploymentAuthorized?: boolean;
     }
   ): Promise<Project> {
     const p: Project = {
@@ -170,6 +172,8 @@ export class MemoryStore implements StoreBackend {
       repositoryUrl: input.repositoryUrl?.trim() || undefined,
       deploymentUrl: input.deploymentUrl?.trim() || undefined,
       sourceCode: input.sourceCode?.trim() || undefined,
+      deploymentAuthorized: input.deploymentAuthorized ?? false,
+      isDemo: false,
       currentCommit: "b72c42d",
       createdAt: now(),
     };
@@ -210,14 +214,7 @@ export class MemoryStore implements StoreBackend {
     const project = this.assertProjectOwner(projectId, ownerId);
     const commit = project.currentCommit ?? "b72c42d";
 
-    const context = buildDemoContext(project.id, {
-      name: project.name,
-      repositoryUrl: project.repositoryUrl,
-      deploymentUrl: project.deploymentUrl,
-      commitSha: commit,
-      userSource: project.sourceCode,
-    });
-
+    const context = contextForProject(project);
     const { findings, scope, plan } = await this.orchestrator.run(context);
 
     const scan: Scan = {
@@ -256,13 +253,7 @@ export class MemoryStore implements StoreBackend {
 
   async scanPlan(projectId: string, ownerId: string): Promise<unknown> {
     const project = this.assertProjectOwner(projectId, ownerId);
-    const context = buildDemoContext(project.id, {
-      name: project.name,
-      repositoryUrl: project.repositoryUrl,
-      deploymentUrl: project.deploymentUrl,
-      commitSha: project.currentCommit,
-      userSource: project.sourceCode,
-    });
+    const context = contextForProject(project);
     return this.orchestrator.plan(context);
   }
 
@@ -321,11 +312,7 @@ export class MemoryStore implements StoreBackend {
 
     const scan = this.db.scans.get(finding.scanId)!;
     const project = this.db.projects.get(scan.projectId)!;
-    const context = buildDemoContext(project.id, {
-      name: project.name,
-      repositoryUrl: project.repositoryUrl,
-      deploymentUrl: project.deploymentUrl,
-      commitSha: project.currentCommit,
+    const context = contextForProject(project, {
       fixedHandler: this.db.handlerFixed.get(project.id) ?? false,
     });
 

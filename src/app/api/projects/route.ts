@@ -37,11 +37,16 @@ export async function POST(req: NextRequest) {
         ? body.sourceCode.slice(0, 100000)
         : undefined;
 
+    // 능동 검사는 사용자가 대상 소유/테스트 권한을 확인했을 때만 허용.
+    const deploymentAuthorized =
+      Boolean(deploymentUrl) && body.deploymentAuthorized === true;
+
     const project = await createProject(uid, {
       name,
       repositoryUrl: repositoryUrl ?? undefined,
       deploymentUrl: deploymentUrl ?? undefined,
       sourceCode,
+      deploymentAuthorized,
     });
     return ok({ project }, 201);
   } catch (err) {

@@ -68,13 +68,15 @@ export class AiCodeScanner implements SecurityScanner {
   readonly simulated = false;
 
   private userSource(context: ProjectContext): string | null {
-    // buildDemoContext 는 데모 파일만 넣습니다. 사용자 붙여넣기 코드는
-    // "user-source:main" 키로 주입됩니다.
-    const entries = Object.entries(context.files).filter(([k]) =>
-      k.startsWith("user-source:")
+    // 실제 사용자 프로젝트(isUserProject)면 모든 파일이 사용자 소스다.
+    // (구버전 호환: "user-source:" 접두 키도 계속 인식.)
+    const entries = Object.entries(context.files).filter(
+      ([k]) => context.isUserProject || k.startsWith("user-source:")
     );
     if (entries.length === 0) return null;
-    return entries.map(([, v]) => v).join("\n\n");
+    return entries
+      .map(([k, v]) => `// file: ${k}\n${v}`)
+      .join("\n\n");
   }
 
   async isApplicable(context: ProjectContext): Promise<boolean> {

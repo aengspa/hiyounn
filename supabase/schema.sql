@@ -47,6 +47,8 @@ create table if not exists public.projects (
   current_commit      text,
   last_scan_date      timestamptz,
   handler_fixed       boolean not null default false,
+  is_demo             boolean not null default false,
+  deployment_authorized boolean not null default false,
   created_at          timestamptz not null default now()
 );
 create index if not exists projects_owner_idx on public.projects (owner_id);

@@ -42,7 +42,14 @@ export default async function DashboardPage() {
         title="프로젝트"
         subtitle="프로젝트를 등록한 뒤 보안 스캔을 실행하세요."
         action={{ href: "/dashboard/new", label: "프로젝트 추가" }}
-      />
+      >
+        <Link
+          href="/dashboard/quick-check"
+          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          빠른 코드 확인
+        </Link>
+      </PageHeader>
       <main className="mx-auto max-w-6xl px-6 py-8">
         {rows.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center">

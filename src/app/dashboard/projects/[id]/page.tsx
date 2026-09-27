@@ -71,6 +71,31 @@ export default async function ProjectPage({
           </div>
         )}
 
+        {/* 입력 연결 상태를 정직하게 표시 — 무엇이 검사되고 무엇이 안 되는지. */}
+        {!project.isDemo && (
+          <div className="mb-6 space-y-2">
+            {!project.sourceCode && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="font-medium text-slate-800">소스가 연결되지 않았습니다</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  이 프로젝트에는 검사할 소스 코드가 없습니다. 정적 분석(IDOR·XSS·
+                  인젝션·시크릿)을 실행하려면 프로젝트를 다시 만들 때 ZIP을 업로드하거나
+                  코드를 붙여넣으세요.
+                </p>
+              </div>
+            )}
+            {project.deploymentUrl && !project.deploymentAuthorized && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="font-medium text-slate-800">배포 능동 점검 미승인</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  배포 주소가 있지만 소유권 확인을 하지 않아 능동(네트워크) 점검은
+                  실행되지 않습니다. 소스 정적 분석만 수행됩니다.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="grid gap-4 sm:grid-cols-4">
           <Stat label="배포 주소" value={project.deploymentUrl ?? "—"} />
           <Stat

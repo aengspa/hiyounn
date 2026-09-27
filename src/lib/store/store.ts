@@ -78,6 +78,7 @@ export function createProject(
     repositoryUrl?: string;
     deploymentUrl?: string;
     sourceCode?: string;
+    deploymentAuthorized?: boolean;
   }
 ): Promise<Project> {
   return backend.createProject(ownerId, input);

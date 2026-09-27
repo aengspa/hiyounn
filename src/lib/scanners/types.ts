@@ -21,11 +21,26 @@ export interface ProjectContext {
   };
 
   /**
-   * A lightweight virtual file map for static/secret scanning in the MVP.
-   * Keys are relative paths, values are file contents. This is the bundled
-   * vulnerable demo app, NOT arbitrary user code execution.
+   * A lightweight virtual file map for static/secret scanning.
+   * Keys are relative paths, values are file contents. For a real project these
+   * are the user's own files; for the bundled demo it's the fixed vulnerable
+   * fixture. Never executed as code.
    */
   files: Record<string, string>;
+
+  /**
+   * True when `files` are the user's own project source (uploaded/pasted),
+   * false/undefined for the bundled demo fixture. Lets scanners treat every
+   * file as user source without a `user-source:` naming convention.
+   */
+  isUserProject?: boolean;
+
+  /**
+   * True only when the user has explicitly confirmed they own/are authorized to
+   * test `deploymentUrl`. Active (network) checks require this — a URL alone is
+   * NOT authorization. The bundled demo target is always authorized.
+   */
+  deploymentAuthorized?: boolean;
 }
 
 /**

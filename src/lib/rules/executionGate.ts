@@ -35,10 +35,14 @@ export type GateErrorCode =
 
 /** 현재 실행 컨텍스트에서 허용되는 최고 실행 등급을 계산한다. */
 export function allowedMaxTier(context: ProjectContext): ExecutionTier {
-  // 배포 URL(테스트 대상)이 있으면 능동 검사까지 허용. 없으면 정적(PASSIVE)만.
+  // 능동(네트워크) 검사는 테스트 대상 URL이 있고 + 사용자가 소유/테스트 권한을
+  // 명시적으로 확인(deploymentAuthorized)했을 때만 허용한다. URL만으로는
+  // 권한이 아니다. 그 외에는 정적(PASSIVE)만 실행한다.
   // MVP에서는 ISOLATED_ACTIVE까지만 자동 허용하고, PATCH/PRIVILEGED_CHANGE는
   // 별도 승인 흐름에서만 올린다.
-  if (context.deploymentUrl) return "ISOLATED_ACTIVE";
+  if (context.deploymentUrl && context.deploymentAuthorized) {
+    return "ISOLATED_ACTIVE";
+  }
   return "PASSIVE";
 }
 
@@ -114,10 +118,10 @@ export function evaluatePrerequisites(
  */
 function availableConditions(context: ProjectContext): Set<string> {
   const s = new Set<string>();
-  // 소스 스냅샷은 항상 있다(파일 맵 존재).
+  // 소스 스냅샷은 파일 맵이 있을 때만 충족(URL만 있는 프로젝트는 미충족).
   if (Object.keys(context.files).length > 0) s.add("source_checkout");
-  // 배포 URL이 있으면 테스트 배포가 승인된 것으로 간주(MVP).
-  if (context.deploymentUrl) {
+  // 배포 URL + 소유권 확인이 모두 있어야 테스트 배포가 승인된 것으로 본다.
+  if (context.deploymentUrl && context.deploymentAuthorized) {
     s.add("authorized_test_deployment");
     // 데모: 테스트 사용자/객체는 데모 앱에 준비되어 있다.
     s.add("test_user_a");

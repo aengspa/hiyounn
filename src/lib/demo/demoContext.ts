@@ -18,8 +18,6 @@ export function buildDemoContext(
     commitSha?: string;
     /** When true, the handler file reflects the applied fix. */
     fixedHandler?: boolean;
-    /** 사용자가 붙여넣은 소스 코드(AI 스캔 대상). */
-    userSource?: string;
   }
 ): ProjectContext {
   // The context always represents the on-disk (pre-fix) demo repo for scanning.
@@ -116,11 +114,6 @@ create policy "notes_owner" on public.notes
     ),
   };
 
-  // 사용자가 붙여넣은 실제 코드가 있으면 AI 스캔 대상으로 추가.
-  if (opts.userSource && opts.userSource.trim()) {
-    files["user-source:main"] = opts.userSource.trim();
-  }
-
   return {
     projectId,
     name: opts.name,
@@ -134,5 +127,8 @@ create policy "notes_owner" on public.notes
       hasEnvFile: true,
     },
     files,
+    isUserProject: false,
+    // 데모 대상은 가짜 URL이므로 능동 검사가 항상 허용된다.
+    deploymentAuthorized: true,
   };
 }

@@ -316,6 +316,18 @@ export interface Project {
   sourceCode?: string;
   /** 업로드된 소스 zip 파일명(있는 경우). */
   sourceZipName?: string;
+  /**
+   * True when the user confirmed they own / are authorized to actively test
+   * `deploymentUrl`. Required before any active (network) DAST check runs.
+   */
+  deploymentAuthorized?: boolean;
+  /**
+   * True ONLY for the bundled "Acme Notes (demo)" project. Demo projects scan
+   * the built-in vulnerable fixture (for the IDOR full-loop demo). Real user
+   * projects scan ONLY their own uploaded/pasted source — the demo fixture is
+   * never mixed into user results.
+   */
+  isDemo?: boolean;
   createdAt: string;
 }
 

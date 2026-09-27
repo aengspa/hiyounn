@@ -39,6 +39,7 @@ export interface StoreBackend {
       repositoryUrl?: string;
       deploymentUrl?: string;
       sourceCode?: string;
+      deploymentAuthorized?: boolean;
     }
   ): Promise<Project>;
 
