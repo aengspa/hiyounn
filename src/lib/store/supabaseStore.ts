@@ -252,20 +252,42 @@ export class SupabaseStore implements StoreBackend {
       deploymentAuthorized?: boolean;
     }
   ): Promise<Project> {
-    const row: Partial<ProjectRow> = {
+    // Base row uses only columns present in the original schema. The newer
+    // columns (is_demo, deployment_authorized) are added opportunistically and
+    // dropped on a "column not found" error, so the app works whether or not
+    // the DB has been migrated. is_demo is always false in Supabase (the demo
+    // project is memory-only), so losing it changes nothing.
+    const base: Partial<ProjectRow> = {
       id: id("proj"),
       owner_id: ownerId,
       name: input.name.trim(),
       repository_url: input.repositoryUrl?.trim() || null,
       deployment_url: input.deploymentUrl?.trim() || null,
       source_code: input.sourceCode?.trim() || null,
-      deployment_authorized: input.deploymentAuthorized ?? false,
       current_commit: "b72c42d",
       handler_fixed: false,
-      is_demo: false,
       created_at: now(),
     };
-    const [inserted] = await insertRows<ProjectRow>("projects", row);
+    const withNew: Partial<ProjectRow> = {
+      ...base,
+      is_demo: false,
+      deployment_authorized: input.deploymentAuthorized ?? false,
+    };
+
+    let inserted: ProjectRow;
+    try {
+      [inserted] = await insertRows<ProjectRow>("projects", withNew);
+    } catch (e) {
+      // PGRST204 = column not found in schema cache (DB not migrated yet).
+      if (e instanceof Error && e.message.includes("PGRST204")) {
+        [inserted] = await insertRows<ProjectRow>("projects", base);
+        // Preserve the requested authorization in the returned object even
+        // though it couldn't be persisted (until the DB is migrated).
+        inserted.deployment_authorized = input.deploymentAuthorized ?? false;
+      } else {
+        throw e;
+      }
+    }
     return toProject(inserted);
   }
 
