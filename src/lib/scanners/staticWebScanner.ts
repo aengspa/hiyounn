@@ -33,8 +33,8 @@ function isSourceFile(path: string): boolean {
 }
 
 interface Signal {
-  /** verificationKey 접두어: xss | inj | expose | trav */
-  kind: "xss" | "inj" | "expose" | "trav";
+  /** verificationKey 접두어: xss | inj | expose | trav | sidor */
+  kind: "xss" | "inj" | "expose" | "trav" | "sidor";
   ruleTitleKo: string;
   regex: RegExp;
   severity: SecurityFinding["severity"];
@@ -181,7 +181,70 @@ const SIGNALS: Signal[] = [
     remediation:
       "응답 전 필요한 필드만 명시적으로 선택(화이트리스트)하고, 민감 필드는 제거하세요.",
   },
+
+  // ── WEB-014 IDOR (static signal) ─────────────────────────────
+  {
+    kind: "sidor",
+    ruleTitleKo: "IDOR(객체 수준 권한 확인 누락)",
+    // id로 단일 리소스를 조회/반환하는 싱크. 소유자 검증 여부는 창(window)
+    // 단위로 별도 판정한다(hasOwnershipCheck) — 검증이 다른 줄에 있을 수 있음.
+    regex:
+      /\b(?:findUnique|findFirst|findById|getById|getTodoById|getUserById|\.get\s*\(\s*(?:req\.params|params)\.[\w$]*id|res\.json\s*\(\s*\{?\s*(?:todo|user|record|item|order)\b)/g,
+    severity: "critical",
+    owasp: "A01 – Broken Access Control",
+    cwe: "CWE-639",
+    cvss: 8.1,
+    category: "Broken Object Level Authorization",
+    title: "다른 사용자의 데이터에 접근할 수 있습니다 (IDOR)",
+    humanReadableImpact:
+      "id로 리소스를 조회하면서 그 리소스가 요청한 사용자의 것인지 확인하지 않으면, 공격자가 id만 바꿔 다른 사용자의 데이터를 열람·수정할 수 있습니다.",
+    whyItMatters:
+      "인증은 통과했더라도 '내 것'인지 확인하지 않으면 남의 개인정보가 그대로 노출됩니다. 이 앱이 탐지하는 대표적인 취약점입니다.",
+    remediation:
+      "조회한 리소스의 소유자(ownerId/userId 등)가 현재 로그인 사용자와 일치하는지 검사하고, 아니면 403을 반환하세요.",
+    // 판정은 hasOwnershipCheck(창 단위)에서 수행.
+  },
 ];
+
+// 소유자(권한) 검증으로 볼 만한 표현. 이게 리소스 조회 주변에 있으면 IDOR가 아님.
+const OWNERSHIP_CHECK =
+  /ownerId|owner_id|userId\s*[!=]==|user_id|session\.user|currentUser|req\.user|auth\.uid|\.owner\b|belongsTo|assertOwner|isOwner|403|Forbidden|Unauthorized/i;
+
+// id 기반 단일 리소스 조회로 볼 만한 표현.
+const FETCH_BY_ID =
+  /findUnique|findFirst|findById|getById|getTodoById|getUserById|where\s*:\s*\{\s*id|params\.[\w$]*id|params\[["']id/i;
+
+/**
+ * WEB-014 전용: id로 리소스를 조회/반환하는 지점 주변에 소유자 검증이 있는지
+ * 판정. 검증이 다른 줄(핸들러 상단 등)에 있을 수 있어 위/아래를 함께 본다.
+ * 조회 신호는 있는데 창(window) 안에 소유자 검증이 전혀 없으면 IDOR로 본다.
+ */
+function missingOwnershipCheck(lines: string[], lineIdx: number): boolean {
+  const start = Math.max(0, lineIdx - 6);
+  const end = Math.min(lines.length, lineIdx + 7);
+  const rawWindow = lines.slice(start, end);
+
+  // 주석은 제거하고 판정한다. 주석에 적힌 "todo.ownerId === ..." 같은 설명이
+  // 실제 소유자 검증으로 오인되어 IDOR를 놓치는 오탐(false negative)을 막는다.
+  const codeWindow = stripComments(rawWindow).join("\n");
+
+  // 이 지점이 실제로 id 기반 단일 리소스 접근인지 재확인(오탐 억제).
+  const isFetchById = FETCH_BY_ID.test(codeWindow);
+  if (!isFetchById) return false;
+
+  // 창 안(주석 제외)에 소유자 검증 흔적이 있으면 안전한 것으로 본다.
+  return !OWNERSHIP_CHECK.test(codeWindow);
+}
+
+/** 라인 배열에서 주석(//... 및 /* ... *&#47; 한 줄 형태)을 제거한다. */
+function stripComments(lines: string[]): string[] {
+  return lines.map((l) =>
+    l
+      .replace(/\/\*.*?\*\//g, "") // 인라인 블록 주석
+      .replace(/\/\/.*$/, "") // 라인 주석
+      .replace(/^\s*\*.*$/, "") // JSDoc 본문 줄
+  );
+}
 
 /** WEB-005 전용: 응답 반환 라인 주변에 민감 필드가 있는지 판정. */
 function exposesSensitiveField(lines: string[], lineIdx: number): string[] {
@@ -223,6 +286,8 @@ function lineNumberAt(content: string, index: number): number {
 function scanFile(file: string, content: string): SecurityFinding[] {
   const out: SecurityFinding[] = [];
   const lines = content.split("\n");
+  // IDOR(sidor)는 한 핸들러에서 여러 신호가 겹칠 수 있어 파일당 1건만 보고한다.
+  const reportedKinds = new Set<string>();
 
   for (const sig of SIGNALS) {
     sig.regex.lastIndex = 0;
@@ -239,9 +304,14 @@ function scanFile(file: string, content: string): SecurityFinding[] {
       } else if (sig.kind === "trav") {
         // WEB-006은 입력이 다른 줄에서 흘러들 수 있어 창(window) 단위로 판정.
         if (!taintedPathInput(lines, lineNo - 1)) continue;
+      } else if (sig.kind === "sidor") {
+        // WEB-014는 소유자 검증이 다른 줄에 있을 수 있어 창(window) 단위로 판정.
+        if (!missingOwnershipCheck(lines, lineNo - 1)) continue;
+        if (reportedKinds.has("sidor")) continue; // 파일당 1건만
       } else if (sig.isVulnerable && !sig.isVulnerable(lineText)) {
         continue; // 상수만 있는 안전한 사용은 제외
       }
+      if (sig.kind === "sidor") reportedKinds.add("sidor");
 
       const scannerDetail =
         sig.kind === "expose"
@@ -294,7 +364,7 @@ function scanFile(file: string, content: string): SecurityFinding[] {
 /** 단일 파일에서 특정 종류(kind)의 취약 신호가 남아있는지 재검사(verify용). */
 function stillVulnerable(
   content: string,
-  kind: "xss" | "inj" | "expose" | "trav"
+  kind: "xss" | "inj" | "expose" | "trav" | "sidor"
 ): boolean {
   const lines = content.split("\n");
   for (const sig of SIGNALS) {
@@ -308,6 +378,8 @@ function stillVulnerable(
         if (exposesSensitiveField(lines, lineNo - 1).length > 0) return true;
       } else if (kind === "trav") {
         if (taintedPathInput(lines, lineNo - 1)) return true;
+      } else if (kind === "sidor") {
+        if (missingOwnershipCheck(lines, lineNo - 1)) return true;
       } else if (!sig.isVulnerable || sig.isVulnerable(lineText)) {
         return true;
       }
@@ -345,7 +417,12 @@ export class StaticWebScanner implements SecurityScanner {
     context: ProjectContext
   ): Promise<VerificationResult> {
     const key = finding.verificationKey ?? "";
-    const kind = key.split(":")[0] as "xss" | "inj" | "expose" | "trav";
+    const kind = key.split(":")[0] as
+      | "xss"
+      | "inj"
+      | "expose"
+      | "trav"
+      | "sidor";
     const file = finding.location?.file;
     const source = file ? context.files[file] : undefined;
 

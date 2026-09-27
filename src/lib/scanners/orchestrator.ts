@@ -96,7 +96,8 @@ export class SecurityOrchestrator {
       key.startsWith("xss:") ||
       key.startsWith("inj:") ||
       key.startsWith("expose:") ||
-      key.startsWith("trav:")
+      key.startsWith("trav:") ||
+      key.startsWith("sidor:")
     )
       return this.getScanner("static-web-scanner");
     if (key.startsWith("exposed:"))

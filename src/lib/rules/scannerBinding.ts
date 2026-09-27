@@ -29,7 +29,13 @@ export const SCANNER_TO_RULE: Record<string, string | null> = {
 };
 
 /** 정적 웹 스캐너(static-web-scanner)가 담당하는 규칙 목록. */
-export const STATIC_WEB_RULES = ["WEB-003", "WEB-004", "WEB-005", "WEB-006"];
+export const STATIC_WEB_RULES = [
+  "WEB-003",
+  "WEB-004",
+  "WEB-005",
+  "WEB-006",
+  "WEB-014",
+];
 
 /** verificationKey 접두어 → 규칙 ID. finding에 ruleId를 부착할 때 사용. */
 export function ruleIdForVerificationKey(key: string | undefined): string | null {
@@ -49,6 +55,7 @@ export function ruleIdForVerificationKey(key: string | undefined): string | null
   if (key.startsWith("inj:")) return "WEB-004";
   if (key.startsWith("expose:")) return "WEB-005";
   if (key.startsWith("trav:")) return "WEB-006";
+  if (key.startsWith("sidor:")) return "WEB-014";
   if (key.startsWith("ai:")) return null; // AI 발견은 규칙 미상
   return null;
 }

@@ -361,6 +361,48 @@ export const RULES: SecurityRule[] = [
   },
 
   {
+    // 지식 베이스 A-1(정적). 붙여넣은 소스에서 객체 수준 권한 확인 누락(IDOR)을
+    // 정적으로 탐지한다. WEB-002는 배포 URL이 있어야 하는 능동(격리) 재현이지만,
+    // 이 규칙은 소스만으로 도는 PASSIVE SAST라 붙여넣은 코드에서도 항상 실행된다.
+    id: "WEB-014",
+    version: "1.0.0",
+    title: "Broken object-level authorization / IDOR (static signal)",
+    titleKo: "IDOR(객체 수준 권한 확인 누락)",
+    severity: "critical",
+    standards: [
+      {
+        framework: "OWASP_API_SECURITY_TOP_10",
+        version: "2023",
+        id: "API1:2023",
+      },
+      { framework: "OWASP_TOP_10", version: "2021", id: "A01:2021" },
+    ],
+    appliesTo: ["web", "api"],
+    selector: {
+      any: [
+        { field: "components.kind", op: "contains", value: "api" },
+        { field: "components.kind", op: "contains", value: "web" },
+      ],
+    },
+    methods: ["SAST"],
+    prerequisites: { SAST: ["source_checkout"] },
+    checks: [
+      { id: "scan-idor-static", toolId: "static_web_analyzer", method: "SAST" },
+    ],
+    execution: {
+      tier: "PASSIVE",
+      target: "source_checkout",
+      destructiveOperations: false,
+    },
+    remediation: {
+      autoPatch: "branch_only",
+      allowedPaths: ["app/**", "src/**"],
+      productionChange: "approval_required",
+    },
+    verificationRequiredChecks: ["scan-idor-static", "changed-code-scan"],
+  },
+
+  {
     id: "WEB-007",
     version: "1.0.0",
     title: "Session, CORS and security headers",
