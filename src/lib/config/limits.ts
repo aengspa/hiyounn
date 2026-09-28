@@ -37,6 +37,10 @@ export const DEFAULT_LIMITS = {
   llmFileChars: 24_000,
   /** 실행 중으로 남은 작업을 실패로 볼 때까지의 시간. */
   staleJobMs: 180_000,
+  /** 재검증 한 번에 AI로 보낼 파일 내용 총량. 넘는 파일은 보내지 않고 기록한다. */
+  reverifyPromptChars: 60_000,
+  /** 재검증 AI 호출 한 번의 제한 시간. */
+  reverifyLlmTimeoutMs: 60_000,
 } as const;
 
 export interface Limits {
@@ -51,6 +55,8 @@ export interface Limits {
   llmCallTimeoutMs: number;
   llmFileChars: number;
   staleJobMs: number;
+  reverifyPromptChars: number;
+  reverifyLlmTimeoutMs: number;
 }
 
 export function readLimits(): Limits {
@@ -67,6 +73,8 @@ export function readLimits(): Limits {
     llmCallTimeoutMs: intFromEnv("LIMIT_LLM_CALL_TIMEOUT_MS", d.llmCallTimeoutMs, 1_000, 120_000),
     llmFileChars: intFromEnv("LIMIT_LLM_FILE_CHARS", d.llmFileChars, 1_000, 200_000),
     staleJobMs: intFromEnv("LIMIT_STALE_JOB_MS", d.staleJobMs, 10_000, 3_600_000),
+    reverifyPromptChars: intFromEnv("LIMIT_REVERIFY_PROMPT_CHARS", d.reverifyPromptChars, 5_000, 400_000),
+    reverifyLlmTimeoutMs: intFromEnv("LIMIT_REVERIFY_LLM_TIMEOUT_MS", d.reverifyLlmTimeoutMs, 5_000, 110_000),
   };
 }
 

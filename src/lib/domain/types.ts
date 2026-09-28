@@ -493,10 +493,68 @@ export interface FixJob {
   artifact?: FixJobArtifact;
   /** 한도 때문에 이번 작업에서 뺀 항목 수. */
   skippedForLimit: number;
+  /** 수정본에 대한 가장 최근 재검증. */
+  verification?: FixJobVerification;
   errorCode?: string;
   errorMessage?: string;
   createdAt: string;
   updatedAt: string;
+  completedAt?: string;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Re-verification of a fix job's result version
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * 수정본 소스에서 원래 항목이 어떻게 보이는지.
+ *  - fixed_in_source: 수정본 코드에서 문제가 사라졌다는 근거가 있음
+ *    (코드 기준 판단이며, 배포된 사이트에서 실행해 본 결과는 아님)
+ *  - still_present: 수정본 코드에 문제가 남아 있다는 근거가 있음
+ *  - inconclusive: 근거가 부족하거나 확인하지 못함
+ */
+export type ReverifyVerdict = "fixed_in_source" | "still_present" | "inconclusive";
+
+export interface ReverifyEvidence {
+  file: string;
+  /** 수정본 파일에 그대로 있는 코드(서버가 존재를 확인함). */
+  snippet: string;
+  explanation: string;
+}
+
+export interface ReverifyItem {
+  findingId: string;
+  title: string;
+  severity: Severity;
+  verdict: ReverifyVerdict;
+  /** 누가 판단했는지. rule = 규칙 기반 재검사, llm = AI 코드 재검토. */
+  method?: "rule" | "llm";
+  summary?: string;
+  evidence: ReverifyEvidence[];
+  /** inconclusive 등의 내부 사유 코드. */
+  reasonCode?: string;
+}
+
+export interface ReverifyFileNote {
+  path: string;
+  reason: "over_budget" | "too_large";
+}
+
+export interface FixJobVerification {
+  id: string;
+  status: "running" | "completed" | "failed";
+  /** AI 재검토 상태. not_available = 키 없음, not_needed = 규칙으로 모두 판단. */
+  aiStatus: "completed" | "failed" | "not_available" | "not_needed" | "pending";
+  resultVersionId: string;
+  resultContentHash: string;
+  /** AI에 보낸 파일과 보내지 못한 파일(조용히 자르지 않음). */
+  sentFiles: string[];
+  omittedFiles: ReverifyFileNote[];
+  items: ReverifyItem[];
+  llmCorrelationId?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  startedAt: string;
   completedAt?: string;
 }
 

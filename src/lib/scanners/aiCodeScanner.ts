@@ -139,6 +139,19 @@ const VERIFY_SYSTEM_PROMPT = `당신은 기존 AI 보안 발견 항목 하나를
 - 근거가 부족하거나 관련 소스가 제공되지 않았으면 inconclusive를 사용하세요.
 - 입력의 줄 번호는 신뢰하지 말고, file과 snippet만 사용하세요.`;
 
+/** AI 코드 분석을 끝내지 못함. 발견 0건과 구분해 "검사하지 못함"으로 기록한다. */
+export class AiScanUnavailableError extends Error {
+  constructor(
+    readonly reason: "llm_failed" | "invalid_response" | "too_large",
+    readonly omittedFiles: string[]
+  ) {
+    super(`AI scan unavailable: ${reason}`);
+    this.name = "AiScanUnavailableError";
+  }
+}
+
+export const AI_SCAN_GAP_RULE = "AI 코드 분석";
+
 function normSeverity(s?: string): Severity {
   const v = (s ?? "").toLowerCase();
   if (v === "critical" || v === "high" || v === "medium" || v === "low") return v;
@@ -172,32 +185,62 @@ export class AiCodeScanner implements SecurityScanner {
   }
 
   async scan(context: ProjectContext): Promise<SecurityFinding[]> {
-    const source = this.userSource(context);
-    if (!source) return [];
+    return (await this.scanWithReport(context)).findings;
+  }
 
-    // 프롬프트 폭주 방지를 위해 코드 길이 제한.
-    const clipped = source.slice(0, 24000);
+  /**
+   * AI 코드 분석. 실패를 "발견 0건"으로 바꾸지 않는다.
+   *  - 호출 실패·응답 형식 오류 → AiScanUnavailableError (오케스트레이터가
+   *    "검사하지 못한 항목"으로 기록)
+   *  - 길이 한도 때문에 보내지 못한 파일은 잘라 보내지 않고 omittedFiles로 알린다.
+   */
+  async scanWithReport(
+    context: ProjectContext
+  ): Promise<{ findings: SecurityFinding[]; sentFiles: string[]; omittedFiles: string[] }> {
+    const entries = this.userSourceEntries(context).filter(([, v]) => v.trim());
+    if (entries.length === 0) return { findings: [], sentFiles: [], omittedFiles: [] };
+
+    // 파일 단위로 한도 안에 들어가는 만큼만 보낸다(파일 중간을 자르지 않음).
+    const sent: Array<[string, string]> = [];
+    const omittedFiles: string[] = [];
+    let used = 0;
+    for (const [file, content] of entries) {
+      const block = `// file: ${file}\n${content}\n\n`;
+      if (used + block.length > SOURCE_PROMPT_LIMIT) {
+        omittedFiles.push(file);
+        continue;
+      }
+      sent.push([file, content]);
+      used += block.length;
+    }
+    if (sent.length === 0) {
+      throw new AiScanUnavailableError("too_large", omittedFiles);
+    }
+    const source = sent.map(([k, v]) => `// file: ${k}\n${v}`).join("\n\n");
 
     let raw: string;
     try {
       raw = await completeJson(
         SYSTEM_PROMPT,
-        `다음 코드를 분석하고 JSON으로만 답하세요:\n\n\`\`\`\n${clipped}\n\`\`\``
+        `다음 코드를 분석하고 JSON으로만 답하세요:\n\n\`\`\`\n${source}\n\`\`\``,
+        30000,
+        "scan"
       );
     } catch {
-      // AI 호출 실패 시 조용히 빈 결과 (앱은 계속 동작).
-      return [];
+      throw new AiScanUnavailableError("llm_failed", omittedFiles);
     }
 
     let parsed: { findings?: AiFindingRaw[] };
     try {
       parsed = JSON.parse(extractJson(raw));
     } catch {
-      // 스키마 파싱 실패는 정상 통과가 아님 — 빈 결과로 처리(오탐 방지).
-      return [];
+      throw new AiScanUnavailableError("invalid_response", omittedFiles);
+    }
+    if (!parsed || !Array.isArray(parsed.findings)) {
+      throw new AiScanUnavailableError("invalid_response", omittedFiles);
     }
 
-    const items = Array.isArray(parsed.findings) ? parsed.findings : [];
+    const items = parsed.findings;
 
     // 응답 검증: 모델이 지어낸(환각) 근거를 걸러낸다.
     //  - 각 항목이 최소 필드(title/impact)를 갖췄는지
@@ -205,7 +248,11 @@ export class AiCodeScanner implements SecurityScanner {
     // 검증을 통과한 항목만 finding으로 만든다.
     const normalizedSource = normalizeForMatch(source);
     const valid = items.filter((it) => this.isCredible(it, normalizedSource));
-    return valid.map((it) => this.toFinding(it));
+    return {
+      findings: valid.map((it) => this.toFinding(it)),
+      sentFiles: sent.map(([f]) => f),
+      omittedFiles,
+    };
   }
 
   /**

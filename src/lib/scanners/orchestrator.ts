@@ -15,7 +15,7 @@ import { UserEnumerationScanner } from "@/lib/scanners/userEnumerationScanner";
 import { BruteForceScanner } from "@/lib/scanners/bruteForceScanner";
 import { CookieScanner } from "@/lib/scanners/cookieScanner";
 import { BflaScanner } from "@/lib/scanners/bflaScanner";
-import { AiCodeScanner } from "@/lib/scanners/aiCodeScanner";
+import { AiCodeScanner, AiScanUnavailableError, AI_SCAN_GAP_RULE } from "@/lib/scanners/aiCodeScanner";
 import { RuleToolRuntime, type ProbeFetch } from "@/lib/scanners/ruleToolRuntime";
 import { NEW_TOOL_CHECKS, executeNewToolCheck, supportsNewToolCheck } from "@/lib/scanners/newRuleTools";
 import { extractBaasProjects } from "@/lib/scanners/deployedRuleTools";
@@ -166,7 +166,24 @@ export class SecurityOrchestrator {
     const plannedKeys = new Set(plan.selectedChecks.map((check) => `${check.ruleId}/${check.checkId}`));
     for (const scanner of await this.selectApplicable(context)) {
       if (scanner.name !== "ai-code-scanner" && !(LEGACY_CHECKS[scanner.name] ?? []).some((key) => plannedKeys.has(key))) continue;
-      const results = await scanner.scan(context);
+      let results: SecurityFinding[];
+      if (scanner instanceof AiCodeScanner) {
+        // AI 실패는 "발견 0건"이 아니라 "검사하지 못함"이다.
+        try {
+          const report = await scanner.scanWithReport(context);
+          results = report.findings;
+          if (report.omittedFiles.length) plan.coverageGaps.push({ ruleId: AI_SCAN_GAP_RULE, checkId: "ai-code-review",
+            reason: `길이 한도 때문에 파일 ${report.omittedFiles.length}개는 AI 분석에 보내지 못했어요.` });
+        } catch (error) {
+          if (!(error instanceof AiScanUnavailableError)) throw error;
+          plan.coverageGaps.push({ ruleId: AI_SCAN_GAP_RULE, checkId: "ai-code-review",
+            reason: error.reason === "too_large" ? "파일이 너무 길어 AI 분석을 하지 못했어요."
+              : "AI 코드 분석을 완료하지 못했어요. 다시 점검하면 이어서 확인할 수 있어요." });
+          continue;
+        }
+      } else {
+        results = await scanner.scan(context);
+      }
       for (const finding of results) {
         this.decorateWithRule(finding);
         if (finding.ruleId && !plannedIds.has(finding.ruleId)) continue;

@@ -41,6 +41,19 @@ export function toPublicJob(job: FixJob) {
           downloadPath: `/api/fix-jobs/${encodeURIComponent(job.id)}/download`,
         }
       : undefined,
+    verification: job.verification
+      ? {
+          status: job.verification.status,
+          aiStatus: job.verification.aiStatus,
+          sentFiles: job.verification.sentFiles,
+          omittedFiles: job.verification.omittedFiles,
+          items: job.verification.items,
+          errorCode: job.verification.errorCode,
+          errorMessage: job.verification.errorMessage,
+          startedAt: job.verification.startedAt,
+          completedAt: job.verification.completedAt,
+        }
+      : undefined,
     errorCode: job.errorCode,
     errorMessage: job.errorMessage,
     createdAt: job.createdAt,
