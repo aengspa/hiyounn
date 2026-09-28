@@ -23,7 +23,7 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
   return (
     <aside
       aria-label="내 프로젝트"
-      className="z-20 flex w-full min-w-0 shrink-0 flex-col border-b border-line bg-surface-warm lg:sticky lg:top-[61px] lg:h-[calc(100vh-61px)] lg:w-64 lg:border-b-0 lg:border-r"
+      className="z-20 flex w-full min-w-0 shrink-0 flex-col border-b border-line bg-surface-warm lg:sticky lg:top-[65px] lg:h-[calc(100vh-65px)] lg:w-64 lg:border-b-0 lg:border-r"
     >
       <div className="flex items-center justify-between px-4 pb-2 pt-4">
         <Link href="/dashboard" className="rounded-xl text-sm font-bold text-ink-subtle hover:text-ink hover:underline">
