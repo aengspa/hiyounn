@@ -1,37 +1,64 @@
-@tailwind base;
+﻿@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * 따뜻한 호이 디자인 토큰.
+ * 값은 src/lib/ui/tokens.ts의 WARM_TOKENS와 같아야 한다(변수 이름 = "--" + 키).
+ * 조정한 토큰은 같은 줄에 `기준값 → 조정값 (측정 대비)`를 남긴다.
+ */
 :root {
   color-scheme: light;
+
+  /* 표면 */
   --background: #fff8ed;
   --background-soft: #fff1cf;
   --surface: #ffffff;
   --surface-warm: #fffaf2;
-  --primary: #b84a12;
-  --primary-hover: #92380b;
-  --primary-soft: #ffdfb8;
+
+  /* 브랜드 */
+  --primary: #f58a36; /* 텍스트 색으로 쓰지 않음. --text 대비 5.54 */
+  --primary-hover: #e97c2b; /* #df7022 → #e97c2b (--text 대비 4.19 → 4.77) */
+  --primary-soft: #ffdfb8; /* 이 배경에는 --text-muted 금지 */
   --sun: #ffc857;
   --sun-soft: #fff0b8;
   --crimson: #9e1b32;
   --crimson-soft: #f9e7eb;
-  --success: #287a3d;
+
+  /* 상태 */
+  --success: #1f7337; /* #3fae5a → #1f7337 (--success-soft 대비 2.55 → 5.31) */
   --success-soft: #e8f7eb;
-  --danger: #b83232;
+  --danger: #b42f2f; /* #df4d4d → #b42f2f (--danger-soft 대비 3.57 → 5.59, 흰 글자 6.20) */
   --danger-soft: #fff0ee;
-  --warning: #9a5b08;
+  --warning: #8a5300; /* #e99b22 → #8a5300 (--warning-soft 대비 2.10 → 5.82) */
   --warning-soft: #fff5d9;
-  --info: #27699e;
+  --info: #2f6aa3; /* #4a89c7 → #2f6aa3 (--info-soft 대비 3.38 → 5.18) */
   --info-soft: #edf6ff;
+
+  /* 텍스트 */
   --text: #3a2b20;
   --text-subtle: #756354;
-  --text-muted: #8a7768;
-  --border: #eadbc8;
-  --border-strong: #d6bea3;
+  --text-muted: #7a6757; /* #9a8879 → #7a6757 (cream 대비 3.22 → 5.10) */
+
+  /* 경계·포커스 */
+  --border: #eadbc8; /* 장식용 구분선. 텍스트·입력 경계에 쓰지 않음 */
+  --border-strong: #d6bea3; /* 카드 테두리 장식 */
   --focus: #9e1b32;
-  --code: #251e1a;
-  --code-muted: #d9c9bb;
-  --shadow-warm: 0 12px 30px rgba(116, 67, 28, 0.1);
+
+  /* 추가 토큰(기준 25개 외) */
+  --primary-depth: #c8611a; /* Primary 버튼 하단 깊이 (brand-700) */
+  --primary-text: #9a4410; /* 브랜드색 텍스트 (brand-800) */
+  --border-input: #967f6b; /* 입력·체크박스 경계 (UI 경계 3:1) */
+  --code: #2a1d14; /* 코드·diff·로그 패널 배경 */
+  --code-text: #fffaf2;
+  --code-muted: #c9b3a0;
+  --code-focus: #ffc857; /* 코드 패널 안 포커스 링 (--focus는 대비 부족) */
+
+  /* 그림자: 갈색·주황 rgba만 사용 */
+  --shadow-sm: 0 1px 0 rgba(58, 43, 32, 0.06), 0 6px 14px rgba(58, 43, 32, 0.08);
+  --shadow-lg: 0 2px 0 rgba(58, 43, 32, 0.06), 0 16px 36px rgba(245, 138, 54, 0.16);
+  /* 이전 이름 호환용 별칭 */
+  --shadow-soft: var(--shadow-sm);
 }
 
 html {
@@ -44,15 +71,12 @@ body {
   min-height: 100vh;
   padding: 0;
   margin: 0;
-  background:
-    radial-gradient(circle at 8% 2%, rgba(255, 200, 87, 0.22) 0 8rem, transparent 20rem),
-    radial-gradient(circle at 92% 12%, rgba(245, 138, 54, 0.12) 0 7rem, transparent 22rem),
-    linear-gradient(180deg, var(--background) 0%, #fffdf8 52%, var(--background) 100%);
+  background: var(--background);
   color: var(--text);
-  font-family: Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", ui-rounded,
-    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", system-ui,
+    -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 16px;
-  line-height: 1.6;
+  line-height: 1.7;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 }
@@ -64,13 +88,19 @@ body {
 }
 
 ::selection {
-  background: var(--sun-soft);
+  background: var(--primary-soft);
   color: var(--text);
 }
 
+/* 포커스 링: 네 표면 모두 3:1 이상. 코드 패널 안에서는 노랑 링 */
 :focus-visible {
   outline: 3px solid var(--focus);
-  outline-offset: 3px;
+  outline-offset: 2px;
+}
+
+.bg-code:focus-visible,
+.bg-code :focus-visible {
+  outline-color: var(--code-focus);
 }
 
 a {
@@ -106,18 +136,24 @@ textarea::placeholder {
   opacity: 1;
 }
 
+.bg-code input::placeholder,
+.bg-code textarea::placeholder,
+textarea.bg-code::placeholder {
+  color: var(--code-muted);
+}
+
 .skip-link {
   position: fixed;
   top: 0.75rem;
   left: 0.75rem;
   z-index: 100;
   padding: 0.7rem 1rem;
-  border: 2px solid var(--crimson);
-  border-radius: 0.75rem;
+  border: 2px solid var(--primary);
+  border-radius: 1rem;
   background: var(--surface);
-  color: var(--crimson);
-  font-weight: 800;
-  box-shadow: var(--shadow-warm);
+  color: var(--primary-text);
+  font-weight: 700;
+  box-shadow: var(--shadow-sm);
   transform: translateY(-160%);
   transition: transform 160ms ease;
 }
@@ -135,102 +171,132 @@ textarea::placeholder {
   word-break: break-word;
 }
 
+/* 페이지 배경 장식: 입력을 막지 않고 본문 뒤에만 깔린다 */
+.hoi-page-decor {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.3;
+  background:
+    radial-gradient(40rem 28rem at 12% -8%, var(--primary-soft), transparent 70%),
+    radial-gradient(34rem 24rem at 95% 8%, var(--sun-soft), transparent 70%);
+}
+
 .hoi-surface {
   border: 1px solid var(--border);
   border-radius: 1.5rem;
   background: var(--surface);
-  box-shadow: var(--shadow-warm);
+  box-shadow: var(--shadow-sm);
 }
 
 .hoi-card-3d {
-  border: 1px solid var(--border);
-  border-bottom-width: 4px;
-  border-bottom-color: var(--border-strong);
+  border: 1px solid var(--border-strong);
   border-radius: 1.5rem;
   background: var(--surface);
-  box-shadow: 0 8px 22px rgba(116, 67, 28, 0.08);
+  box-shadow: 0 3px 0 var(--border-strong), var(--shadow-sm);
 }
 
+/* 3D 버튼: 깊이 3px → hover 4px(2px 위) → active 1px(2px 아래) */
 .hoi-button-3d {
   min-height: 44px;
-  border-bottom-width: 4px;
-  transition: transform 160ms ease, box-shadow 160ms ease, border-width 160ms ease,
-    background-color 160ms ease;
+  border-radius: 1rem;
+  transition: transform 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+.hoi-button-3d.is-primary {
+  box-shadow: 0 3px 0 var(--primary-depth);
 }
 
 .hoi-button-3d:hover:not(:disabled) {
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+}
+
+.hoi-button-3d.is-primary:hover:not(:disabled) {
+  box-shadow: 0 4px 0 var(--primary-depth);
+  background-color: var(--primary-hover);
 }
 
 .hoi-button-3d:active:not(:disabled) {
-  border-bottom-width: 2px;
   transform: translateY(2px);
+}
+
+.hoi-button-3d.is-primary:active:not(:disabled) {
+  box-shadow: 0 1px 0 var(--primary-depth);
+  background-color: var(--primary-hover);
+}
+
+.hoi-button-3d:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .hoi-decoration {
   position: relative;
   isolation: isolate;
-  overflow: hidden;
 }
 
-.hoi-decoration::before,
-.hoi-decoration::after {
-  position: absolute;
-  z-index: -1;
-  border-radius: 9999px;
-  content: "";
-  pointer-events: none;
-}
-
-.hoi-decoration::before {
-  width: 18rem;
-  height: 18rem;
-  top: -9rem;
-  right: -7rem;
-  background: rgba(255, 200, 87, 0.18);
-}
-
-.hoi-decoration::after {
-  width: 12rem;
-  height: 12rem;
-  bottom: -7rem;
-  left: -5rem;
-  background: rgba(158, 27, 50, 0.05);
-}
-
+/* 호이 등장: 220ms, 1회 */
 .hoi-enter {
-  animation: hoi-enter 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: hoi-enter 220ms ease-out 1 both;
 }
 
+/* 탐색 중 호이 기준점(돋보기 소품만 움직인다) */
 .hoi-searching {
   transform-origin: center bottom;
-  animation: hoi-search 1.8s ease-in-out infinite;
+}
+
+/* 돋보기 소품: 1.6s 반복, 3px 이동 + 6° 회전 */
+.hoi-search-prop {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hoi-search 1.6s ease-in-out infinite;
 }
 
 @keyframes hoi-enter {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(0.98);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: none;
   }
 }
 
 @keyframes hoi-search {
   0%,
   100% {
-    transform: rotate(-2deg);
+    transform: translateX(0) rotate(0);
   }
   50% {
-    transform: rotate(2deg);
+    transform: translateX(3px) rotate(-6deg);
   }
 }
 
+/* 동작 줄이기: 이동과 반복 애니메이션을 없애고 색·그림자 변화만 남긴다 */
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
+  }
+
+  .hoi-button-3d,
+  .hoi-button-3d:hover,
+  .hoi-button-3d:active,
+  .hoi-card-3d,
+  .hoi-card-3d:hover,
+  .hoi-card-3d:active {
+    transform: none !important;
+  }
+
+  .skip-link {
+    transition: none;
+  }
+
+  .hoi-enter,
+  .hoi-search-prop {
+    animation: none !important;
   }
 
   *,
@@ -239,11 +305,5 @@ textarea::placeholder {
     scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-
-  .hoi-button-3d:hover:not(:disabled),
-  .hoi-button-3d:active:not(:disabled) {
-    transform: none;
   }
 }

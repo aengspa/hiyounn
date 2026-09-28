@@ -1,0 +1,51 @@
+
+> vibe-security-agent@0.1.0 build
+> next build
+
+  ▲ Next.js 14.2.35
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Linting and checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/14) ...
+   Generating static pages (3/14) 
+   Generating static pages (6/14) 
+   Generating static pages (10/14) 
+ ✓ Generating static pages (14/14)
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                              Size     First Load JS
+┌ ƒ /                                    396 B          96.4 kB
+├ ○ /_not-found                          155 B          87.4 kB
+├ ƒ /api/findings/[id]                   0 B                0 B
+├ ƒ /api/findings/[id]/apply-fix         0 B                0 B
+├ ƒ /api/findings/[id]/generate-fix      0 B                0 B
+├ ƒ /api/findings/[id]/verify            0 B                0 B
+├ ƒ /api/generate                        0 B                0 B
+├ ƒ /api/projects                        0 B                0 B
+├ ƒ /api/projects/[id]                   0 B                0 B
+├ ƒ /api/projects/[id]/scan              0 B                0 B
+├ ƒ /api/projects/[id]/scan-plan         0 B                0 B
+├ ƒ /api/projects/upload                 0 B                0 B
+├ ƒ /api/quick-check                     0 B                0 B
+├ ƒ /api/scans/[id]                      0 B                0 B
+├ ƒ /dashboard                           396 B          96.4 kB
+├ ƒ /dashboard/findings/[id]             6.68 kB         111 kB
+├ ƒ /dashboard/new                       396 B          96.4 kB
+├ ƒ /dashboard/new/setup                 7.2 kB          108 kB
+├ ƒ /dashboard/projects/[id]             2.97 kB         108 kB
+├ ƒ /dashboard/quick-check               4.17 kB         109 kB
+├ ƒ /dashboard/scans/[id]                2.25 kB         107 kB
+├ ƒ /login                               1.85 kB         103 kB
+└ ƒ /signup                              1.85 kB         103 kB
++ First Load JS shared by all            87.3 kB
+  ├ chunks/117-f4d0fb23d7b8280f.js       31.7 kB
+  ├ chunks/fd9d1056-87da80e0c187477b.js  53.6 kB
+  └ other shared chunks (total)          1.89 kB
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

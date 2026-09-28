@@ -1,8 +1,9 @@
-import type {
+﻿import type {
   ButtonHTMLAttributes,
   DetailsHTMLAttributes,
   HTMLAttributes,
   ReactNode,
+  SVGProps,
 } from "react";
 import type {
   ExecutionTier,
@@ -10,29 +11,59 @@ import type {
   Severity,
   TestStatus,
 } from "@/lib/domain/types";
+import {
+  severityDisplay,
+  statusLabel,
+  testStatusLabel,
+  type SeverityIconShape,
+} from "@/lib/ui/presentation";
+
+// 라벨 맵·조회 함수의 원본은 presentation.ts다. 기존 import 경로를 유지하려고 다시 내보낸다(설계 2-3).
+export {
+  SEV_LABEL,
+  SEV_EXPERT_LABEL,
+  STATUS_LABEL,
+  TEST_STATUS_LABEL,
+  severityLabel,
+  statusLabel,
+  testStatusLabel,
+} from "@/lib/ui/presentation";
+export type { SeverityIconShape } from "@/lib/ui/presentation";
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
+/** `value`가 `map`의 자기 키일 때만 값을 돌려준다. `"toString"` 같은 프로토타입 키는 거른다. */
+function ownValue<V>(map: Record<string, V>, value: unknown): V | undefined {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(map, value)
+    ? map[value]
+    : undefined;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 버튼 (설계 2-1)
+// ─────────────────────────────────────────────────────────────
+
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 export type ButtonSize = "sm" | "md" | "lg";
 
+// 움직임(hover 2px 위, active 2px 아래)과 disabled 표현은 globals.css `.hoi-button-3d`가 맡는다.
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
-  primary:
-    "border border-brand-700 border-b-brand-900 bg-brand-600 text-white shadow-sm hover:bg-brand-700",
+  // 주황 배경 + 진한 갈색 글자(5.54:1). hover·active 배경과 깊이는 `.is-primary` CSS 규칙.
+  primary: "is-primary border-0 bg-brand-500 text-ink",
   secondary:
-    "border border-line-strong border-b-[#bc9d7d] bg-white text-ink hover:bg-surface-warm",
+    "border-2 border-line-input bg-surface text-ink shadow-[0_3px_0_var(--border-strong)] hover:bg-surface-warm",
+  // bg-primary-soft 위에서는 text-ink-subtle 대비가 부족하므로 hover 때 text-ink로 바꾼다.
   ghost:
-    "border border-transparent border-b-transparent bg-transparent text-ink-subtle hover:bg-primary-soft/60 hover:text-ink",
-  danger:
-    "border border-red-700 border-b-red-900 bg-red-700 text-white hover:bg-red-800",
+    "border-2 border-transparent bg-transparent text-ink-subtle hover:bg-primary-soft hover:text-ink",
+  danger: "border-0 bg-danger text-white shadow-[0_3px_0_#7f1f1f]",
 };
 
 const BUTTON_SIZES: Record<ButtonSize, string> = {
-  sm: "px-3 py-2 text-sm",
-  md: "px-4 py-2.5 text-sm",
-  lg: "px-5 py-3 text-base",
+  sm: "min-h-11 px-4 text-sm",
+  md: "min-h-12 px-5 text-base",
+  lg: "min-h-14 px-6 text-lg",
 };
 
 /** Link에도 같은 버튼 외형을 적용할 수 있는 class helper. */
@@ -46,9 +77,9 @@ export function buttonClassName({
   className?: string;
 } = {}) {
   return cx(
-    "hoi-button-3d inline-flex items-center justify-center gap-2 rounded-2xl font-bold leading-tight disabled:cursor-not-allowed disabled:opacity-55",
-    BUTTON_VARIANTS[variant],
-    BUTTON_SIZES[size],
+    "hoi-button-3d inline-flex items-center justify-center gap-2 rounded-2xl font-bold leading-tight",
+    BUTTON_VARIANTS[variant] ?? BUTTON_VARIANTS.primary,
+    BUTTON_SIZES[size] ?? BUTTON_SIZES.md,
     className,
   );
 }
@@ -74,14 +105,19 @@ export function Button({
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// 카드 (설계 2-2)
+// ─────────────────────────────────────────────────────────────
+
 export type CardVariant = "default" | "warm" | "raised" | "flat" | "danger";
 
 const CARD_VARIANTS: Record<CardVariant, string> = {
-  default: "border-line bg-white shadow-warm",
-  warm: "border-line bg-surface-warm shadow-warm",
+  default: "rounded-3xl border border-line bg-surface shadow-warm",
+  warm: "rounded-3xl border border-line bg-surface-warm shadow-warm",
+  // rounded-3xl, 테두리, 하단 3px 깊이는 globals.css `.hoi-card-3d`.
   raised: "hoi-card-3d",
-  flat: "border-line bg-white",
-  danger: "border-red-200 bg-danger-soft shadow-warm",
+  flat: "rounded-2xl border border-line bg-surface",
+  danger: "rounded-3xl border border-[#f3c4bd] bg-danger-soft",
 };
 
 export function Card({
@@ -95,17 +131,17 @@ export function Card({
 }) {
   return (
     <div
-      className={cx(
-        "rounded-3xl border",
-        CARD_VARIANTS[variant],
-        className,
-      )}
+      className={cx(CARD_VARIANTS[variant] ?? CARD_VARIANTS.default, className)}
       {...props}
     >
       {children}
     </div>
   );
 }
+
+// ─────────────────────────────────────────────────────────────
+// 배지 (설계 2-3)
+// ─────────────────────────────────────────────────────────────
 
 export type BadgeTone =
   | "neutral"
@@ -116,13 +152,17 @@ export type BadgeTone =
   | "danger";
 
 const BADGE_TONES: Record<BadgeTone, string> = {
-  neutral: "border-line bg-surface-warm text-ink-subtle",
-  primary: "border-orange-200 bg-primary-soft text-brand-900",
-  info: "border-blue-200 bg-info-soft text-info",
-  success: "border-green-200 bg-success-soft text-success",
-  warning: "border-amber-200 bg-warning-soft text-warning",
-  danger: "border-red-200 bg-danger-soft text-danger",
+  neutral: "border-line-strong bg-surface-warm text-ink-subtle",
+  // bg-primary-soft 위 글자는 text-ink-subtle 대신 진한 브랜드색을 쓴다.
+  primary: "border-brand-300 bg-primary-soft text-brand-900",
+  info: "border-[#c9def3] bg-info-soft text-info",
+  success: "border-[#bfe0c8] bg-success-soft text-success",
+  warning: "border-[#f0d9a6] bg-warning-soft text-warning",
+  danger: "border-[#f3c4bd] bg-danger-soft text-danger",
 };
+
+const BADGE_BASE =
+  "inline-flex min-h-6 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-bold leading-5";
 
 export function Badge({
   children,
@@ -135,11 +175,7 @@ export function Badge({
 }) {
   return (
     <span
-      className={cx(
-        "inline-flex min-h-6 items-center rounded-full border px-2.5 py-0.5 text-xs font-bold leading-5",
-        BADGE_TONES[tone],
-        className,
-      )}
+      className={cx(BADGE_BASE, BADGE_TONES[tone] ?? BADGE_TONES.neutral, className)}
       {...props}
     >
       {children}
@@ -147,19 +183,52 @@ export function Badge({
   );
 }
 
+/**
+ * 심각도 아이콘. 모양만으로 4개 심각도를 구분한다(요구사항 4.4).
+ * 장식이므로 항상 aria-hidden이며, 색은 배지 글자색(currentColor)을 따른다.
+ */
+export function SeverityIcon({
+  shape,
+  className = "",
+  ...props
+}: Omit<SVGProps<SVGSVGElement>, "children"> & { shape: SeverityIconShape }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="12"
+      height="12"
+      data-shape={shape}
+      className={cx("shrink-0", className)}
+      {...props}
+      aria-hidden="true"
+      focusable="false"
+    >
+      {shape === "octagon" && (
+        <>
+          <polygon points="5,1 11,1 15,5 15,11 11,15 5,15 1,11 1,5" fill="currentColor" />
+          <rect x="7.1" y="3.8" width="1.8" height="5.4" rx="0.9" fill="#ffffff" />
+          <circle cx="8" cy="11.6" r="1.1" fill="#ffffff" />
+        </>
+      )}
+      {shape === "triangle" && <polygon points="8,1.5 15,14.5 1,14.5" fill="currentColor" />}
+      {shape === "diamond" && <polygon points="8,1 15,8 8,15 1,8" fill="currentColor" />}
+      {shape === "circle" && (
+        <circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" strokeWidth="2.5" />
+      )}
+      {shape === "dot" && <circle cx="8" cy="8" r="3" fill="currentColor" />}
+    </svg>
+  );
+}
+
+// 텍스트 브랜드색은 brand-800만 쓴다(500/600/700 금지). critical에는 animation 클래스를 붙이지 않는다.
 const SEV_STYLE: Record<Severity, string> = {
-  critical: "border-red-300 bg-danger-soft text-red-800",
-  high: "border-orange-300 bg-orange-50 text-orange-800",
-  medium: "border-amber-300 bg-warning-soft text-amber-800",
-  low: "border-blue-200 bg-info-soft text-blue-800",
+  critical: "border-[#f3c4bd] bg-danger-soft text-danger",
+  high: "border-brand-300 bg-primary-soft text-brand-800",
+  medium: "border-[#f0d9a6] bg-warning-soft text-warning",
+  low: "border-[#c9def3] bg-info-soft text-info",
 };
 
-export const SEV_LABEL: Record<Severity, string> = {
-  critical: "매우 급해요",
-  high: "우선 확인해요",
-  medium: "살펴보면 좋아요",
-  low: "여유 있게 확인해요",
-};
+const SEV_STYLE_FALLBACK = "border-line-strong bg-surface-warm text-ink-subtle";
 
 export function SeverityBadge({
   severity,
@@ -168,28 +237,22 @@ export function SeverityBadge({
   severity: Severity;
   className?: string;
 }) {
+  const { label, icon } = severityDisplay(severity);
   return (
     <span
+      data-severity={severity}
       className={cx(
-        "inline-flex min-h-6 items-center rounded-full border px-2.5 py-0.5 text-xs font-bold tracking-tight",
-        SEV_STYLE[severity],
+        BADGE_BASE,
+        "tracking-tight",
+        ownValue(SEV_STYLE, severity) ?? SEV_STYLE_FALLBACK,
         className,
       )}
     >
-      {SEV_LABEL[severity]}
+      <SeverityIcon shape={icon} />
+      {label}
     </span>
   );
 }
-
-export const STATUS_LABEL: Record<FindingStatus, string> = {
-  detected: "고치면 좋은 부분을 찾았어요",
-  verified: "문제가 실제 생기는 것을 확인했어요",
-  fixing: "고치는 중이에요",
-  fixed: "수정 내용을 적용했어요",
-  verification_failed: "아직 완전히 막히지 않았어요",
-  regression_failed: "기존 기능 하나를 다시 확인해야 해요",
-  resolved: "고친 내용이 잘 막히는지 확인했어요",
-};
 
 const STATUS_TONE: Record<FindingStatus, BadgeTone> = {
   detected: "neutral",
@@ -209,22 +272,11 @@ export function StatusBadge({
   className?: string;
 }) {
   return (
-    <Badge tone={STATUS_TONE[status]} className={className}>
-      {STATUS_LABEL[status]}
+    <Badge tone={ownValue(STATUS_TONE, status) ?? "neutral"} className={className}>
+      {statusLabel(status)}
     </Badge>
   );
 }
-
-export const TEST_STATUS_LABEL: Record<TestStatus, string> = {
-  CONFIRMED: "문제가 생기는 것을 확인했어요",
-  SUSPECTED: "조금 더 확인이 필요해요",
-  NOT_DETECTED: "이번 점검에서는 찾지 못했어요",
-  NOT_APPLICABLE: "이 프로젝트에는 해당하지 않아요",
-  NOT_TESTED: "아직 확인하지 않았어요",
-  TEST_FAILED: "점검을 마치지 못했어요",
-  FIXED_VERIFIED: "수정 후 잘 막히는 것을 확인했어요",
-  REGRESSION_FAILED: "기존 기능을 다시 확인해야 해요",
-};
 
 const TEST_STATUS_TONE: Record<TestStatus, BadgeTone> = {
   CONFIRMED: "warning",
@@ -245,11 +297,15 @@ export function TestStatusBadge({
   className?: string;
 }) {
   return (
-    <Badge tone={TEST_STATUS_TONE[status]} className={className}>
-      {TEST_STATUS_LABEL[status]}
+    <Badge tone={ownValue(TEST_STATUS_TONE, status) ?? "neutral"} className={className}>
+      {testStatusLabel(status)}
     </Badge>
   );
 }
+
+// ─────────────────────────────────────────────────────────────
+// 코드 근거 (설계 2-4)
+// ─────────────────────────────────────────────────────────────
 
 export interface CodeEvidenceProps {
   label?: string;
@@ -258,39 +314,33 @@ export interface CodeEvidenceProps {
   className?: string;
 }
 
+const CODE_BORDER: Record<NonNullable<CodeEvidenceProps["tone"]>, string> = {
+  default: "border-[#5b4d44]",
+  danger: "border-[#e38b80]",
+  success: "border-[#7fbf8e]",
+};
+
+/** 전달받은 문자열을 가공 없이 그대로 출력한다(마스킹 보존, 요구사항 8.10). */
 export function CodeEvidence({
   label,
   content,
   tone = "default",
   className = "",
 }: CodeEvidenceProps) {
-  const border =
-    tone === "danger"
-      ? "border-red-400"
-      : tone === "success"
-        ? "border-green-500"
-        : "border-[#5b4d44]";
-  const marker =
-    tone === "danger"
-      ? "text-red-200"
-      : tone === "success"
-        ? "text-green-200"
-        : "text-[#ead9ca]";
-
   return (
     <div
       className={cx(
-        "overflow-hidden rounded-2xl border bg-code text-[#fffaf2] shadow-sm",
-        border,
+        "overflow-hidden rounded-2xl border bg-code text-code-text shadow-warm",
+        CODE_BORDER[tone] ?? CODE_BORDER.default,
         className,
       )}
     >
       {label && (
         <div className="border-b border-white/15 bg-white/[0.06] px-4 py-2">
-          <span className={cx("text-xs font-bold", marker)}>{label}</span>
+          <span className="text-xs font-bold text-code-muted">{label}</span>
         </div>
       )}
-      <pre className="evidence overflow-x-auto p-4 text-[#fffaf2]">{content}</pre>
+      <pre className="evidence overflow-x-auto p-4 text-code-text">{content}</pre>
     </div>
   );
 }
@@ -299,6 +349,10 @@ export function CodeEvidence({
 export function Evidence(props: CodeEvidenceProps) {
   return <CodeEvidence {...props} />;
 }
+
+// ─────────────────────────────────────────────────────────────
+// 펼침 (설계 2-4) — 네이티브 <details>/<summary>가 Enter/Space 토글과 펼침 상태를 제공한다.
+// ─────────────────────────────────────────────────────────────
 
 export function Disclosure({
   summary,
@@ -312,16 +366,16 @@ export function Disclosure({
   return (
     <details
       className={cx(
-        "group rounded-2xl border border-line bg-white px-4 py-3 open:shadow-warm",
+        "group rounded-2xl border border-line bg-surface px-4 py-3 open:shadow-warm",
         className,
       )}
       {...props}
     >
-      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 font-bold text-ink marker:content-none">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 font-bold text-ink marker:content-none [&::-webkit-details-marker]:hidden">
         <span>{summary}</span>
         <span
           aria-hidden="true"
-          className="text-xl leading-none text-brand-700 transition-transform group-open:rotate-45"
+          className="text-xl leading-none text-brand-800 transition-transform group-open:rotate-45 motion-reduce:transition-none"
         >
           +
         </span>
@@ -333,7 +387,7 @@ export function Disclosure({
 
 export function TechnicalDetails({
   children,
-  summary = "전문가용 정보 펼쳐보기",
+  summary = "기술 정보 보기",
   className = "",
   ...props
 }: Omit<DetailsHTMLAttributes<HTMLDetailsElement>, "children"> & {
@@ -346,6 +400,10 @@ export function TechnicalDetails({
     </Disclosure>
   );
 }
+
+// ─────────────────────────────────────────────────────────────
+// 상태 화면
+// ─────────────────────────────────────────────────────────────
 
 export function EmptyState({
   title,
@@ -366,7 +424,7 @@ export function EmptyState({
       className={cx("hoi-decoration px-5 py-10 text-center sm:px-8", className)}
     >
       {illustration && <div className="mb-4 flex justify-center">{illustration}</div>}
-      <h2 className="text-xl font-extrabold text-ink">{title}</h2>
+      <h2 className="text-xl font-bold text-ink">{title}</h2>
       {description && (
         <div className="mx-auto mt-2 max-w-xl text-sm text-ink-subtle sm:text-base">
           {description}
@@ -392,12 +450,12 @@ export function FriendlyError({
     <div
       role="alert"
       className={cx(
-        "rounded-2xl border border-red-200 bg-danger-soft p-5 text-danger",
+        "rounded-3xl border border-[#f3c4bd] bg-danger-soft p-5 text-danger",
         className,
       )}
     >
-      <p className="font-extrabold">{title}</p>
-      {description && <div className="mt-1 text-sm text-red-800">{description}</div>}
+      <p className="font-bold">{title}</p>
+      {description && <div className="mt-1 text-sm text-ink">{description}</div>}
       {action && <div className="mt-4">{action}</div>}
     </div>
   );
@@ -425,15 +483,24 @@ export function SectionHeader({
     >
       <div className="min-w-0">
         {eyebrow && (
-          <p className="mb-1 text-sm font-extrabold text-brand-700">{eyebrow}</p>
+          <p className="mb-1 text-sm font-bold text-brand-800">{eyebrow}</p>
         )}
-        <h2 className="text-2xl font-black tracking-tight text-ink">{title}</h2>
+        <h2 className="text-2xl font-bold tracking-tight text-ink">{title}</h2>
         {description && <div className="mt-1 text-ink-subtle">{description}</div>}
       </div>
       {action && <div className="shrink-0">{action}</div>}
     </div>
   );
 }
+
+const METRIC_ACCENT: Record<BadgeTone, string> = {
+  neutral: "bg-line-strong",
+  primary: "bg-brand-500",
+  info: "bg-info",
+  success: "bg-success",
+  warning: "bg-warning",
+  danger: "bg-danger",
+};
 
 export function MetricCard({
   label,
@@ -448,21 +515,12 @@ export function MetricCard({
   tone?: BadgeTone;
   className?: string;
 }) {
-  const accent: Record<BadgeTone, string> = {
-    neutral: "bg-surface-warm",
-    primary: "bg-primary-soft",
-    info: "bg-info-soft",
-    success: "bg-success-soft",
-    warning: "bg-warning-soft",
-    danger: "bg-danger-soft",
-  };
-
   return (
     <Card variant="raised" className={cx("overflow-hidden p-0", className)}>
-      <div className={cx("h-2", accent[tone])} aria-hidden="true" />
+      <div className={cx("h-2", METRIC_ACCENT[tone] ?? METRIC_ACCENT.neutral)} aria-hidden="true" />
       <div className="p-5">
         <p className="text-sm font-bold text-ink-subtle">{label}</p>
-        <div className="mt-1 text-3xl font-black tracking-tight text-ink">{value}</div>
+        <div className="mt-1 text-3xl font-bold tracking-tight text-ink">{value}</div>
         {hint && <div className="mt-2 text-sm text-ink-muted">{hint}</div>}
       </div>
     </Card>

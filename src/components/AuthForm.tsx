@@ -1,11 +1,15 @@
-"use client";
+﻿"use client";
 
+import { useEffect, useRef } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import Link from "next/link";
 import { Button } from "@/components/ui";
 import type { AuthState } from "@/lib/authActions";
 
 type Mode = "login" | "signup";
+
+/** 오류 문장 다음에 붙는 다음 행동 안내. 이메일 등록 여부를 드러내지 않는 일반 문장만 쓴다(요구사항 10.5). */
+const NEXT_ACTION = "입력한 내용을 확인하고 다시 시도해 주세요.";
 
 function SubmitButton({ label }: { label: string }) {
   const { pending } = useFormStatus();
@@ -30,20 +34,28 @@ export function AuthForm({
   action: (prev: AuthState, formData: FormData) => Promise<AuthState>;
 }) {
   const [state, formAction] = useFormState<AuthState, FormData>(action, undefined);
+  const formRef = useRef<HTMLFormElement>(null);
   const isSignup = mode === "signup";
   const errorId = state?.error ? `${mode}-form-error` : undefined;
 
+  // 검증 실패 시 입력값은 그대로 두고, 오류가 연결된 첫 입력 필드로 포커스를 옮긴다(요구사항 11.9).
+  useEffect(() => {
+    if (!state?.error) return;
+    const firstInvalid = formRef.current?.querySelector<HTMLInputElement>('input[aria-invalid="true"]');
+    firstInvalid?.focus();
+  }, [state]);
+
   return (
-    <form action={formAction} className="space-y-5" aria-describedby={errorId}>
+    <form ref={formRef} action={formAction} className="space-y-5" aria-describedby={errorId}>
       {state?.error && (
         <div
           id={errorId}
           role="alert"
           aria-live="assertive"
-          className="rounded-2xl border border-red-200 bg-danger-soft px-4 py-3 text-sm font-medium leading-relaxed text-danger"
+          className="rounded-2xl border border-[#f3c4bd] bg-danger-soft px-4 py-3 text-base leading-relaxed"
         >
-          <p className="font-extrabold">입력한 내용을 다시 확인해 주세요</p>
-          <p className="mt-1">{state.error}</p>
+          <p className="font-bold text-danger">{state.error}</p>
+          <p className="mt-1 text-ink">{NEXT_ACTION}</p>
         </div>
       )}
 
@@ -99,18 +111,18 @@ export function AuthForm({
 
       <SubmitButton label={isSignup ? "계정 만들고 시작하기" : "로그인하고 이어가기"} />
 
-      <p className="text-center text-sm text-ink-subtle">
+      <p className="text-center text-base text-ink-subtle">
         {isSignup ? (
           <>
             이미 계정이 있나요?{" "}
-            <Link href="/login" className="inline-flex min-h-11 items-center font-extrabold text-brand-700 hover:underline">
+            <Link href="/login" className="inline-flex min-h-11 items-center font-bold text-brand-800 underline-offset-4 hover:underline">
               로그인하기
             </Link>
           </>
         ) : (
           <>
             아직 계정이 없나요?{" "}
-            <Link href="/signup" className="inline-flex min-h-11 items-center font-extrabold text-brand-700 hover:underline">
+            <Link href="/signup" className="inline-flex min-h-11 items-center font-bold text-brand-800 underline-offset-4 hover:underline">
               계정 만들기
             </Link>
           </>
@@ -137,14 +149,15 @@ function Field({
 
   return (
     <div>
-      <label htmlFor={id} className="mb-2 flex items-baseline justify-between gap-3 text-base font-extrabold text-ink">
+      <label htmlFor={id} className="mb-2 flex items-baseline justify-between gap-3 text-base font-bold text-ink">
         <span>{label}</span>
-        {optional && <span className="text-xs font-medium text-ink-muted">선택</span>}
+        {optional && <span className="text-sm font-medium text-ink-muted">선택</span>}
       </label>
+      {/* outline-none을 쓰지 않아 전역 포커스 링(--focus)이 그대로 보인다(요구사항 11.3). */}
       <input
         id={id}
         name={id}
-        className="min-h-12 w-full rounded-2xl border border-line-strong bg-white px-4 py-3 text-base text-ink shadow-sm outline-none transition-colors hover:border-brand-500 focus:border-brand-700 focus:ring-2 focus:ring-primary-soft"
+        className="min-h-12 w-full rounded-2xl border-2 border-line-input bg-surface px-4 py-3 text-base text-ink transition-colors placeholder:text-ink-muted hover:border-brand-500 aria-[invalid=true]:border-danger"
         {...props}
         aria-describedby={describedBy}
       />

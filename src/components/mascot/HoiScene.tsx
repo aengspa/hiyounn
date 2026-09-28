@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+﻿import type { ReactNode } from "react";
 import { Hoi, type HoiMood, type HoiSize } from "./Hoi";
 
 export interface HoiSceneProps {
@@ -29,7 +29,7 @@ export function HoiScene({
     >
       <Hoi mood={mood} size={size} />
       <div className="min-w-0 max-w-xl">
-        <Heading className="break-keep text-2xl font-black tracking-tight text-ink">{title}</Heading>
+        <Heading className="break-keep text-2xl font-bold tracking-tight text-ink">{title}</Heading>
         {description && (
           <div className="mt-2 break-words text-ink-subtle">{description}</div>
         )}

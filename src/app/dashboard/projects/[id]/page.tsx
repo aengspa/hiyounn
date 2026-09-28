@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { HoiSpeech } from "@/components/mascot/HoiSpeech";
@@ -88,7 +88,7 @@ export default async function ProjectPage({
             <a
               key={href}
               href={href}
-              className="inline-flex min-h-11 shrink-0 items-center rounded-full border border-line bg-white px-4 text-sm font-bold text-ink-subtle hover:border-orange-300 hover:text-brand-800"
+              className="inline-flex min-h-11 shrink-0 items-center rounded-full border border-line bg-white px-4 text-sm font-bold text-ink-subtle hover:border-brand-300 hover:text-brand-800"
             >
               {label}
             </a>
@@ -110,7 +110,7 @@ export default async function ProjectPage({
 
           {drift && (
             <Card variant="danger" className="mt-5 p-5" role="status">
-              <p className="font-extrabold text-red-800">최근 결과가 현재 코드와 다를 수 있어요</p>
+              <p className="font-semibold text-red-800">최근 결과가 현재 코드와 다를 수 있어요</p>
               <p className="mt-1 text-sm leading-relaxed text-red-700">
                 마지막 점검 커밋 <code className="break-all font-mono">{project.lastScannedCommit}</code> 이후
                 현재 커밋 <code className="break-all font-mono">{project.currentCommit}</code>으로 바뀌었어요.
@@ -159,7 +159,7 @@ export default async function ProjectPage({
                       {latestOpen > 0 ? `해결 대기 ${latestOpen}건` : "모두 해결 확인"}
                     </Badge>
                   </div>
-                  <h3 className="mt-3 text-xl font-black text-ink">
+                  <h3 className="mt-3 text-xl font-bold text-ink">
                     {new Date(latest.scan.startedAt).toLocaleString("ko-KR")} 점검
                   </h3>
                   <p className="mt-1 break-words text-sm text-ink-subtle">
@@ -178,7 +178,7 @@ export default async function ProjectPage({
             <EmptyState
               className="mt-5"
               title="아직 찾은 내용이 없어요"
-              description="아직 점검하지 않았다는 뜻이며, 안전을 보장하는 결과는 아니에요. 위의 ‘보안 점검 시작’으로 확인해 주세요."
+              description="아직 점검하지 않았다는 뜻이며, 위험이 없다는 결과는 아니에요. 위의 ‘보안 점검 시작’으로 확인해 주세요."
             />
           )}
         </section>
@@ -197,12 +197,12 @@ export default async function ProjectPage({
                 <Link
                   key={scan.id}
                   href={`/dashboard/scans/${scan.id}`}
-                  className="group flex min-h-20 flex-col gap-3 rounded-3xl border border-line bg-white p-5 shadow-warm transition hover:border-orange-300 sm:flex-row sm:items-center sm:justify-between"
+                  className="group flex min-h-20 flex-col gap-3 rounded-xl border border-line bg-white p-5 shadow-warm transition hover:border-brand-300 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       {index === 0 && <Badge tone="primary">가장 최근</Badge>}
-                      <p className="font-extrabold text-ink">
+                      <p className="font-semibold text-ink">
                         {new Date(scan.startedAt).toLocaleString("ko-KR")}
                       </p>
                     </div>
@@ -232,7 +232,7 @@ export default async function ProjectPage({
           {modeInfo && (
             <Card variant="raised" className="mt-5 p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="font-extrabold text-ink">
+                <p className="font-semibold text-ink">
                   보안 스캔 방식: <span className="text-brand-800">{modeInfo.letter} · {modeInfo.title}</span>
                 </p>
                 <Badge tone={project.scanMode === "isolated_active" ? "danger" : project.scanMode === "safe_active" ? "warning" : "success"}>
@@ -253,7 +253,7 @@ export default async function ProjectPage({
           )}
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             <Card variant="warm" className="p-5">
-              <p className="font-extrabold text-ink">소스 코드 점검</p>
+              <p className="font-semibold text-ink">소스 코드 점검</p>
               <p className="mt-2 text-sm leading-relaxed text-ink-subtle">
                 {sourceReady
                   ? project.isDemo
@@ -267,7 +267,7 @@ export default async function ProjectPage({
               </p>
             </Card>
             <Card variant="warm" className="p-5">
-              <p className="font-extrabold text-ink">배포 주소 능동 점검</p>
+              <p className="font-semibold text-ink">배포 주소 능동 점검</p>
               <p className="mt-2 text-sm leading-relaxed text-ink-subtle">
                 {!project.deploymentUrl
                   ? "배포 주소가 없어 네트워크 점검 대상이 없어요."

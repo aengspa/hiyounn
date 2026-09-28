@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { buttonClassName } from "@/components/ui";
 
 interface Props {
@@ -20,7 +20,7 @@ export function PageHeader({
   children,
 }: Props) {
   return (
-    <header className="sticky top-0 z-10 border-b border-line bg-[#fffaf2]/90 backdrop-blur-lg">
+    <header className="sticky top-0 z-10 border-b border-line bg-[#F8F7F2]/90 backdrop-blur-lg">
       <div className="mx-auto max-w-6xl px-4 py-3 sm:px-6 sm:py-4">
         {backHref && (
           <Link
@@ -33,7 +33,7 @@ export function PageHeader({
         )}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="min-w-0">
-            <h1 className="break-words text-xl font-black tracking-tight text-ink sm:text-2xl">
+            <h1 className="break-words text-xl font-bold tracking-tight text-ink sm:text-2xl">
               {title}
             </h1>
             {subtitle && (
