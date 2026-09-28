@@ -61,6 +61,7 @@ import type {
   Target,
   Tier,
 } from "@/lib/rules/types";
+import { ASVS5_RULES } from "@/lib/rules/asvs5Catalog";
 
 type RuleDef = Omit<SecurityRule, "mode">;
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1862,14 +1863,17 @@ export const MODE_C_RULES: SecurityRule[] = withMode("C", [
 // 모드 선택
 // ═════════════════════════════════════════════════════════════════════════════
 
+/** 모드 A 규칙 + ASVS 5.0.0 자동화 가능 정적 신호 규칙(모두 PASSIVE). */
+const MODE_A_WITH_ASVS: SecurityRule[] = [...MODE_A_RULES, ...ASVS5_RULES];
+
 export const RULES: SecurityRule[] = [
-  ...MODE_A_RULES,
+  ...MODE_A_WITH_ASVS,
   ...MODE_B_RULES,
   ...MODE_C_RULES,
 ];
 
 export const RULES_BY_MODE: Record<ScanMode, SecurityRule[]> = {
-  A: MODE_A_RULES,
+  A: MODE_A_WITH_ASVS,
   B: MODE_B_RULES,
   C: MODE_C_RULES,
 };

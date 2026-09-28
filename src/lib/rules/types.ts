@@ -37,6 +37,7 @@ export type Framework =
   | "CWE"
   | "CAPEC"
   | "OWASP_TOP_10"
+  | "OWASP_ASVS"
   | "OWASP_API_SECURITY_TOP_10"
   | "OWASP_LLM_TOP_10"
   | "MITRE_ATTACK"

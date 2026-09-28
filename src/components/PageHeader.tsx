@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { buttonClassName } from "@/components/ui";
 
 interface Props {
   title: string;
@@ -9,7 +10,7 @@ interface Props {
   children?: React.ReactNode;
 }
 
-/** 앱 상단바 느낌의 페이지 헤더. 사이드바 레이아웃과 함께 사용. */
+/** 기존 props 계약을 유지하는 반응형 페이지 헤더. */
 export function PageHeader({
   title,
   subtitle,
@@ -19,34 +20,41 @@ export function PageHeader({
   children,
 }: Props) {
   return (
-    <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/85 backdrop-blur">
-      <div className="mx-auto max-w-6xl px-6 py-4">
+    <header className="sticky top-0 z-10 border-b border-line bg-[#fffaf2]/90 backdrop-blur-lg">
+      <div className="mx-auto max-w-6xl px-4 py-3 sm:px-6 sm:py-4">
         {backHref && (
           <Link
             href={backHref}
-            className="mb-1 inline-block text-sm text-brand-600 hover:underline"
+            className="mb-1 inline-flex min-h-11 items-center rounded-xl pr-3 text-sm font-bold text-brand-700 hover:text-brand-900 hover:underline"
+            aria-label={`${backLabel ?? "뒤로"} 이동`}
           >
-            ← {backLabel ?? "뒤로"}
+            <span aria-hidden="true">←</span>&nbsp;{backLabel ?? "뒤로"}
           </Link>
         )}
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">{title}</h1>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="min-w-0">
+            <h1 className="break-words text-xl font-black tracking-tight text-ink sm:text-2xl">
+              {title}
+            </h1>
             {subtitle && (
-              <p className="mt-0.5 text-sm text-slate-500">{subtitle}</p>
+              <p className="mt-1 max-w-3xl text-sm leading-relaxed text-ink-subtle sm:text-base">
+                {subtitle}
+              </p>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            {children}
-            {action && (
-              <Link
-                href={action.href}
-                className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
-              >
-                {action.label}
-              </Link>
-            )}
-          </div>
+          {(children || action) && (
+            <div className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:justify-end">
+              {children}
+              {action && (
+                <Link
+                  href={action.href}
+                  className={buttonClassName({ size: "sm" })}
+                >
+                  {action.label}
+                </Link>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </header>

@@ -1,6 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
+import { HoiSpeech } from "@/components/mascot/HoiSpeech";
+import {
+  Badge,
+  Card,
+  EmptyState,
+  MetricCard,
+  SectionHeader,
+  buttonClassName,
+} from "@/components/ui";
 import { getCurrentUserId } from "@/lib/auth";
 import {
   getProject,
@@ -23,159 +32,243 @@ export default async function ProjectPage({
   try {
     project = await getProject(params.id, uid);
   } catch (e) {
-    if (e instanceof NotFoundError || e instanceof NotAuthorizedError)
-      notFound();
+    if (e instanceof NotFoundError || e instanceof NotAuthorizedError) notFound();
     throw e;
   }
+
   const scans = await listScans(params.id, uid);
-  // Precompute per-scan finding counts (JSX can't await).
   const scanSummaries = await Promise.all(
     scans.map(async (scan) => {
       const findings = await getFindingsForScan(scan.id, uid);
       return {
         scan,
         total: findings.length,
-        crit: findings.filter((f) => f.severity === "critical").length,
-        resolved: findings.filter((f) => f.status === "resolved").length,
+        crit: findings.filter((finding) => finding.severity === "critical").length,
+        resolved: findings.filter((finding) => finding.status === "resolved").length,
       };
-    })
+    }),
   );
+
+  const latest = scanSummaries[0];
+  const latestOpen = latest ? latest.total - latest.resolved : 0;
   const drift =
     project.lastScannedCommit &&
     project.currentCommit &&
     project.lastScannedCommit !== project.currentCommit;
+  const sourceReady = project.isDemo || Boolean(project.sourceCode);
+  const activeCheckReady =
+    Boolean(project.deploymentUrl) && Boolean(project.deploymentAuthorized);
 
   return (
     <>
       <PageHeader
         title={project.name}
-        subtitle={project.repositoryUrl ?? "저장소 없음"}
+        subtitle="현재 상태를 확인하고, 호이와 함께 다음 점검을 시작해요."
         backHref="/dashboard"
-        backLabel="프로젝트"
+        backLabel="내 프로젝트"
       >
         <RunScanButton projectId={project.id} />
       </PageHeader>
 
-      <main className="mx-auto max-w-5xl px-6 py-8">
-        {drift && (
-          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
-            <p className="font-medium text-amber-900">
-              보안 검증 결과가 오래됐을 수 있습니다
-            </p>
-            <p className="mt-1 text-sm text-amber-800">
-              마지막으로 검증한 이후 코드가 변경되었습니다. 마지막 검증 커밋{" "}
-              <code className="font-mono">{project.lastScannedCommit}</code>, 현재
-              커밋 <code className="font-mono">{project.currentCommit}</code>. 다시
-              스캔해 재검증하세요.
-            </p>
+      <div className="mx-auto max-w-6xl px-4 py-7 sm:px-6 sm:py-10">
+        <nav
+          aria-label="프로젝트 상세 바로가기"
+          className="mb-7 flex gap-2 overflow-x-auto pb-2"
+        >
+          {[
+            ["#overview", "한눈에 보기"],
+            ["#findings", "찾은 내용"],
+            ["#history", "점검 기록"],
+            ["#settings", "설정"],
+          ].map(([href, label]) => (
+            <a
+              key={href}
+              href={href}
+              className="inline-flex min-h-11 shrink-0 items-center rounded-full border border-line bg-white px-4 text-sm font-bold text-ink-subtle hover:border-orange-300 hover:text-brand-800"
+            >
+              {label}
+            </a>
+          ))}
+        </nav>
+
+        <section id="overview" className="scroll-mt-32" aria-labelledby="overview-title">
+          <HoiSpeech mood={drift || latestOpen > 0 ? "guide" : "cheer"} size="md">
+            <span id="overview-title">
+              {drift
+                ? "코드가 마지막 점검 뒤 바뀌었어요. 최신 코드로 다시 확인하는 게 가장 먼저예요."
+                : latestOpen > 0
+                  ? `최근 점검에서 아직 확인할 내용이 ${latestOpen}건 있어요. 급한 항목부터 하나씩 해결해요.`
+                  : latest
+                    ? "최근 점검에서 해결을 기다리는 항목이 없어요. 코드가 바뀌면 다시 점검해 주세요."
+                    : "아직 첫 점검 전이에요. 준비된 범위를 확인한 뒤 보안 점검을 시작해요."}
+            </span>
+          </HoiSpeech>
+
+          {drift && (
+            <Card variant="danger" className="mt-5 p-5" role="status">
+              <p className="font-extrabold text-red-800">최근 결과가 현재 코드와 다를 수 있어요</p>
+              <p className="mt-1 text-sm leading-relaxed text-red-700">
+                마지막 점검 커밋 <code className="break-all font-mono">{project.lastScannedCommit}</code> 이후
+                현재 커밋 <code className="break-all font-mono">{project.currentCommit}</code>으로 바뀌었어요.
+                새 점검으로 다시 확인해 주세요.
+              </p>
+            </Card>
+          )}
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            <MetricCard
+              label="프로젝트 상태"
+              value={drift ? "다시 점검해요" : sourceReady ? "점검 준비됨" : "소스 연결 필요"}
+              hint={drift ? "현재 코드와 최근 결과가 달라요" : "연결된 입력 기준"}
+              tone={drift ? "warning" : sourceReady ? "success" : "neutral"}
+            />
+            <MetricCard
+              label="최근 점검"
+              value={latest ? `${latest.total}건 발견` : "기록 없음"}
+              hint={latest ? new Date(latest.scan.startedAt).toLocaleString("ko-KR") : "첫 점검을 시작해 보세요"}
+              tone={latest?.crit ? "danger" : "neutral"}
+            />
+            <MetricCard
+              label="실제 해결 진행"
+              value={latest ? `${latest.resolved} / ${latest.total}건` : "—"}
+              hint={latest ? "수정 후 재검증까지 마친 항목" : "점검 뒤 표시돼요"}
+              tone={latest && latest.total > 0 && latest.resolved === latest.total ? "success" : "primary"}
+            />
           </div>
-        )}
+        </section>
 
-        {/* 입력 연결 상태를 정직하게 표시 — 무엇이 검사되고 무엇이 안 되는지. */}
-        {!project.isDemo && (
-          <div className="mb-6 space-y-2">
-            {!project.sourceCode && (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <p className="font-medium text-slate-800">소스가 연결되지 않았습니다</p>
-                <p className="mt-1 text-sm text-slate-600">
-                  이 프로젝트에는 검사할 소스 코드가 없습니다. 정적 분석(IDOR·XSS·
-                  인젝션·시크릿)을 실행하려면 프로젝트를 다시 만들 때 ZIP을 업로드하거나
-                  코드를 붙여넣으세요.
-                </p>
-              </div>
-            )}
-            {project.deploymentUrl && !project.deploymentAuthorized && (
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <p className="font-medium text-slate-800">배포 능동 점검 미승인</p>
-                <p className="mt-1 text-sm text-slate-600">
-                  배포 주소가 있지만 소유권 확인을 하지 않아 능동(네트워크) 점검은
-                  실행되지 않습니다. 소스 정적 분석만 수행됩니다.
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="grid gap-4 sm:grid-cols-4">
-          <Stat label="배포 주소" value={project.deploymentUrl ?? "—"} />
-          <Stat
-            label="마지막 스캔 커밋"
-            value={project.lastScannedCommit ?? "—"}
-            mono
+        <section id="findings" className="scroll-mt-32 pt-12" aria-labelledby="findings-title">
+          <SectionHeader
+            eyebrow="지금 볼 내용"
+            title={<span id="findings-title">찾은 내용</span>}
+            description="가장 최근 점검에서 확인한 결과예요. 해결 완료는 재검증까지 통과한 항목만 셉니다."
           />
-          <Stat label="현재 커밋" value={project.currentCommit ?? "—"} mono />
-          <Stat
-            label="마지막 스캔"
-            value={
-              project.lastScanDate
-                ? new Date(project.lastScanDate).toLocaleString("ko-KR")
-                : "없음"
-            }
-          />
-        </div>
+          {latest ? (
+            <Card variant="raised" className="mt-5 p-5 sm:p-6">
+              <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge tone={latest.crit > 0 ? "danger" : "success"}>
+                      {latest.crit > 0 ? `매우 급한 항목 ${latest.crit}건` : "매우 급한 항목 없음"}
+                    </Badge>
+                    <Badge tone={latestOpen > 0 ? "warning" : "success"}>
+                      {latestOpen > 0 ? `해결 대기 ${latestOpen}건` : "모두 해결 확인"}
+                    </Badge>
+                  </div>
+                  <h3 className="mt-3 text-xl font-black text-ink">
+                    {new Date(latest.scan.startedAt).toLocaleString("ko-KR")} 점검
+                  </h3>
+                  <p className="mt-1 break-words text-sm text-ink-subtle">
+                    점검 커밋 <code className="break-all font-mono">{latest.scan.commitSha ?? "기록 없음"}</code>
+                  </p>
+                </div>
+                <Link
+                  href={`/dashboard/scans/${latest.scan.id}`}
+                  className={buttonClassName({ className: "w-full sm:w-auto" })}
+                >
+                  최근 결과 보기
+                </Link>
+              </div>
+            </Card>
+          ) : (
+            <EmptyState
+              className="mt-5"
+              title="아직 찾은 내용이 없어요"
+              description="아직 점검하지 않았다는 뜻이며, 안전을 보장하는 결과는 아니에요. 위의 ‘보안 점검 시작’으로 확인해 주세요."
+            />
+          )}
+        </section>
 
-        <h2 className="mt-10 text-lg font-semibold text-slate-900">스캔 기록</h2>
-        {scans.length === 0 ? (
-          <p className="mt-2 text-slate-600">
-            아직 스캔 기록이 없습니다. 첫 보안 스캔을 실행하세요.
-          </p>
-        ) : (
-          <div className="mt-3 divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
-            {scanSummaries.map(({ scan, total, crit, resolved }) => {
-              return (
+        <section id="history" className="scroll-mt-32 pt-12" aria-labelledby="history-title">
+          <SectionHeader
+            eyebrow="변화 확인"
+            title={<span id="history-title">점검 기록</span>}
+            description="점검 시점의 코드와 해결 진행을 비교할 수 있어요."
+          />
+          {scanSummaries.length === 0 ? (
+            <p className="mt-4 text-ink-subtle">첫 점검을 실행하면 기록이 여기에 쌓여요.</p>
+          ) : (
+            <div className="mt-5 space-y-3">
+              {scanSummaries.map(({ scan, total, crit, resolved }, index) => (
                 <Link
                   key={scan.id}
                   href={`/dashboard/scans/${scan.id}`}
-                  className="flex items-center justify-between px-5 py-4 hover:bg-slate-50"
+                  className="group flex min-h-20 flex-col gap-3 rounded-3xl border border-line bg-white p-5 shadow-warm transition hover:border-orange-300 sm:flex-row sm:items-center sm:justify-between"
                 >
-                  <div>
-                    <p className="font-medium text-slate-900">
-                      {new Date(scan.startedAt).toLocaleString("ko-KR")}
-                    </p>
-                    <p className="text-sm text-slate-500">
-                      커밋 <span className="font-mono">{scan.commitSha}</span> ·{" "}
-                      {total}건 발견
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {index === 0 && <Badge tone="primary">가장 최근</Badge>}
+                      <p className="font-extrabold text-ink">
+                        {new Date(scan.startedAt).toLocaleString("ko-KR")}
+                      </p>
+                    </div>
+                    <p className="mt-1 break-words text-sm text-ink-muted">
+                      커밋 <span className="break-all font-mono">{scan.commitSha ?? "기록 없음"}</span>
                     </p>
                   </div>
-                  <div className="text-sm text-slate-600">
-                    {crit > 0 ? (
-                      <span className="font-medium text-red-600">
-                        심각 {crit}건
-                      </span>
-                    ) : (
-                      <span>심각 없음</span>
-                    )}
-                    {resolved > 0 && (
-                      <span className="ml-3 text-emerald-600">
-                        검증 완료 {resolved}건
-                      </span>
-                    )}
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <Badge tone={crit > 0 ? "danger" : "neutral"}>매우 급함 {crit}건</Badge>
+                    <Badge tone={resolved === total && total > 0 ? "success" : "info"}>
+                      해결 확인 {resolved}/{total}건
+                    </Badge>
+                    <span className="font-bold text-brand-700 group-hover:underline">결과 보기 →</span>
                   </div>
                 </Link>
-              );
-            })}
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section id="settings" className="scroll-mt-32 pt-12" aria-labelledby="settings-title">
+          <SectionHeader
+            eyebrow="점검 입력"
+            title={<span id="settings-title">설정</span>}
+            description="어떤 자료와 권한으로 점검하는지 확인해요. 기술 식별자는 필요할 때만 펼쳐보세요."
+          />
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <Card variant="warm" className="p-5">
+              <p className="font-extrabold text-ink">소스 코드 점검</p>
+              <p className="mt-2 text-sm leading-relaxed text-ink-subtle">
+                {sourceReady
+                  ? project.isDemo
+                    ? "데모 전용 예제 소스를 읽기 전용으로 점검해요."
+                    : project.sourceZipName
+                      ? `${project.sourceZipName}에서 제공된 소스를 읽기 전용으로 점검해요.`
+                      : "붙여넣은 소스를 읽기 전용으로 점검해요."
+                  : "연결된 소스가 없어 정적 분석을 실행할 수 없어요. 새 프로젝트에서 ZIP을 올리거나 코드를 붙여넣어 주세요."}
+              </p>
+            </Card>
+            <Card variant="warm" className="p-5">
+              <p className="font-extrabold text-ink">배포 주소 능동 점검</p>
+              <p className="mt-2 text-sm leading-relaxed text-ink-subtle">
+                {!project.deploymentUrl
+                  ? "배포 주소가 없어 네트워크 점검 대상이 없어요."
+                  : activeCheckReady
+                    ? "소유·점검 권한을 확인한 배포 주소에 허용된 비파괴 점검만 실행해요."
+                    : "배포 주소는 있지만 소유·점검 권한 승인이 없어 능동 점검은 실행하지 않아요. 소스 정적 분석만 진행해요."}
+              </p>
+            </Card>
           </div>
-        )}
-      </main>
+          <details className="mt-4 rounded-2xl border border-line bg-white px-5 py-3">
+            <summary className="flex min-h-11 cursor-pointer items-center font-bold text-ink">기술 메타데이터 보기</summary>
+            <dl className="grid gap-4 border-t border-line py-4 text-sm sm:grid-cols-2">
+              <Meta label="저장소" value={project.repositoryUrl ?? "연결 안 됨"} />
+              <Meta label="배포 주소" value={project.deploymentUrl ?? "연결 안 됨"} />
+              <Meta label="마지막 점검 커밋" value={project.lastScannedCommit ?? "기록 없음"} mono />
+              <Meta label="현재 커밋" value={project.currentCommit ?? "기록 없음"} mono />
+            </dl>
+          </details>
+        </section>
+      </div>
     </>
   );
 }
 
-function Stat({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
+function Meta({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <p className="text-xs tracking-wide text-slate-400">{label}</p>
-      <p className={`mt-1 truncate text-slate-800 ${mono ? "font-mono text-sm" : ""}`}>
-        {value}
-      </p>
+    <div className="min-w-0">
+      <dt className="font-bold text-ink-muted">{label}</dt>
+      <dd className={`mt-1 break-all text-ink ${mono ? "font-mono text-xs" : ""}`}>{value}</dd>
     </div>
   );
 }

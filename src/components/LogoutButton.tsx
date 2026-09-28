@@ -1,16 +1,14 @@
 "use client";
 
 import { logoutAction } from "@/lib/authActions";
+import { Button } from "@/components/ui";
 
 export function LogoutButton() {
   return (
     <form action={logoutAction}>
-      <button
-        type="submit"
-        className="rounded-md border border-slate-300 px-3 py-1.5 text-slate-600 hover:bg-slate-100"
-      >
+      <Button type="submit" variant="secondary" size="sm">
         로그아웃
-      </button>
+      </Button>
     </form>
   );
 }

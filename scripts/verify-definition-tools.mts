@@ -31,7 +31,7 @@ async function run(id: string, checkId: string, context: ProjectContext, fetcher
 
 async function main() {
   test("46 definitions and every new tool check load without schema errors", () => {
-    assert.equal(RULES.length, 46); assert.deepEqual(registryErrors(), []);
+    assert.equal(RULES.filter((rule) => !rule.id.startsWith("ASVS5-")).length, 46); // ASVS 5.0 정적 규칙은 별도 카탈로그 assert.deepEqual(registryErrors(), []);
     for (const r of RULES) for (const check of r.checks) if (check.toolId in NEW_TOOL_CHECKS) {
       assert.ok(getTool(check.toolId)?.implementation); assert.ok(supportsNewToolCheck(check));
     }

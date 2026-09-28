@@ -8,6 +8,7 @@ import { AuthorizationScanner } from "@/lib/scanners/authorizationScanner";
 import { DependencyScanner } from "@/lib/scanners/dependencyScanner";
 import { BaaSConfigScanner } from "@/lib/scanners/baasScanner";
 import { StaticWebScanner } from "@/lib/scanners/staticWebScanner";
+import { Asvs5Scanner } from "@/lib/scanners/asvs5Scanner";
 import { ExposedEndpointScanner } from "@/lib/scanners/exposedEndpointScanner";
 import { TlsScanner } from "@/lib/scanners/tlsScanner";
 import { UserEnumerationScanner } from "@/lib/scanners/userEnumerationScanner";
@@ -26,6 +27,7 @@ import { getRule, getRules, registryDigest, POLICY_VERSION } from "@/lib/rules/r
 import { ruleForScanner, ruleIdForVerificationKey, STATIC_WEB_RULES } from "@/lib/rules/scannerBinding";
 import { assertRegisteredRule, assertRegisteredTool, assertTierAllowed, assertNonDestructive, evaluatePrerequisites, GateError } from "@/lib/rules/executionGate";
 import type { SecurityRule } from "@/lib/rules/types";
+import { ASVS5_STATIC_SIGNALS } from "@/lib/rules/asvs5Catalog";
 
 const UNTESTED_CATEGORIES = ["Complex Business Logic", "Social Engineering", "DDoS", "Internal Infrastructure", "Advanced Supply Chain Attacks"];
 
@@ -41,6 +43,8 @@ const LEGACY_CHECKS: Record<string, readonly string[]> = {
   "tls-scanner": ["WEB-009/probe-tls"],
   "bruteforce-scanner": ["WEB-011/probe-bruteforce"],
   "cookie-scanner": ["WEB-012/probe-cookie-flags"],
+  // ASVS 5.0.0 자동화 가능 정적 신호(모드 A).
+  "asvs5-static-scanner": ASVS5_STATIC_SIGNALS.map((s) => `${s.ruleId}/scan-${s.key}`),
 };
 
 export class SecurityOrchestrator {
@@ -49,7 +53,7 @@ export class SecurityOrchestrator {
   constructor(scanners?: SecurityScanner[], private readonly toolFetch?: ProbeFetch,
     private readonly ownershipVerifier: (context: ProjectContext) => Promise<boolean> = verifyTargetOwnership) {
     this.scanners = scanners ?? [new SecretScanner(), new DependencyScanner(), new BaaSConfigScanner(),
-      new AuthorizationScanner(), new StaticWebScanner(), new HeaderScanner(), new ExposedEndpointScanner(),
+      new AuthorizationScanner(), new StaticWebScanner(), new Asvs5Scanner(), new HeaderScanner(), new ExposedEndpointScanner(),
       new TlsScanner(), new UserEnumerationScanner(), new BruteForceScanner(), new CookieScanner(),
       new BflaScanner(), new AiCodeScanner()];
   }
@@ -61,7 +65,7 @@ export class SecurityOrchestrator {
     if (key.startsWith("tool:")) return undefined; // No automatic resolution without a dedicated regression contract.
     const names: Record<string, string> = {
       idor: "authorization-scanner", secret: "secret-scanner", headers: "header-cors-scanner", cors: "header-cors-scanner",
-      dep: "dependency-scanner", rls: "baas-config-scanner", xss: "static-web-scanner", inj: "static-web-scanner",
+      dep: "dependency-scanner", rls: "baas-config-scanner", asvs5: "asvs5-static-scanner", xss: "static-web-scanner", inj: "static-web-scanner",
       expose: "static-web-scanner", trav: "static-web-scanner", sidor: "static-web-scanner", exposed: "exposed-endpoint-scanner",
       tls: "tls-scanner", enum: "user-enumeration-scanner", brute: "bruteforce-scanner", cookie: "cookie-scanner", bfla: "bfla-scanner", ai: "ai-code-scanner",
     };
