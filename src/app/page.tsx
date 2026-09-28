@@ -1,95 +1,146 @@
 import Link from "next/link";
 import { TopNav } from "@/components/TopNav";
-import { ShieldIcon } from "@/components/icons";
+import { HoiSpeech } from "@/components/mascot/HoiSpeech";
+import { Card, buttonClassName } from "@/components/ui";
 
-const WORKFLOW = ["스캔", "공격 재현", "수정", "재검증", "확인"];
+const WORKFLOW = [
+  { title: "찾아봐요", description: "코드와 설정에서 살펴볼 곳 찾기" },
+  { title: "영향을 확인해요", description: "내 서비스에 어떤 영향이 있는지 읽기" },
+  { title: "수정안을 만들어요", description: "이해하기 쉬운 수정 방법 받기" },
+  { title: "변경을 검토해요", description: "영향과 되돌림 방법을 직접 확인하기" },
+  { title: "고친 뒤 다시 봐요", description: "같은 문제와 기본 기능을 함께 확인하기" },
+  { title: "결과를 정리해요", description: "확인한 범위와 남은 일을 살펴보기" },
+];
+
+const VALUES = [
+  {
+    number: "01",
+    title: "쉬운 말로 알려드려요",
+    body: "어려운 용어보다 내 서비스와 사용자에게 어떤 영향이 있는지 먼저 설명해 드려요.",
+  },
+  {
+    number: "02",
+    title: "근거를 함께 보여드려요",
+    body: "어디에서 무엇을 확인했는지 살펴볼 수 있도록 코드와 검사 근거를 함께 남겨요.",
+  },
+  {
+    number: "03",
+    title: "고친 뒤 한 번 더 확인해요",
+    body: "같은 문제가 막혔는지와 확인한 정상 기능이 그대로 동작하는지 다시 살펴봐요.",
+  },
+];
 
 export default async function LandingPage() {
   return (
     <>
       <TopNav />
-      <main className="mx-auto max-w-6xl px-6">
-        {/* Hero */}
-        <section className="py-20 text-center">
-          <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50">
-            <ShieldIcon className="h-8 w-8 text-brand-600" />
+      <main id="main-content" className="overflow-hidden">
+        <section className="hoi-decoration mx-auto grid max-w-7xl gap-10 px-4 py-14 sm:px-6 sm:py-20 lg:grid-cols-[1.15fr_0.85fr] lg:items-center lg:px-8 lg:py-24">
+          <div className="relative z-10 min-w-0">
+            <p className="text-sm font-extrabold tracking-wide text-brand-700">
+              바이브 코더를 위한 보안 친구
+            </p>
+            <h1 className="mt-3 max-w-3xl break-keep text-4xl font-black leading-tight tracking-tight text-ink sm:text-5xl lg:text-6xl">
+              내 서비스, 호이와 함께 튼튼하게 만들어요
+            </h1>
+            <p className="mt-6 max-w-2xl break-keep text-lg leading-relaxed text-ink-subtle sm:text-xl">
+              호이가 코드의 약한 곳을 찾아 쉬운 말로 알려드리고, 고친 뒤 같은 문제가
+              잘 막혔는지 한 번 더 확인해요.
+            </p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <Link
+                href="/dashboard/new"
+                className={buttonClassName({ size: "lg", className: "w-full sm:w-auto" })}
+              >
+                내 프로젝트 점검하기
+              </Link>
+              <Link
+                href="/dashboard/quick-check"
+                className={buttonClassName({
+                  variant: "secondary",
+                  size: "lg",
+                  className: "w-full sm:w-auto",
+                })}
+              >
+                코드만 빠르게 확인하기
+              </Link>
+            </div>
+            <p className="mt-4 text-sm font-bold text-ink-muted">
+              어려운 보안 용어는 쉽게 풀어드려요.
+            </p>
           </div>
-          <h1 className="mx-auto max-w-3xl text-5xl font-bold tracking-tight text-slate-900">
-            수정했다고 믿지 마세요. 검증하세요.
-          </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-lg text-slate-600">
-            취약점을 찾고, 수정하고, 실제로 같은 공격을 다시 재현해 막혔는지, 그리고
-            앱의 정상 기능이 여전히 잘 동작하는지까지 검증하는 독립형 보안
-            에이전트입니다.
-          </p>
-          <div className="mt-8 flex items-center justify-center gap-3">
-            <Link
-              href="/dashboard"
-              className="rounded-lg bg-brand-600 px-5 py-3 font-medium text-white hover:bg-brand-700"
-            >
-              대시보드 열기
-            </Link>
-            <Link
-              href="/dashboard/new"
-              className="rounded-lg border border-slate-300 px-5 py-3 font-medium text-slate-700 hover:bg-slate-50"
-            >
-              프로젝트 추가
-            </Link>
+
+          <div className="relative z-10 mx-auto w-full max-w-xl">
+            <HoiSpeech mood="welcome" size="lg" className="items-center">
+              어려운 건 제가 쉽게 설명해 드릴게요!
+            </HoiSpeech>
+            <Card variant="warm" className="mt-5 p-5 sm:ml-16 sm:p-6">
+              <p className="font-extrabold text-ink">고쳤다면 끝! …이 아니라</p>
+              <p className="mt-1 text-sm leading-relaxed text-ink-subtle sm:text-base">
+                정말 잘 막혔는지 호이가 한 번 더 확인해요. 확인한 범위와 자동 점검의
+                한계도 숨기지 않고 함께 알려드릴게요.
+              </p>
+            </Card>
           </div>
         </section>
 
-        {/* Workflow */}
-        <section className="pb-16">
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            {WORKFLOW.map((step, i) => (
-              <div key={step} className="flex items-center gap-3">
-                <div className="rounded-full border border-brand-200 bg-brand-50 px-5 py-2 font-medium text-brand-700">
-                  {step}
-                </div>
-                {i < WORKFLOW.length - 1 && (
-                  <span className="text-slate-400">&rarr;</span>
-                )}
-              </div>
+        <section aria-labelledby="workflow-title" className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
+          <div className="text-center">
+            <p className="text-sm font-extrabold text-brand-700">호이와 걷는 점검 길</p>
+            <h2 id="workflow-title" className="mt-2 text-3xl font-black tracking-tight text-ink sm:text-4xl">
+              한 번에 하나씩, 여섯 걸음으로 확인해요
+            </h2>
+          </div>
+          <ol className="mt-9 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {WORKFLOW.map((step, index) => (
+              <li key={step.title} className="relative min-w-0">
+                <Card variant="raised" className="h-full p-5">
+                  <div className="flex items-start gap-3 lg:block">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm font-black text-brand-900">
+                      {index + 1}
+                    </span>
+                    <div className="min-w-0 lg:mt-4">
+                      <h3 className="text-lg font-black text-ink">{step.title}</h3>
+                      <p className="mt-1 break-keep text-sm leading-relaxed text-ink-subtle">
+                        {step.description}
+                      </p>
+                    </div>
+                  </div>
+                </Card>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        <section aria-labelledby="value-title" className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
+          <h2 id="value-title" className="text-center text-3xl font-black tracking-tight text-ink sm:text-4xl">
+            결과는 친절하게, 근거는 분명하게
+          </h2>
+          <div className="mt-9 grid gap-5 md:grid-cols-3">
+            {VALUES.map((value) => (
+              <Card key={value.title} variant="raised" className="p-6">
+                <span className="text-sm font-black text-brand-700">{value.number}</span>
+                <h3 className="mt-3 text-xl font-black text-ink">{value.title}</h3>
+                <p className="mt-2 break-keep leading-relaxed text-ink-subtle">{value.body}</p>
+              </Card>
             ))}
           </div>
         </section>
 
-        {/* Value props */}
-        <section className="grid gap-6 pb-20 md:grid-cols-3">
-          <Feature
-            title="추측이 아니라 근거"
-            body="모든 발견은 실제 근거로 뒷받침됩니다. 정확한 코드, HTTP 요청과 응답, 그리고 재현된 공격까지 — AI의 짐작이 아닙니다."
-          />
-          <Feature
-            title="검증되기 전엔 끝난 게 아닙니다"
-            body="수정 후 똑같은 공격을 다시 실행합니다. 공격이 막히고 정상 기능도 그대로 동작할 때에만 '검증 완료'로 표시합니다."
-          />
-          <Feature
-            title="쉬운 말로 설명"
-            body="전문 용어(CWE, OWASP)를 보여주기 전에, 당신과 사용자에게 실제로 어떤 피해가 생길 수 있는지 먼저 설명합니다."
-          />
-        </section>
-
-        <section className="mb-24 rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-          <p className="mx-auto max-w-2xl text-xl font-medium text-slate-800">
-            AI로 서비스를 만들 수 있지만, 보안 전문가처럼 코드를 검토하긴 어려운
-            개발자를 위해 만들었습니다.
-          </p>
+        <section className="mx-auto max-w-5xl px-4 pb-20 pt-8 sm:px-6">
+          <Card variant="warm" className="p-6 text-center sm:p-8">
+            <h2 className="text-xl font-black text-ink">자동 점검이 볼 수 있는 범위가 있어요</h2>
+            <p className="mx-auto mt-2 max-w-3xl break-keep leading-relaxed text-ink-subtle">
+              호이가 열심히 살펴보지만 자동 점검만으로 모든 위험을 찾을 수는 없어요.
+              중요한 서비스는 보안 전문가의 검토도 함께 받아보세요.
+            </p>
+          </Card>
         </section>
       </main>
 
-      <footer className="border-t border-slate-200 py-8 text-center text-sm text-slate-500">
-        자동 보안 점검은 모든 취약점을 찾아내지 못합니다.
+      <footer className="border-t border-line bg-white/70 px-4 py-8 text-center text-sm text-ink-muted">
+        확인한 시점과 범위 안의 결과를 솔직하게 안내해 드려요.
       </footer>
     </>
-  );
-}
-
-function Feature({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-      <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-      <p className="mt-2 text-slate-600">{body}</p>
-    </div>
   );
 }

@@ -3,6 +3,16 @@ import { listProjects, listScans, getFindingsForScan } from "@/lib/store/store";
 import { getCurrentUserId } from "@/lib/auth";
 import { SeverityStrip } from "@/components/SeverityStrip";
 import { PageHeader } from "@/components/PageHeader";
+import { Hoi } from "@/components/mascot/Hoi";
+import { HoiSpeech } from "@/components/mascot/HoiSpeech";
+import {
+  Badge,
+  Card,
+  Disclosure,
+  EmptyState,
+  MetricCard,
+  buttonClassName,
+} from "@/components/ui";
 import type { SeverityCounts } from "@/lib/domain/types";
 
 export const dynamic = "force-dynamic";
@@ -11,133 +21,216 @@ function emptyCounts(): SeverityCounts {
   return { critical: 0, high: 0, medium: 0, low: 0 };
 }
 
+function formatDate(value?: string) {
+  if (!value) return "아직 없어요";
+  return new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 export default async function DashboardPage() {
   const uid = await getCurrentUserId();
   const projects = await listProjects(uid);
 
   const rows = await Promise.all(
-    projects.map(async (p) => {
-      const scans = await listScans(p.id, uid);
+    projects.map(async (project) => {
+      const scans = await listScans(project.id, uid);
       const latest = scans[0];
       const counts = emptyCounts();
       let resolved = 0;
+      let urgentOpen = 0;
+      let openTotal = 0;
+
       if (latest) {
         const findings = await getFindingsForScan(latest.id, uid);
-        for (const f of findings) {
-          counts[f.severity] += 1;
-          if (f.status === "resolved") resolved += 1;
+        for (const finding of findings) {
+          counts[finding.severity] += 1;
+          if (finding.status === "resolved") {
+            resolved += 1;
+          } else {
+            openTotal += 1;
+            if (finding.severity === "critical" || finding.severity === "high") {
+              urgentOpen += 1;
+            }
+          }
         }
       }
-      const drift =
-        p.lastScannedCommit && p.currentCommit
-          ? p.lastScannedCommit !== p.currentCommit
-          : false;
-      return { project: p, latest, counts, resolved, drift };
-    })
+
+      const drift = Boolean(
+        project.lastScannedCommit &&
+          project.currentCommit &&
+          project.lastScannedCommit !== project.currentCommit,
+      );
+      const lastCheckedAt = project.lastScanDate ?? latest?.completedAt ?? latest?.startedAt;
+
+      return { project, latest, counts, resolved, urgentOpen, openTotal, drift, lastCheckedAt };
+    }),
   );
+
+  const resolvedTotal = rows.reduce((sum, row) => sum + row.resolved, 0);
+  const urgentTotal = rows.reduce((sum, row) => sum + row.urgentOpen, 0);
+  const waitingTotal = rows.filter((row) => !row.latest).length;
+  const recentCheckedAt = rows
+    .map((row) => row.lastCheckedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
 
   return (
     <>
       <PageHeader
-        title="프로젝트"
-        subtitle="프로젝트를 등록한 뒤 보안 스캔을 실행하세요."
-        action={{ href: "/dashboard/new", label: "프로젝트 추가" }}
+        title="어떤 서비스를 튼튼하게 만들어 볼까요?"
+        subtitle="프로젝트를 고르면 호이가 최근 점검 결과부터 알려드려요."
+        action={{ href: "/dashboard/new", label: "새 프로젝트 데려오기" }}
       >
         <Link
           href="/dashboard/quick-check"
-          className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          className={buttonClassName({ variant: "secondary", size: "sm" })}
         >
-          빠른 코드 확인
+          코드만 빠르게 보기
         </Link>
       </PageHeader>
-      <main className="mx-auto max-w-6xl px-6 py-8">
+
+      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
         {rows.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center">
-            <p className="text-slate-600">아직 등록된 프로젝트가 없습니다.</p>
-            <Link
-              href="/dashboard/new"
-              className="mt-4 inline-block rounded-lg bg-brand-600 px-4 py-2 font-medium text-white hover:bg-brand-700"
-            >
-              첫 프로젝트 추가하기
-            </Link>
-          </div>
-        ) : (
-          <div className="grid gap-5 md:grid-cols-2">
-            {rows.map(({ project, latest, counts, resolved, drift }) => (
-              <Link
-                key={project.id}
-                href={`/dashboard/projects/${project.id}`}
-                className="block rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-brand-300 hover:shadow"
-              >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h2 className="text-lg font-semibold text-slate-900">
-                      {project.name}
-                    </h2>
-                    <p className="mt-0.5 text-sm text-slate-500">
-                      {project.repositoryUrl ?? "저장소 없음"}
-                    </p>
-                  </div>
-                  {drift && (
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-                      검증 결과가 오래됐을 수 있음
-                    </span>
-                  )}
-                </div>
-
-                <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                  <Meta label="배포 주소" value={project.deploymentUrl ?? "—"} />
-                  <Meta
-                    label="마지막 스캔 커밋"
-                    value={project.lastScannedCommit ?? "—"}
-                    mono
-                  />
-                  <Meta
-                    label="마지막 스캔"
-                    value={
-                      project.lastScanDate
-                        ? new Date(project.lastScanDate).toLocaleString("ko-KR")
-                        : "없음"
-                    }
-                  />
-                  <Meta
-                    label="현재 커밋"
-                    value={project.currentCommit ?? "—"}
-                    mono
-                  />
-                </dl>
-
-                <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-4">
-                  {latest ? (
-                    <SeverityStrip counts={counts} resolved={resolved} />
-                  ) : (
-                    <span className="text-sm text-slate-500">아직 스캔하지 않음</span>
-                  )}
-                </div>
+          <EmptyState
+            title="아직 호이에게 소개한 프로젝트가 없어요"
+            description="첫 프로젝트를 연결하면 약한 곳부터 차근차근 살펴드릴게요."
+            illustration={<Hoi mood="rest" size="lg" />}
+            action={
+              <Link href="/dashboard/new" className={buttonClassName({ size: "lg" })}>
+                첫 프로젝트 데려오기
               </Link>
-            ))}
+            }
+          />
+        ) : (
+          <div className="space-y-10">
+            <section aria-labelledby="today-summary-title">
+              <HoiSpeech mood={urgentTotal > 0 ? "concerned" : "guide"} size="md">
+                {urgentTotal > 0
+                  ? `먼저 살펴볼 항목이 ${urgentTotal}개 있어요. 가장 중요한 프로젝트부터 같이 확인해요.`
+                  : waitingTotal > 0
+                    ? `아직 첫 점검을 기다리는 프로젝트가 ${waitingTotal}개 있어요.`
+                    : "최근 점검 결과를 정리했어요. 프로젝트를 골라 다음 단계를 이어가요."}
+              </HoiSpeech>
+              <h2 id="today-summary-title" className="sr-only">
+                최근 점검 요약
+              </h2>
+              <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <MetricCard
+                  label="잘 해결했어요"
+                  value={`${resolvedTotal}개`}
+                  hint="최신 점검에서 해결 상태인 항목"
+                  tone="success"
+                />
+                <MetricCard
+                  label="먼저 살펴봐요"
+                  value={`${urgentTotal}개`}
+                  hint="아직 해결되지 않은 심각·높음 항목"
+                  tone={urgentTotal > 0 ? "danger" : "neutral"}
+                />
+                <MetricCard
+                  label="점검 기다리는 중"
+                  value={`${waitingTotal}개`}
+                  hint="점검 기록이 없는 프로젝트"
+                  tone={waitingTotal > 0 ? "warning" : "neutral"}
+                />
+                <MetricCard
+                  label="최근 점검"
+                  value={recentCheckedAt ? formatDate(recentCheckedAt) : "아직 없어요"}
+                  hint="등록된 프로젝트 중 가장 최근 시점"
+                  tone="info"
+                  className="[&>div:nth-child(2)>div]:break-keep [&>div:nth-child(2)>div]:text-xl"
+                />
+              </div>
+            </section>
+
+            <section aria-labelledby="project-list-title">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-sm font-extrabold text-brand-700">내 프로젝트</p>
+                  <h2 id="project-list-title" className="text-2xl font-black tracking-tight text-ink">
+                    어디부터 살펴볼까요?
+                  </h2>
+                </div>
+                <p className="text-sm text-ink-muted">총 {rows.length}개 프로젝트</p>
+              </div>
+
+              <div className="mt-5 grid gap-5 md:grid-cols-2">
+                {rows.map(({ project, latest, counts, resolved, urgentOpen, openTotal, drift, lastCheckedAt }) => {
+                  const status = !latest
+                    ? "호이가 아직 살펴보지 않았어요"
+                    : drift
+                      ? "코드가 바뀌었어요. 다시 살펴보는 게 좋아요"
+                      : urgentOpen > 0
+                        ? `먼저 고치면 좋은 곳이 ${urgentOpen}개 있어요`
+                        : openTotal > 0
+                          ? `차근차근 다듬을 곳이 ${openTotal}개 있어요`
+                          : "이번 점검 범위의 항목을 모두 해결했어요";
+                  const address = project.repositoryUrl ?? project.deploymentUrl;
+
+                  return (
+                    <Card key={project.id} variant="raised" className="flex min-w-0 flex-col p-5 sm:p-6">
+                      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="break-words text-xl font-black text-ink">{project.name}</h3>
+                          <p className="mt-1 truncate text-sm text-ink-muted" title={address}>
+                            {address ?? "연결된 저장소·서비스 주소가 없어요"}
+                          </p>
+                        </div>
+                        {drift ? <Badge tone="warning">다시 점검 권장</Badge> : latest ? <Badge tone="info">점검 기록 있음</Badge> : <Badge>첫 점검 전</Badge>}
+                      </div>
+
+                      <div className="mt-5 rounded-2xl bg-surface-warm p-4">
+                        <p className="font-extrabold leading-relaxed text-ink">{status}</p>
+                        <p className="mt-1 text-sm text-ink-subtle">
+                          마지막 점검 · {formatDate(lastCheckedAt)}
+                        </p>
+                      </div>
+
+                      {latest && (
+                        <div className="mt-5 overflow-x-auto pb-1">
+                          <SeverityStrip counts={counts} resolved={resolved} />
+                        </div>
+                      )}
+
+                      {(project.lastScannedCommit || project.currentCommit) && (
+                        <Disclosure summary="커밋 정보 보기" className="mt-5">
+                          <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                            <Meta label="마지막 점검 커밋" value={project.lastScannedCommit ?? "기록 없음"} mono />
+                            <Meta label="현재 커밋" value={project.currentCommit ?? "기록 없음"} mono />
+                          </dl>
+                        </Disclosure>
+                      )}
+
+                      <div className="mt-auto pt-5">
+                        <Link
+                          href={`/dashboard/projects/${project.id}`}
+                          className={buttonClassName({ className: "w-full" })}
+                        >
+                          {latest ? "최근 결과와 다음 단계 보기" : "첫 점검 준비하기"}
+                        </Link>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            </section>
           </div>
         )}
-      </main>
+      </div>
     </>
   );
 }
 
-function Meta({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
+function Meta({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div>
-      <dt className="text-xs tracking-wide text-slate-400">{label}</dt>
-      <dd className={`truncate text-slate-700 ${mono ? "font-mono text-xs" : ""}`}>
-        {value}
-      </dd>
+    <div className="min-w-0">
+      <dt className="text-xs font-bold text-ink-muted">{label}</dt>
+      <dd className={`mt-1 break-all text-ink ${mono ? "font-mono text-xs" : ""}`}>{value}</dd>
     </div>
   );
 }

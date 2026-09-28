@@ -2,9 +2,12 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "바이브 보안 에이전트 — 수정했다고 믿지 마세요. 검증하세요.",
+  title: {
+    default: "호이 보안 코치 — 같이 튼튼하게 만들어요",
+    template: "%s | 호이 보안 코치",
+  },
   description:
-    "취약점을 찾고, 수정하고, 같은 공격을 다시 재현해 막혔는지, 정상 기능은 그대로인지까지 검증하는 독립형 보안 에이전트입니다.",
+    "호이가 코드의 약한 곳을 쉬운 말로 알려드리고, 고친 뒤 잘 막혔는지 한 번 더 확인해요.",
 };
 
 export default function RootLayout({
@@ -13,8 +16,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="ko">
+      <body>
+        <a href="#main-content" className="skip-link">
+          본문으로 바로가기
+        </a>
+        {children}
+      </body>
     </html>
   );
 }

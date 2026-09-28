@@ -2,38 +2,75 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ─────────────────────────────────────────────────────────────
-   Dark theme — deep navy + cyan/blue accent.
-   Structure and class names are unchanged; we remap the common
-   light utility classes to dark values so the whole app adopts
-   the dark concept in one place.
-   ───────────────────────────────────────────────────────────── */
 :root {
-  --bg: #060b1a; /* page background (deep navy) */
-  --panel: #0e1730; /* card / panel */
-  --panel-2: #131f3d; /* raised / hover panel */
-  --border: #22304f; /* subtle borders */
-  --text: #e6edf7; /* primary text */
-  --muted: #93a4c3; /* secondary text */
-  --accent: #38bdf8; /* cyan accent */
+  color-scheme: light;
+  --background: #fff8ed;
+  --background-soft: #fff1cf;
+  --surface: #ffffff;
+  --surface-warm: #fffaf2;
+  --primary: #b84a12;
+  --primary-hover: #92380b;
+  --primary-soft: #ffdfb8;
+  --sun: #ffc857;
+  --sun-soft: #fff0b8;
+  --crimson: #9e1b32;
+  --crimson-soft: #f9e7eb;
+  --success: #287a3d;
+  --success-soft: #e8f7eb;
+  --danger: #b83232;
+  --danger-soft: #fff0ee;
+  --warning: #9a5b08;
+  --warning-soft: #fff5d9;
+  --info: #27699e;
+  --info-soft: #edf6ff;
+  --text: #3a2b20;
+  --text-subtle: #756354;
+  --text-muted: #8a7768;
+  --border: #eadbc8;
+  --border-strong: #d6bea3;
+  --focus: #9e1b32;
+  --code: #251e1a;
+  --code-muted: #d9c9bb;
+  --shadow-warm: 0 12px 30px rgba(116, 67, 28, 0.1);
 }
 
-html,
+html {
+  min-width: 320px;
+  scroll-behavior: smooth;
+  background: var(--background);
+}
+
 body {
+  min-height: 100vh;
   padding: 0;
   margin: 0;
   background:
-    radial-gradient(1200px 600px at 70% -10%, rgba(56, 189, 248, 0.12), transparent 60%),
-    radial-gradient(900px 500px at 10% 10%, rgba(79, 70, 229, 0.1), transparent 55%),
-    var(--bg);
-  background-attachment: fixed;
+    radial-gradient(circle at 8% 2%, rgba(255, 200, 87, 0.22) 0 8rem, transparent 20rem),
+    radial-gradient(circle at 92% 12%, rgba(245, 138, 54, 0.12) 0 7rem, transparent 22rem),
+    linear-gradient(180deg, var(--background) 0%, #fffdf8 52%, var(--background) 100%);
   color: var(--text);
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    Helvetica, Arial, sans-serif;
+  font-family: Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", ui-rounded,
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
-* {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
+}
+
+::selection {
+  background: var(--sun-soft);
+  color: var(--text);
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
 }
 
 a {
@@ -41,65 +78,172 @@ a {
   text-decoration: none;
 }
 
-/* Monospace evidence blocks */
+button,
+a,
+input,
+textarea,
+select,
+summary {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+input,
+textarea,
+select {
+  color: var(--text);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+.skip-link {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 100;
+  padding: 0.7rem 1rem;
+  border: 2px solid var(--crimson);
+  border-radius: 0.75rem;
+  background: var(--surface);
+  color: var(--crimson);
+  font-weight: 800;
+  box-shadow: var(--shadow-warm);
+  transform: translateY(-160%);
+  transition: transform 160ms ease;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+/* 기술 근거와 로그에만 사용하는 코드 스타일 */
 .evidence {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-/* ── Remap light utilities → dark palette ─────────────────────
-   These override Tailwind's generated utilities so existing
-   markup (bg-white, text-slate-900, etc.) renders in dark mode.
-*/
-@layer utilities {
-  /* Surfaces */
-  .bg-white { background-color: var(--panel) !important; }
-  .bg-slate-50 { background-color: var(--panel) !important; }
-  .bg-slate-100 { background-color: var(--panel-2) !important; }
-  .bg-slate-200 { background-color: #1c2b4d !important; }
+.hoi-surface {
+  border: 1px solid var(--border);
+  border-radius: 1.5rem;
+  background: var(--surface);
+  box-shadow: var(--shadow-warm);
+}
 
-  /* Translucent header background */
-  .bg-white\/80 { background-color: rgba(14, 23, 48, 0.8) !important; }
-  .bg-white\/85 { background-color: rgba(14, 23, 48, 0.85) !important; }
+.hoi-card-3d {
+  border: 1px solid var(--border);
+  border-bottom-width: 4px;
+  border-bottom-color: var(--border-strong);
+  border-radius: 1.5rem;
+  background: var(--surface);
+  box-shadow: 0 8px 22px rgba(116, 67, 28, 0.08);
+}
 
-  /* Buttons that were slate/gray now read as blue in the dark concept */
-  .bg-slate-800 { background-color: #2563eb !important; }
-  .bg-slate-900 { background-color: #1d4ed8 !important; }
-  .hover\:bg-slate-900:hover { background-color: #1d4ed8 !important; }
-  .hover\:bg-slate-200:hover { background-color: rgba(37, 99, 235, 0.25) !important; }
-  .hover\:bg-slate-100:hover { background-color: var(--panel-2) !important; }
-  .hover\:bg-slate-50:hover { background-color: var(--panel-2) !important; }
+.hoi-button-3d {
+  min-height: 44px;
+  border-bottom-width: 4px;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-width 160ms ease,
+    background-color 160ms ease;
+}
 
-  /* Text */
-  .text-slate-900 { color: var(--text) !important; }
-  .text-slate-800 { color: #dbe4f2 !important; }
-  .text-slate-700 { color: #c4d0e6 !important; }
-  .text-slate-600 { color: var(--muted) !important; }
-  .text-slate-500 { color: #7e90b0 !important; }
-  .text-slate-400 { color: #6b7d9d !important; }
+.hoi-button-3d:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
 
-  /* Borders */
-  .border-slate-100 { border-color: #1a2744 !important; }
-  .border-slate-200 { border-color: var(--border) !important; }
-  .border-slate-300 { border-color: #2b3c5f !important; }
-  .border-slate-800 { border-color: #2b3c5f !important; }
+.hoi-button-3d:active:not(:disabled) {
+  border-bottom-width: 2px;
+  transform: translateY(2px);
+}
 
-  /* Accent: brand indigo → cyan family for the dark concept */
-  .text-brand-600, .text-brand-700 { color: var(--accent) !important; }
-  .bg-brand-50 { background-color: rgba(56, 189, 248, 0.12) !important; }
-  .bg-brand-600 { background-color: #2563eb !important; }
-  .hover\:bg-brand-700:hover { background-color: #1d4ed8 !important; }
-  .border-brand-200 { border-color: rgba(56, 189, 248, 0.35) !important; }
-  .border-brand-300 { border-color: rgba(56, 189, 248, 0.5) !important; }
+.hoi-decoration {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
 
-  /* Inputs */
-  input, textarea, select {
-    color: var(--text);
+.hoi-decoration::before,
+.hoi-decoration::after {
+  position: absolute;
+  z-index: -1;
+  border-radius: 9999px;
+  content: "";
+  pointer-events: none;
+}
+
+.hoi-decoration::before {
+  width: 18rem;
+  height: 18rem;
+  top: -9rem;
+  right: -7rem;
+  background: rgba(255, 200, 87, 0.18);
+}
+
+.hoi-decoration::after {
+  width: 12rem;
+  height: 12rem;
+  bottom: -7rem;
+  left: -5rem;
+  background: rgba(158, 27, 50, 0.05);
+}
+
+.hoi-enter {
+  animation: hoi-enter 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.hoi-searching {
+  transform-origin: center bottom;
+  animation: hoi-search 1.8s ease-in-out infinite;
+}
+
+@keyframes hoi-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
   }
-  input::placeholder, textarea::placeholder {
-    color: #5f7196;
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes hoi-search {
+  0%,
+  100% {
+    transform: rotate(-2deg);
+  }
+  50% {
+    transform: rotate(2deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .hoi-button-3d:hover:not(:disabled),
+  .hoi-button-3d:active:not(:disabled) {
+    transform: none;
   }
 }

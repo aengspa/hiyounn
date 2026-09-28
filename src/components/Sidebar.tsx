@@ -2,13 +2,26 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ShieldIcon } from "@/components/icons";
+import { GridIcon, PlusIcon, SearchIcon } from "@/components/icons";
+import { Hoi } from "@/components/mascot/Hoi";
+import { buttonClassName } from "@/components/ui";
 import { logoutAction } from "@/lib/authActions";
 
 const NAV = [
-  { href: "/dashboard", label: "프로젝트", icon: GridIcon, exact: true },
-  { href: "/dashboard/new", label: "프로젝트 추가", icon: PlusIcon, exact: true },
-];
+  { href: "/dashboard", label: "내 프로젝트", icon: GridIcon, kind: "projects" },
+  { href: "/dashboard/quick-check", label: "빠른 점검", icon: SearchIcon, kind: "exact" },
+  { href: "/dashboard/new", label: "프로젝트 추가", icon: PlusIcon, kind: "exact" },
+] as const;
+
+function isActive(pathname: string, item: (typeof NAV)[number]) {
+  if (item.kind === "exact") return pathname === item.href;
+  return (
+    pathname === "/dashboard" ||
+    pathname.startsWith("/dashboard/projects/") ||
+    pathname.startsWith("/dashboard/scans/") ||
+    pathname.startsWith("/dashboard/findings/")
+  );
+}
 
 export function Sidebar({
   user,
@@ -18,91 +31,78 @@ export function Sidebar({
   const pathname = usePathname();
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white">
-      <Link
-        href="/"
-        className="flex items-center gap-2 border-b border-slate-100 px-5 py-4 font-semibold"
-      >
-        <ShieldIcon />
-        <span className="leading-tight">
-          바이브 보안 에이전트
-          <span className="block text-[11px] font-normal text-slate-400">
-            Vibe Security Agent
+    <aside className="z-20 flex w-full shrink-0 flex-col border-b border-line bg-white/95 lg:sticky lg:top-0 lg:h-screen lg:w-64 lg:border-b-0 lg:border-r">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-3 py-2 lg:px-4 lg:py-3">
+        <Link
+          href="/"
+          className="flex min-h-11 min-w-0 items-center gap-2 rounded-2xl pr-2 font-black text-ink"
+          aria-label="호이 보안 코치 홈"
+        >
+          <Hoi mood="guide" size="sm" decorative className="-my-1" />
+          <span className="min-w-0 leading-tight">
+            <span className="block truncate">호이 보안 코치</span>
+            <span className="block truncate text-[11px] font-medium text-ink-muted">
+              같이 튼튼하게 만들어요
+            </span>
           </span>
-        </span>
-      </Link>
+        </Link>
+        {user && (
+          <span className="max-w-24 truncate text-xs font-bold text-ink-subtle lg:hidden" title={user.email}>
+            {user.name || user.email}
+          </span>
+        )}
+      </div>
 
-      <nav className="flex-1 space-y-1 p-3">
+      <nav
+        aria-label="대시보드 메뉴"
+        className="flex flex-wrap gap-1 overflow-x-auto p-2 lg:flex-1 lg:content-start lg:flex-col lg:overflow-visible lg:p-3"
+      >
         {NAV.map((item) => {
-          const active = item.exact
-            ? pathname === item.href
-            : pathname.startsWith(item.href);
+          const active = isActive(pathname, item);
           const Icon = item.icon;
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${
+              aria-current={active ? "page" : undefined}
+              className={`flex min-h-11 min-w-fit flex-1 items-center justify-center gap-2 rounded-2xl px-3 py-2 text-sm font-bold transition-colors lg:flex-none lg:justify-start ${
                 active
-                  ? "bg-brand-50 text-brand-700"
-                  : "text-slate-600 hover:bg-slate-50"
+                  ? "bg-primary-soft text-brand-900"
+                  : "text-ink-subtle hover:bg-surface-warm hover:text-ink"
               }`}
             >
-              <Icon className={active ? "text-brand-600" : "text-slate-400"} />
-              {item.label}
+              <Icon className={active ? "h-5 w-5 text-brand-700" : "h-5 w-5 text-ink-muted"} />
+              <span>{item.label}</span>
             </Link>
           );
         })}
       </nav>
 
-      <div className="space-y-3 border-t border-slate-100 p-4">
+      <div className="hidden space-y-3 border-t border-line p-4 lg:block">
         {user ? (
           <div className="space-y-2">
-            <div className="truncate text-xs text-slate-500" title={user.email}>
+            <div className="truncate text-xs font-bold text-ink-subtle" title={user.email}>
               {user.name || user.email}
             </div>
             <form action={logoutAction}>
               <button
                 type="submit"
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className={buttonClassName({ variant: "secondary", size: "sm", className: "w-full" })}
               >
                 로그아웃
               </button>
             </form>
           </div>
         ) : (
-          <Link
-            href="/login"
-            className="block w-full rounded-lg bg-brand-600 px-3 py-2 text-center text-sm font-medium text-white hover:bg-brand-700"
-          >
+          <Link href="/login" className={buttonClassName({ size: "sm", className: "w-full" })}>
             로그인
           </Link>
         )}
 
-        <div className="rounded-lg bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-500">
-          자동 보안 점검은 모든 취약점을 찾아내지 못합니다. 결과는 점검한 시점과
-          범위에 한정됩니다.
-        </div>
+        <p className="rounded-2xl border border-line bg-surface-warm p-3 text-[11px] leading-relaxed text-ink-muted">
+          호이는 점검한 시점과 범위 안에서 살펴봐요. 자동 점검만으로 모든 문제를 찾는다고 보장하지 않아요.
+        </p>
       </div>
     </aside>
-  );
-}
-
-function GridIcon({ className = "" }) {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" className={`h-4 w-4 ${className}`}>
-      <rect x="2.5" y="2.5" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-      <rect x="11.5" y="2.5" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-      <rect x="2.5" y="11.5" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-      <rect x="11.5" y="11.5" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
-  );
-}
-
-function PlusIcon({ className = "" }) {
-  return (
-    <svg viewBox="0 0 20 20" fill="none" className={`h-4 w-4 ${className}`}>
-      <path d="M10 4v12M4 10h12" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-    </svg>
   );
 }

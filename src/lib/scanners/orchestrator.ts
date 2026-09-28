@@ -15,6 +15,7 @@ import { AuthorizationScanner } from "@/lib/scanners/authorizationScanner";
 import { DependencyScanner } from "@/lib/scanners/dependencyScanner";
 import { BaaSConfigScanner } from "@/lib/scanners/baasScanner";
 import { StaticWebScanner } from "@/lib/scanners/staticWebScanner";
+import { Asvs5Scanner } from "@/lib/scanners/asvs5Scanner";
 import { ExposedEndpointScanner } from "@/lib/scanners/exposedEndpointScanner";
 import { TlsScanner } from "@/lib/scanners/tlsScanner";
 import { UserEnumerationScanner } from "@/lib/scanners/userEnumerationScanner";
@@ -38,6 +39,11 @@ import {
   GateError,
 } from "@/lib/rules/executionGate";
 import type { SecurityRule } from "@/lib/rules/types";
+import {
+  ASVS5_CHAPTER_NAMES,
+  ASVS5_RULE_IDS,
+  ASVS5_STATIC_SIGNALS,
+} from "@/lib/rules/asvs5Catalog";
 
 /**
  * SecurityOrchestrator (규칙 기반, 문서 Phase A)
@@ -69,6 +75,7 @@ export class SecurityOrchestrator {
       new BaaSConfigScanner(),
       new AuthorizationScanner(),
       new StaticWebScanner(),
+      new Asvs5Scanner(),
       new HeaderScanner(),
       new ExposedEndpointScanner(),
       new TlsScanner(),
@@ -92,6 +99,8 @@ export class SecurityOrchestrator {
       return this.getScanner("header-cors-scanner");
     if (key.startsWith("dep:")) return this.getScanner("dependency-scanner");
     if (key.startsWith("rls:")) return this.getScanner("baas-config-scanner");
+    if (key.startsWith("asvs5:"))
+      return this.getScanner("asvs5-static-scanner");
     if (
       key.startsWith("xss:") ||
       key.startsWith("inj:") ||
@@ -142,6 +151,15 @@ export class SecurityOrchestrator {
     // 적용 대상이면 각 규칙을 개별적으로 게이트에 통과시켜 계획에 반영한다.
     if (applicableNames.has("static-web-scanner")) {
       for (const ruleId of STATIC_WEB_RULES) {
+        const rule = getRule(ruleId);
+        if (rule) this.planRule(rule, context, selectedChecks, coverageGaps);
+      }
+    }
+
+    // ASVS 5.0 정적 스캐너는 자동화 가능한 세부 규칙을 각각 계획에 남긴다.
+    // 소스만으로 검증할 수 없는 요구사항은 scope.untestedCategories에서 별도 고지한다.
+    if (applicableNames.has("asvs5-static-scanner")) {
+      for (const ruleId of ASVS5_RULE_IDS) {
         const rule = getRule(ruleId);
         if (rule) this.planRule(rule, context, selectedChecks, coverageGaps);
       }

@@ -1,13 +1,12 @@
 import type { SecurityRule } from "@/lib/rules/types";
+import { ASVS5_RULES } from "@/lib/rules/asvs5Catalog";
 
 /**
- * v1 규칙 정의 — 웹사이트 점검 대상.
- *
- * 문서 1-4의 웹 관련 규칙만 등록한다(앱/모바일/게임 제외).
- * 각 규칙은 스캐너에서 분리되어 선언형으로 관리되며, 서버가 이 규칙으로
- * 도구 입력을 조립하고 실행 등급/전제조건을 확정한다.
+ * 웹사이트 점검 규칙. 기존 심층/능동 규칙과 ASVS 5.0.0의 자동화 가능한
+ * 정적 위험 신호 규칙을 함께 등록한다.
  */
 export const RULES: SecurityRule[] = [
+  ...ASVS5_RULES,
   {
     id: "SEC-001",
     version: "1.0.0",
