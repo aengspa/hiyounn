@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { TopNav, ShieldIcon } from "@/components/TopNav";
+import { TopNav } from "@/components/TopNav";
+import { ShieldIcon } from "@/components/icons";
 
 const WORKFLOW = ["스캔", "공격 재현", "수정", "재검증", "확인"];
 
-export default function LandingPage() {
+export default async function LandingPage() {
   return (
     <>
       <TopNav />

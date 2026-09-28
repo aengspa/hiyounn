@@ -2,14 +2,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ShieldIcon } from "@/components/TopNav";
+import { ShieldIcon } from "@/components/icons";
+import { logoutAction } from "@/lib/authActions";
 
 const NAV = [
   { href: "/dashboard", label: "프로젝트", icon: GridIcon, exact: true },
   { href: "/dashboard/new", label: "프로젝트 추가", icon: PlusIcon, exact: true },
 ];
 
-export function Sidebar() {
+export function Sidebar({
+  user,
+}: {
+  user?: { email: string; name?: string } | null;
+}) {
   const pathname = usePathname();
 
   return (
@@ -50,7 +55,30 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="border-t border-slate-100 p-4">
+      <div className="space-y-3 border-t border-slate-100 p-4">
+        {user ? (
+          <div className="space-y-2">
+            <div className="truncate text-xs text-slate-500" title={user.email}>
+              {user.name || user.email}
+            </div>
+            <form action={logoutAction}>
+              <button
+                type="submit"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                로그아웃
+              </button>
+            </form>
+          </div>
+        ) : (
+          <Link
+            href="/login"
+            className="block w-full rounded-lg bg-brand-600 px-3 py-2 text-center text-sm font-medium text-white hover:bg-brand-700"
+          >
+            로그인
+          </Link>
+        )}
+
         <div className="rounded-lg bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-500">
           자동 보안 점검은 모든 취약점을 찾아내지 못합니다. 결과는 점검한 시점과
           범위에 한정됩니다.
