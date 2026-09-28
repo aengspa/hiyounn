@@ -3,10 +3,12 @@
   Scan,
   SecurityFinding,
   FixAttempt,
+  FixArtifact,
   VerificationResult,
   User,
 } from "@/lib/domain/types";
 import type { ScanMode, TestAccount } from "@/lib/domain/scanMode";
+import type { Buffer } from "buffer";
 import type { StoreBackend } from "./backend";
 import { MemoryStore, DEMO_USER } from "./memoryStore";
 import { SupabaseStore } from "./supabaseStore";
@@ -150,4 +152,30 @@ export function getVerification(
   ownerId: string
 ): Promise<VerificationResult | undefined> {
   return backend.getVerification(findingId, ownerId);
+}
+
+// ── Fix artifacts ──
+export function buildFixArtifact(
+  findingId: string,
+  ownerId: string
+): Promise<FixArtifact> {
+  return backend.buildFixArtifact(findingId, ownerId);
+}
+export function getFixArtifact(
+  artifactId: string,
+  ownerId: string
+): Promise<FixArtifact | undefined> {
+  return backend.getFixArtifact(artifactId, ownerId);
+}
+export function getFixArtifactBytes(
+  artifactId: string,
+  ownerId: string
+): Promise<Buffer | undefined> {
+  return backend.getFixArtifactBytes(artifactId, ownerId);
+}
+export function listFixArtifacts(
+  findingId: string,
+  ownerId: string
+): Promise<FixArtifact[]> {
+  return backend.listFixArtifacts(findingId, ownerId);
 }

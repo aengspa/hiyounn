@@ -3,16 +3,22 @@ import type {
   Scan,
   SecurityFinding,
   FixAttempt,
+  FixArtifact,
   VerificationResult,
   User,
 } from "@/lib/domain/types";
 import type { ScanMode, TestAccount } from "@/lib/domain/scanMode";
+import { Buffer } from "buffer";
 import { toTestStatus } from "@/lib/domain/types";
 import { id, now } from "@/lib/util";
 import { contextForProject } from "@/lib/scanners/contextFor";
 import { SecurityOrchestrator } from "@/lib/scanners/orchestrator";
 import { generateScanReport } from "@/lib/reporting/reportGenerator";
 import { generateFixSmart } from "@/lib/remediation/fixGenerator";
+import {
+  buildFixArtifact,
+  buildFixedFileMap,
+} from "@/lib/remediation/artifactBuilder";
 import {
   NotAuthorizedError,
   NotFoundError,
@@ -41,6 +47,10 @@ interface Db {
   verifications: Map<string, VerificationResult>;
   /** Whether the IDOR handler for a project has an applied fix. */
   handlerFixed: Map<string, boolean>;
+  /** Fix artifact metadata by artifact id. */
+  artifacts: Map<string, FixArtifact>;
+  /** Fix artifact ZIP bytes (base64) by artifact id. */
+  artifactBytes: Map<string, string>;
 }
 
 function freshDb(): Db {
@@ -52,6 +62,8 @@ function freshDb(): Db {
     fixes: new Map(),
     verifications: new Map(),
     handlerFixed: new Map(),
+    artifacts: new Map(),
+    artifactBytes: new Map(),
   };
 }
 
@@ -322,8 +334,21 @@ export class MemoryStore implements StoreBackend {
 
     const scan = this.db.scans.get(finding.scanId)!;
     const project = this.db.projects.get(scan.projectId)!;
+
+    // Re-verify against the FIXED copy, not the original. Apply this finding's
+    // generated fixes to a copy of the original source and hand that file map
+    // to the scanner. For the demo project (no user source), fall back to the
+    // handlerFixed flag the demo scanner understands.
+    const fixes = [...this.db.fixes.values()].filter(
+      (f) => f.findingId === findingId
+    );
+    let fixedFiles: Record<string, string> | undefined;
+    if (!project.isDemo && project.sourceCode && fixes.length > 0) {
+      fixedFiles = buildFixedFileMap(project.sourceCode, fixes).copy;
+    }
     const context = contextForProject(project, {
       fixedHandler: this.db.handlerFixed.get(project.id) ?? false,
+      files: fixedFiles,
     });
 
     const result = await scanner.verify(finding, context);
@@ -353,5 +378,89 @@ export class MemoryStore implements StoreBackend {
   ): Promise<VerificationResult | undefined> {
     this.assertFindingOwner(findingId, ownerId);
     return this.db.verifications.get(findingId);
+  }
+
+  // ── Fix artifacts ──
+  async buildFixArtifact(
+    findingId: string,
+    ownerId: string
+  ): Promise<FixArtifact> {
+    const finding = this.assertFindingOwner(findingId, ownerId);
+    const scan = this.db.scans.get(finding.scanId)!;
+    const project = this.db.projects.get(scan.projectId)!;
+
+    // Gather applied (or at least generated) fixes for this finding.
+    const fixes = [...this.db.fixes.values()]
+      .filter((f) => f.findingId === findingId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    if (fixes.length === 0) {
+      throw new NotFoundError();
+    }
+
+    // Version = existing artifacts for this finding + 1.
+    const existing = [...this.db.artifacts.values()].filter(
+      (a) => a.findingId === findingId
+    );
+    const version = existing.length + 1;
+
+    const built = buildFixArtifact(
+      project.sourceCode,
+      fixes,
+      project.name,
+      version
+    );
+
+    const safeName =
+      project.name.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") ||
+      "project";
+    const artifact: FixArtifact = {
+      id: id("artifact"),
+      findingId,
+      projectId: project.id,
+      ownerId,
+      appliedFixIds: fixes.map((f) => f.id),
+      files: built.files,
+      fileName: `${safeName}-fixed-v${version}.zip`,
+      size: built.size,
+      sha256: built.sha256,
+      version,
+      createdAt: now(),
+    };
+
+    this.db.artifacts.set(artifact.id, artifact);
+    this.db.artifactBytes.set(artifact.id, built.zip.toString("base64"));
+    return artifact;
+  }
+
+  async getFixArtifact(
+    artifactId: string,
+    ownerId: string
+  ): Promise<FixArtifact | undefined> {
+    const a = this.db.artifacts.get(artifactId);
+    if (!a) return undefined;
+    if (a.ownerId !== ownerId) throw new NotAuthorizedError();
+    return a;
+  }
+
+  async getFixArtifactBytes(
+    artifactId: string,
+    ownerId: string
+  ): Promise<Buffer | undefined> {
+    const a = this.db.artifacts.get(artifactId);
+    if (!a) return undefined;
+    if (a.ownerId !== ownerId) throw new NotAuthorizedError();
+    const b64 = this.db.artifactBytes.get(artifactId);
+    if (b64 === undefined) return undefined;
+    return Buffer.from(b64, "base64");
+  }
+
+  async listFixArtifacts(
+    findingId: string,
+    ownerId: string
+  ): Promise<FixArtifact[]> {
+    this.assertFindingOwner(findingId, ownerId);
+    return [...this.db.artifacts.values()]
+      .filter((a) => a.findingId === findingId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 }

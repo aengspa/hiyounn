@@ -503,7 +503,14 @@ export async function generateFixSmart(
         "이 변경은 발견된 보안 문제를 해결하기 위한 것입니다.",
       diffs:
         before || after
-          ? [{ file: parsed.file || "붙여넣은 코드", patch: unifiedDiff(before, after) }]
+          ? [
+              {
+                file: parsed.file || "붙여넣은 코드",
+                patch: unifiedDiff(before, after),
+                beforeText: before,
+                afterText: after,
+              },
+            ]
           : [],
       applied: false,
       createdAt: now(),

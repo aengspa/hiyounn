@@ -3,16 +3,19 @@ import type {
   Scan,
   SecurityFinding,
   FixAttempt,
+  FixArtifact,
   VerificationResult,
   User,
 } from "@/lib/domain/types";
 import { parseScanMode, type ScanMode, type TestAccount } from "@/lib/domain/scanMode";
 import { toTestStatus } from "@/lib/domain/types";
 import { id, now } from "@/lib/util";
+import { Buffer } from "buffer";
 import { contextForProject } from "@/lib/scanners/contextFor";
 import { SecurityOrchestrator } from "@/lib/scanners/orchestrator";
 import { generateScanReport } from "@/lib/reporting/reportGenerator";
 import { generateFixSmart } from "@/lib/remediation/fixGenerator";
+import { buildFixArtifact } from "@/lib/remediation/artifactBuilder";
 import {
   NotAuthorizedError,
   NotFoundError,
@@ -99,6 +102,15 @@ interface FixRow {
 interface VerificationRow {
   finding_id: string;
   data: VerificationResult;
+  created_at: string;
+}
+interface FixArtifactRow {
+  id: string;
+  finding_id: string;
+  project_id: string;
+  owner_id: string;
+  data: FixArtifact;
+  zip_base64: string | null;
   created_at: string;
 }
 
@@ -566,6 +578,101 @@ export class SupabaseStore implements StoreBackend {
       `finding_id=eq.${encodeURIComponent(findingId)}&select=*`
     );
     return row?.data;
+  }
+
+  // ── Fix artifacts ──
+  // Persisted in the `fix_artifacts` table: metadata + base64 ZIP bytes.
+  async buildFixArtifact(
+    findingId: string,
+    ownerId: string
+  ): Promise<FixArtifact> {
+    const finding = await this.requireFinding(findingId, ownerId);
+    const scan = await this.getScan(finding.scanId, ownerId);
+    const project = await this.getProject(scan.projectId, ownerId);
+
+    const fixes = (
+      await selectRows<FixRow>(
+        "fix_attempts",
+        `finding_id=eq.${encodeURIComponent(findingId)}&select=*&order=created_at.asc`
+      )
+    ).map((r) => r.data);
+    if (fixes.length === 0) throw new NotFoundError();
+
+    const existing = await selectRows<{ id: string }>(
+      "fix_artifacts",
+      `finding_id=eq.${encodeURIComponent(findingId)}&select=id`
+    );
+    const version = existing.length + 1;
+
+    const built = buildFixArtifact(project.sourceCode, fixes, project.name, version);
+    const safeName =
+      project.name.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") ||
+      "project";
+    const artifact: FixArtifact = {
+      id: id("artifact"),
+      findingId,
+      projectId: project.id,
+      ownerId,
+      appliedFixIds: fixes.map((f) => f.id),
+      files: built.files,
+      fileName: `${safeName}-fixed-v${version}.zip`,
+      size: built.size,
+      sha256: built.sha256,
+      version,
+      createdAt: now(),
+    };
+
+    await insertRows("fix_artifacts", [
+      {
+        id: artifact.id,
+        finding_id: findingId,
+        project_id: project.id,
+        owner_id: ownerId,
+        data: artifact,
+        zip_base64: built.zip.toString("base64"),
+        created_at: artifact.createdAt,
+      },
+    ]);
+    return artifact;
+  }
+
+  async getFixArtifact(
+    artifactId: string,
+    ownerId: string
+  ): Promise<FixArtifact | undefined> {
+    const row = await selectOne<FixArtifactRow>(
+      "fix_artifacts",
+      `id=eq.${encodeURIComponent(artifactId)}&select=*`
+    );
+    if (!row) return undefined;
+    if (row.owner_id !== ownerId) throw new NotAuthorizedError();
+    return row.data;
+  }
+
+  async getFixArtifactBytes(
+    artifactId: string,
+    ownerId: string
+  ): Promise<Buffer | undefined> {
+    const row = await selectOne<FixArtifactRow>(
+      "fix_artifacts",
+      `id=eq.${encodeURIComponent(artifactId)}&select=*`
+    );
+    if (!row) return undefined;
+    if (row.owner_id !== ownerId) throw new NotAuthorizedError();
+    if (!row.zip_base64) return undefined;
+    return Buffer.from(row.zip_base64, "base64");
+  }
+
+  async listFixArtifacts(
+    findingId: string,
+    ownerId: string
+  ): Promise<FixArtifact[]> {
+    await this.requireFinding(findingId, ownerId);
+    const rows = await selectRows<FixArtifactRow>(
+      "fix_artifacts",
+      `finding_id=eq.${encodeURIComponent(findingId)}&select=*&order=created_at.desc`
+    );
+    return rows.map((r) => r.data);
   }
 
   private async persistFinding(finding: SecurityFinding): Promise<void> {

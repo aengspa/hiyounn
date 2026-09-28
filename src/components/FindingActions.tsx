@@ -34,6 +34,15 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
   const [error, setError] = useState<{ title: string; message: string } | null>(null);
   const [celebrating, setCelebrating] = useState(false);
+  const [artifact, setArtifact] = useState<{
+    id: string;
+    fileName: string;
+    sha256: string;
+    size: number;
+    version: number;
+    files: { path: string; changed: boolean }[];
+  } | null>(null);
+  const [buildingArtifact, setBuildingArtifact] = useState(false);
 
   useEffect(() => {
     if (searchParams.get("fix") === "1" && !fix) setConfirmingFix(true);
@@ -110,6 +119,20 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
       setError(mapError(cause, "verify"));
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function buildArtifact() {
+    setBuildingArtifact(true);
+    setError(null);
+    try {
+      const data = await postJson(`/api/findings/${findingId}/build-artifact`);
+      if (!data?.artifact) throw new Error("수정본을 생성하지 못했어요.");
+      setArtifact(data.artifact);
+    } catch (cause) {
+      setError(mapError(cause, "generate"));
+    } finally {
+      setBuildingArtifact(false);
     }
   }
 
@@ -263,6 +286,56 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
           <p className="mt-3 text-xs leading-relaxed text-ink-muted">
             검사기·소스·배포 전제조건이 없어 자동 재검증할 수 없는 경우 422 안내가 표시되며, 실패 상태로 바꾸지 않아요.
           </p>
+        </Card>
+      )}
+
+      {fix && (
+        <Card variant="raised" className="p-5 sm:p-6">
+          <h3 className="text-lg font-black text-ink">수정본 프로젝트 다운로드</h3>
+          <p className="mt-2 text-sm leading-relaxed text-ink-subtle">
+            업로드한 원본은 그대로 두고, 수정안을 적용한 <strong>복사본</strong>을 ZIP으로 만들어요. 원본 파일은 절대 덮어쓰지 않아요.
+          </p>
+          <Button onClick={buildArtifact} disabled={buildingArtifact} size="lg" className="mt-4 w-full sm:w-auto">
+            {buildingArtifact ? "수정본 만드는 중…" : artifact ? "수정본 다시 생성" : "수정본 ZIP 생성"}
+          </Button>
+
+          {artifact && (
+            <div className="mt-5 rounded-2xl border border-line bg-surface-warm p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <p className="font-mono text-sm font-bold text-ink">{artifact.fileName}</p>
+                  <p className="mt-1 text-xs text-ink-muted">
+                    버전 v{artifact.version} · {(artifact.size / 1024).toFixed(1)} KB · 변경 {artifact.files.filter((f) => f.changed).length}/{artifact.files.length}개 파일
+                  </p>
+                </div>
+                <a
+                  href={`/api/artifacts/${artifact.id}/download`}
+                  className="inline-flex shrink-0 items-center justify-center rounded-2xl bg-brand-700 px-4 py-2 font-bold text-white hover:bg-brand-900"
+                  download
+                >
+                  ZIP 다운로드
+                </a>
+              </div>
+              <dl className="mt-3 grid gap-1 text-xs text-ink-muted">
+                <div className="flex flex-wrap gap-1">
+                  <dt className="font-bold">SHA-256</dt>
+                  <dd className="break-all font-mono">{artifact.sha256}</dd>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  <dt className="font-bold">artifact ID</dt>
+                  <dd className="break-all font-mono">{artifact.id}</dd>
+                </div>
+              </dl>
+              <ul className="mt-3 space-y-1 text-xs">
+                {artifact.files.map((f) => (
+                  <li key={f.path} className="flex items-center gap-2 font-mono">
+                    <span className={f.changed ? "text-success" : "text-ink-muted"}>{f.changed ? "✎" : "·"}</span>
+                    <span className={f.changed ? "font-bold text-ink" : "text-ink-muted"}>{f.path}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </Card>
       )}
 

@@ -181,8 +181,16 @@ export interface SecurityFinding {
 
 export interface FixDiff {
   file: string;
-  /** Unified-diff-style hunk lines. */
+  /** Unified-diff-style hunk lines (for display). */
   patch: string;
+  /**
+   * Exact source text to replace and its replacement. When present, the
+   * artifact builder can apply this fix to a working copy by literal string
+   * replacement (safer than re-parsing the display patch). If beforeText is
+   * empty, afterText is treated as new file content (or appended).
+   */
+  beforeText?: string;
+  afterText?: string;
 }
 
 export interface FixAttempt {
@@ -195,6 +203,43 @@ export interface FixAttempt {
   plainExplanation: string;
   diffs: FixDiff[];
   applied: boolean;
+  createdAt: string;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Fix artifacts (modified project copy)
+// ─────────────────────────────────────────────────────────────
+
+/** One file inside a generated fix artifact (the modified working copy). */
+export interface ArtifactFile {
+  /** Path within the project (e.g. "src/api/users/route.ts"). */
+  path: string;
+  /** Whether this file was changed relative to the preserved original. */
+  changed: boolean;
+}
+
+/**
+ * A downloadable, integrity-checked copy of the project with selected fixes
+ * applied. The original upload is never mutated; this is a separate working
+ * copy. The ZIP bytes are stored separately (base64) keyed by id.
+ */
+export interface FixArtifact {
+  id: string;
+  /** The fix job (finding) this artifact was produced for. */
+  findingId: string;
+  projectId: string;
+  ownerId: string;
+  /** Applied fix attempt ids that shaped this copy. */
+  appliedFixIds: string[];
+  files: ArtifactFile[];
+  /** Download file name, e.g. "myproject-fixed-3.zip". */
+  fileName: string;
+  /** ZIP byte size. */
+  size: number;
+  /** SHA-256 hex of the ZIP bytes (integrity). */
+  sha256: string;
+  /** Monotonic version per (project, finding). */
+  version: number;
   createdAt: string;
 }
 

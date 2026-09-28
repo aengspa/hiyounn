@@ -3,10 +3,12 @@ import type {
   Scan,
   SecurityFinding,
   FixAttempt,
+  FixArtifact,
   VerificationResult,
   User,
 } from "@/lib/domain/types";
 import type { ScanMode, TestAccount } from "@/lib/domain/scanMode";
+import type { Buffer } from "buffer";
 
 /**
  * The storage backend contract.
@@ -77,4 +79,27 @@ export interface StoreBackend {
     findingId: string,
     ownerId: string
   ): Promise<VerificationResult | undefined>;
+
+  // ── Fix artifacts (modified project copy, downloadable ZIP) ──
+  /**
+   * Build a modified COPY of the project with the finding's generated fix
+   * applied, package it as a ZIP, store it with a SHA-256, and return the
+   * artifact metadata. The original upload is never mutated.
+   */
+  buildFixArtifact(findingId: string, ownerId: string): Promise<FixArtifact>;
+  /** Get artifact metadata (ownership-checked). */
+  getFixArtifact(
+    artifactId: string,
+    ownerId: string
+  ): Promise<FixArtifact | undefined>;
+  /** Get the raw ZIP bytes for a stored artifact (ownership-checked). */
+  getFixArtifactBytes(
+    artifactId: string,
+    ownerId: string
+  ): Promise<Buffer | undefined>;
+  /** List artifacts for a finding (newest first). */
+  listFixArtifacts(
+    findingId: string,
+    ownerId: string
+  ): Promise<FixArtifact[]>;
 }
