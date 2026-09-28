@@ -1,6 +1,7 @@
-import type { SecurityRule } from "@/lib/rules/types";
+import type { SecurityRule, Selector } from "@/lib/rules/types";
 import { RULES } from "@/lib/rules/definitions";
 import { isRegisteredTool } from "@/lib/rules/toolCatalog";
+import { createHash } from "crypto";
 
 /**
  * 규칙 레지스트리.
@@ -13,7 +14,7 @@ import { isRegisteredTool } from "@/lib/rules/toolCatalog";
  *   - verificationRequiredChecks가 실제 checks(또는 표준 검사)를 참조
  */
 
-const KNOWN_OPS = new Set(["equals", "contains", "in", "exists"]);
+const KNOWN_OPS = new Set(["equals", "not_equals", "contains", "in", "exists"]);
 // checks 외에 verification에서 참조 가능한 서버 표준 검사(문서 5-3).
 const STANDARD_VERIFICATION_CHECKS = new Set([
   "existing-functional-tests",
@@ -36,14 +37,23 @@ function validateRule(
   if (rule.id && seenIds.has(rule.id)) errors.push(`중복 id: ${rule.id}`);
 
   // selector 연산자 검사
-  const clauses = [...(rule.selector.all ?? []), ...(rule.selector.any ?? [])];
-  for (const c of clauses) {
-    if (!KNOWN_OPS.has(c.op)) errors.push(`알 수 없는 selector 연산자: ${c.op}`);
+  function validateSelector(selector: Selector): void {
+    for (const clause of [...(selector.all ?? []), ...(selector.any ?? [])]) {
+      if ("field" in clause) {
+        if (!KNOWN_OPS.has(clause.op)) errors.push(`알 수 없는 selector 연산자: ${clause.op}`);
+      } else {
+        validateSelector(clause);
+      }
+    }
   }
+  validateSelector(rule.selector);
+  if (!rule.family || !rule.summaryKo) errors.push("family/summaryKo 누락");
+  if (!["A", "B", "C"].includes(rule.mode)) errors.push("잘못된 mode");
 
   // 도구 등록 검사
   const checkIds = new Set<string>();
   for (const chk of rule.checks) {
+    if (checkIds.has(chk.id)) errors.push(`중복 check id: ${chk.id}`);
     checkIds.add(chk.id);
     if (!isRegisteredTool(chk.toolId)) {
       errors.push(`등록되지 않은 tool_id: ${chk.toolId} (check ${chk.id})`);
@@ -90,19 +100,9 @@ function loadRegistry(): LoadedRegistry {
   }
 
   // 규칙 집합의 간단한 다이제스트(계획 신선도 확인용).
-  const digest = simpleDigest(
-    valid.map((r) => `${r.id}@${r.version}`).sort().join(",")
-  );
+  const digest = `reg_${createHash("sha256").update(JSON.stringify(valid)).digest("hex")}`;
 
   return { rules: valid, errors, digest };
-}
-
-function simpleDigest(input: string): string {
-  let h = 5381;
-  for (let i = 0; i < input.length; i++) {
-    h = (h * 33) ^ input.charCodeAt(i);
-  }
-  return "reg_" + (h >>> 0).toString(16);
 }
 
 const REGISTRY = loadRegistry();
@@ -133,4 +133,8 @@ export function registryDigest(): string {
   return REGISTRY.digest;
 }
 
-export const POLICY_VERSION = "automatic-security-qa-v1";
+export function registryErrors(): readonly RuleValidationError[] {
+  return REGISTRY.errors;
+}
+
+export const POLICY_VERSION = "automatic-security-qa-v2";

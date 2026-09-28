@@ -86,7 +86,7 @@ const SKIP_DIR = /(^|\/)(node_modules|\.git|\.next|dist|build|vendor|coverage)\/
 
 export function isScannableFile(path: string): boolean {
   if (SKIP_DIR.test("/" + path)) return false;
-  return SOURCE_EXT.test(path);
+  return SOURCE_EXT.test(path) || /(?:^|\/)(?:\.env(?:\.[\w.-]+)?|[\w.-]+\.rules|[\w.-]+\.ya?ml|requirements\.txt|(?:yarn|bun)\.lock|Pipfile\.lock)$/.test(path);
 }
 
 /** Detect a lightweight stack from the file map (paths + package.json). */

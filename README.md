@@ -1,5 +1,7 @@
 # Vibe Coding Security Agent
 
+Security definitions v2: [integration notes and tool coverage](docs/security/definitions-v2-integration.md).
+
 > **Don't trust the fix. Verify it.**
 
 An independent Security Agent for developers who build with AI but can't review

@@ -35,12 +35,11 @@ export type GateErrorCode =
 
 /** 현재 실행 컨텍스트에서 허용되는 최고 실행 등급을 계산한다. */
 export function allowedMaxTier(context: ProjectContext): ExecutionTier {
-  // 능동(네트워크) 검사는 테스트 대상 URL이 있고 + 사용자가 소유/테스트 권한을
-  // 명시적으로 확인(deploymentAuthorized)했을 때만 허용한다. URL만으로는
-  // 권한이 아니다. 그 외에는 정적(PASSIVE)만 실행한다.
+  // 실제 능동 검사는 URL + 동의 + 스캔 직전 DNS/파일 소유권 검증을 요구한다.
+  // 내부 데모의 권한 재현은 고정 fixture에서만 수행한다.
   // MVP에서는 ISOLATED_ACTIVE까지만 자동 허용하고, PATCH/PRIVILEGED_CHANGE는
   // 별도 승인 흐름에서만 올린다.
-  if (context.deploymentUrl && context.deploymentAuthorized) {
+  if (context.isUserProject === false || (context.deploymentUrl && context.deploymentAuthorized && context.ownershipVerified)) {
     return "ISOLATED_ACTIVE";
   }
   return "PASSIVE";
@@ -121,9 +120,21 @@ function availableConditions(context: ProjectContext): Set<string> {
   // 소스 스냅샷은 파일 맵이 있을 때만 충족(URL만 있는 프로젝트는 미충족).
   if (Object.keys(context.files).length > 0) s.add("source_checkout");
   // 배포 URL + 소유권 확인이 모두 있어야 테스트 배포가 승인된 것으로 본다.
-  if (context.deploymentUrl && context.deploymentAuthorized) {
+  if (context.deploymentUrl && context.deploymentAuthorized && context.ownershipVerified) {
     s.add("authorized_test_deployment");
-    // 데모: 테스트 사용자/객체는 데모 앱에 준비되어 있다.
+  }
+  if (context.linkedBaasProjects?.length) {
+    s.add("linked_baas_project");
+  }
+  if (context.testSessions?.test_user_a) s.add("test_user_a");
+  if (context.testSessions?.test_user_b) s.add("test_user_b");
+  if (context.testSessions?.admin_session) s.add("admin_session");
+  if (context.testObjects?.object_owned_by_a) s.add("object_owned_by_a");
+  if (context.testObjects?.object_owned_by_b) s.add("object_owned_by_b");
+
+  // 번들 데모에는 격리된 두 사용자와 각자 소유 객체가 고정 fixture로 준비되어 있다.
+  if (context.isUserProject === false) {
+    s.add("authorized_test_deployment");
     s.add("test_user_a");
     s.add("test_user_b");
     s.add("object_owned_by_a");

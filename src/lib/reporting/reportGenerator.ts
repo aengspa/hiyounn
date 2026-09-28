@@ -94,6 +94,19 @@ function severityRank(s: Severity): number {
   return { critical: 0, high: 1, medium: 2, low: 3 }[s];
 }
 
+/** Keep every finding/evidence in storage; summarize mode variants once per family. */
+export function groupFindingsForReport(findings: SecurityFinding[]): SecurityFinding[] {
+  const groups = new Map<string, SecurityFinding[]>();
+  for (const finding of findings) {
+    const key = finding.family ?? finding.ruleId ?? finding.id;
+    groups.set(key, [...(groups.get(key) ?? []), finding]);
+  }
+  return [...groups.values()].map((group) => {
+    const ranked = group.slice().sort((a, b) => severityRank(a.severity) - severityRank(b.severity));
+    return { ...ranked[0], title: group.length > 1 ? `${ranked[0].title} (${group.length}개 근거)` : ranked[0].title };
+  });
+}
+
 function stripFence(text: string): string {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fenced) return fenced[1].trim();
@@ -111,6 +124,7 @@ export async function generateScanReport(
   findings: SecurityFinding[],
   scope: ScanScope
 ): Promise<ScanReport> {
+  findings = groupFindingsForReport(findings);
   if (!isConfigured()) {
     return deterministicReport(findings, scope);
   }

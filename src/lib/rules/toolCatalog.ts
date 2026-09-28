@@ -112,6 +112,62 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
     method: "TEST",
     producesEvidence: ["http_request", "http_response", "attack_reproduction"],
   },
+  {
+    toolId: "package_provenance_checker",
+    displayName: "패키지 출처·타이포스쿼팅 검사기",
+    method: "CONFIG",
+    producesEvidence: ["configuration", "scanner_output"],
+    implementation: "sourceRuleTools",
+  },
+  {
+    toolId: "bundle_secret_scanner",
+    displayName: "배포 번들 비밀정보 스캐너",
+    method: "CONFIG",
+    producesEvidence: ["http_request", "http_response", "scanner_output"],
+    implementation: "deployedRuleTools",
+  },
+  {
+    toolId: "redirect_probe",
+    displayName: "오픈 리다이렉트 프로브",
+    method: "TEST",
+    producesEvidence: ["http_request", "http_response"],
+    implementation: "deployedRuleTools",
+  },
+  {
+    toolId: "error_probe",
+    displayName: "상세 오류 노출 프로브",
+    method: "TEST",
+    producesEvidence: ["http_request", "http_response"],
+    implementation: "deployedRuleTools",
+  },
+  {
+    toolId: "llm_integration_analyzer",
+    displayName: "LLM 통합 정적 분석기",
+    method: "SAST",
+    producesEvidence: ["source_code", "scanner_output"],
+    implementation: "sourceRuleTools",
+  },
+  {
+    toolId: "llm_prompt_probe",
+    displayName: "LLM 프롬프트 누출 프로브",
+    method: "TEST",
+    producesEvidence: ["http_request", "http_response"],
+    implementation: "deployedRuleTools",
+  },
+  {
+    toolId: "baas_access_probe",
+    displayName: "BaaS 익명·교차 사용자 접근 프로브",
+    method: "TEST",
+    producesEvidence: ["http_request", "http_response", "attack_reproduction"],
+    implementation: "accountRuleTools",
+  },
+  {
+    toolId: "jwt_tamper_probe",
+    displayName: "JWT 변조 프로브",
+    method: "TEST",
+    producesEvidence: ["http_request", "http_response", "attack_reproduction"],
+    implementation: "accountRuleTools",
+  },
 ];
 
 const BY_ID = new Map(TOOL_CATALOG.map((t) => [t.toolId, t]));

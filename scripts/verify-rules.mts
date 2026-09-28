@@ -10,10 +10,14 @@
  * (테스트 프레임워크가 없는 MVP에서 회귀를 막기 위한 경량 스모크 체크. 실패 시
  *  프로세스 종료 코드 1로 CI에서 잡을 수 있다.)
  */
-import { getRules } from "../src/lib/rules/registry";
+import { getRules, registryErrors } from "../src/lib/rules/registry";
+import { RULES } from "../src/lib/rules/definitions";
 import { getTool } from "../src/lib/rules/toolCatalog";
 import { SecurityOrchestrator } from "../src/lib/scanners/orchestrator";
 import { StaticWebScanner } from "../src/lib/scanners/staticWebScanner";
+import { SecretScanner } from "../src/lib/scanners/secretScanner";
+import { BaaSConfigScanner } from "../src/lib/scanners/baasScanner";
+import { AuthorizationScanner } from "../src/lib/scanners/authorizationScanner";
 import { buildDemoContext } from "../src/lib/demo/demoContext";
 import type { ProjectContext } from "../src/lib/scanners/types";
 import { isBlockedAddress, safeFetch, SafeFetchError } from "../src/lib/net/safeFetch";
@@ -26,6 +30,7 @@ function check(label: string, cond: boolean, detail = ""): void {
 }
 
 async function main(): Promise<void> {
+  check("첨부 규칙 전체가 유효하게 적재", getRules().length === RULES.length && registryErrors().length === 0);
   // 1) 레지스트리 적재 + 도구 등록
   const ids = getRules()
     .map((r) => r.id)
@@ -75,7 +80,10 @@ async function main(): Promise<void> {
     name: "verify",
     commitSha: "b72c42d",
   });
-  const orch = new SecurityOrchestrator();
+  const orch = new SecurityOrchestrator([
+    new SecretScanner(), new StaticWebScanner(), new BaaSConfigScanner(), new AuthorizationScanner(),
+  ], async (url) => ({ status: 200, url, headers: {}, truncated: false,
+    body: JSON.stringify({ scripts: {}, time: { created: "2020-01-01T00:00:00Z" }, downloads: 1000 }) }));
   const { findings, plan } = await orch.run(ctx);
 
   const byKind = (prefix: string) =>

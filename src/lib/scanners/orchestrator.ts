@@ -1,13 +1,6 @@
 import type { SecurityScanner, ProjectContext } from "@/lib/scanners/types";
 import { SCANNER_VERSION, RULESET_VERSION } from "@/lib/scanners/types";
-import type {
-  SecurityFinding,
-  ScanScope,
-  ScanStep,
-  ScanPlan,
-  PlannedCheck,
-  CoverageGap,
-} from "@/lib/domain/types";
+import type { SecurityFinding, ScanScope, ScanStep, ScanPlan, PlannedCheck, CoverageGap } from "@/lib/domain/types";
 import { toTestStatus } from "@/lib/domain/types";
 import { SecretScanner } from "@/lib/scanners/secretScanner";
 import { HeaderScanner } from "@/lib/scanners/headerScanner";
@@ -22,287 +15,193 @@ import { BruteForceScanner } from "@/lib/scanners/bruteForceScanner";
 import { CookieScanner } from "@/lib/scanners/cookieScanner";
 import { BflaScanner } from "@/lib/scanners/bflaScanner";
 import { AiCodeScanner } from "@/lib/scanners/aiCodeScanner";
+import { RuleToolRuntime, type ProbeFetch } from "@/lib/scanners/ruleToolRuntime";
+import { NEW_TOOL_CHECKS, executeNewToolCheck, supportsNewToolCheck } from "@/lib/scanners/newRuleTools";
+import { extractBaasProjects } from "@/lib/scanners/deployedRuleTools";
+import { verifyTargetOwnership } from "@/lib/scanners/ownershipVerification";
+import { MODE_INCLUDES } from "@/lib/rules/definitions";
+import { conditionMatches, modeForContext, selectorMatches } from "@/lib/rules/selectorEvaluation";
 import { now, SCAN_STEP_LABELS, id } from "@/lib/util";
 import { getRule, getRules, registryDigest, POLICY_VERSION } from "@/lib/rules/registry";
-import {
-  ruleForScanner,
-  ruleIdForVerificationKey,
-  STATIC_WEB_RULES,
-} from "@/lib/rules/scannerBinding";
-import {
-  assertRegisteredRule,
-  assertRegisteredTool,
-  assertTierAllowed,
-  assertNonDestructive,
-  evaluatePrerequisites,
-  GateError,
-} from "@/lib/rules/executionGate";
+import { ruleForScanner, ruleIdForVerificationKey, STATIC_WEB_RULES } from "@/lib/rules/scannerBinding";
+import { assertRegisteredRule, assertRegisteredTool, assertTierAllowed, assertNonDestructive, evaluatePrerequisites, GateError } from "@/lib/rules/executionGate";
 import type { SecurityRule } from "@/lib/rules/types";
 
-/**
- * SecurityOrchestrator (규칙 기반, 문서 Phase A)
- *
- * 흐름: 규칙 레지스트리로 계획(ScanPlan)을 만들고 → 실행 게이트를 통과한
- * 스캐너만 실행 → 결과 finding에 규칙 메타(ruleId/standards/tier/testStatus)를
- * 부착한다. 게이트를 통과하지 못한 검사는 coverage_gap으로 기록한다.
- *
- * 도구 실행 승인과 최종 판정은 서버(이 클래스)만 한다. 모델/사용자 입력은
- * 실행 대상을 확정하지 못한다.
- */
+const UNTESTED_CATEGORIES = ["Complex Business Logic", "Social Engineering", "DDoS", "Internal Infrastructure", "Advanced Supply Chain Attacks"];
 
-// 미검사 카테고리(문서 13). 웹 대상 MVP 기준.
-const UNTESTED_CATEGORIES = [
-  "Complex Business Logic",
-  "Social Engineering",
-  "DDoS",
-  "Internal Infrastructure",
-  "Advanced Supply Chain Attacks",
-];
+/** Existing scanners support only these exact checks; new declaration-only checks stay gaps. */
+const LEGACY_CHECKS: Record<string, readonly string[]> = {
+  "secret-scanner": ["SEC-001/scan-secrets"],
+  "dependency-scanner": ["SEC-004/sca-audit"],
+  "baas-config-scanner": ["BAAS-001/rls-policy-read"],
+  "static-web-scanner": ["WEB-003/scan-xss-sinks", "WEB-004/scan-sql-injection", "WEB-004/scan-command-injection", "WEB-004/scan-code-eval", "WEB-005/scan-response-fields", "WEB-006/scan-path-traversal", "WEB-014/scan-idor-static"],
+  "authorization-scanner": ["WEB-002/locate-object-endpoints", "WEB-002/cross-user-read", "WEB-002/owner-read", "WEB-002/cross-user-update", "WEB-002/owner-update"],
+  "header-cors-scanner": ["WEB-007/http-headers"],
+  "exposed-endpoint-scanner": ["WEB-008/probe-exposed-paths"],
+  "tls-scanner": ["WEB-009/probe-tls"],
+  "bruteforce-scanner": ["WEB-011/probe-bruteforce"],
+  "cookie-scanner": ["WEB-012/probe-cookie-flags"],
+};
 
 export class SecurityOrchestrator {
   private readonly scanners: SecurityScanner[];
 
-  constructor(scanners?: SecurityScanner[]) {
-    this.scanners = scanners ?? [
-      new SecretScanner(),
-      new DependencyScanner(),
-      new BaaSConfigScanner(),
-      new AuthorizationScanner(),
-      new StaticWebScanner(),
-      new HeaderScanner(),
-      new ExposedEndpointScanner(),
-      new TlsScanner(),
-      new UserEnumerationScanner(),
-      new BruteForceScanner(),
-      new CookieScanner(),
-      new BflaScanner(),
-      new AiCodeScanner(),
-    ];
+  constructor(scanners?: SecurityScanner[], private readonly toolFetch?: ProbeFetch,
+    private readonly ownershipVerifier: (context: ProjectContext) => Promise<boolean> = verifyTargetOwnership) {
+    this.scanners = scanners ?? [new SecretScanner(), new DependencyScanner(), new BaaSConfigScanner(),
+      new AuthorizationScanner(), new StaticWebScanner(), new HeaderScanner(), new ExposedEndpointScanner(),
+      new TlsScanner(), new UserEnumerationScanner(), new BruteForceScanner(), new CookieScanner(),
+      new BflaScanner(), new AiCodeScanner()];
   }
 
-  getScanner(name: string): SecurityScanner | undefined {
-    return this.scanners.find((s) => s.name === name);
-  }
+  getScanner(name: string): SecurityScanner | undefined { return this.scanners.find((s) => s.name === name); }
 
   scannerForFinding(finding: SecurityFinding): SecurityScanner | undefined {
     const key = finding.verificationKey ?? "";
-    if (key.startsWith("idor:")) return this.getScanner("authorization-scanner");
-    if (key.startsWith("secret:")) return this.getScanner("secret-scanner");
-    if (key.startsWith("headers:") || key.startsWith("cors:"))
-      return this.getScanner("header-cors-scanner");
-    if (key.startsWith("dep:")) return this.getScanner("dependency-scanner");
-    if (key.startsWith("rls:")) return this.getScanner("baas-config-scanner");
-    if (
-      key.startsWith("xss:") ||
-      key.startsWith("inj:") ||
-      key.startsWith("expose:") ||
-      key.startsWith("trav:") ||
-      key.startsWith("sidor:")
-    )
-      return this.getScanner("static-web-scanner");
-    if (key.startsWith("exposed:"))
-      return this.getScanner("exposed-endpoint-scanner");
-    if (key.startsWith("tls:")) return this.getScanner("tls-scanner");
-    if (key.startsWith("enum:"))
-      return this.getScanner("user-enumeration-scanner");
-    if (key.startsWith("brute:"))
-      return this.getScanner("bruteforce-scanner");
-    if (key.startsWith("cookie:")) return this.getScanner("cookie-scanner");
-    if (key.startsWith("bfla:")) return this.getScanner("bfla-scanner");
-    if (key.startsWith("ai:")) return this.getScanner("ai-code-scanner");
-    return undefined;
+    if (key.startsWith("tool:")) return undefined; // No automatic resolution without a dedicated regression contract.
+    const names: Record<string, string> = {
+      idor: "authorization-scanner", secret: "secret-scanner", headers: "header-cors-scanner", cors: "header-cors-scanner",
+      dep: "dependency-scanner", rls: "baas-config-scanner", xss: "static-web-scanner", inj: "static-web-scanner",
+      expose: "static-web-scanner", trav: "static-web-scanner", sidor: "static-web-scanner", exposed: "exposed-endpoint-scanner",
+      tls: "tls-scanner", enum: "user-enumeration-scanner", brute: "bruteforce-scanner", cookie: "cookie-scanner", bfla: "bfla-scanner", ai: "ai-code-scanner",
+    };
+    return this.getScanner(names[key.split(":")[0]]);
   }
 
   async selectApplicable(context: ProjectContext): Promise<SecurityScanner[]> {
     const applicable: SecurityScanner[] = [];
-    for (const s of this.scanners) {
-      if (await s.isApplicable(context)) applicable.push(s);
-    }
+    for (const scanner of this.scanners) if (await scanner.isApplicable(context)) applicable.push(scanner);
     return applicable;
   }
 
-  /**
-   * 규칙 레지스트리로 스캔 계획을 만든다. 각 스캐너는 규칙에 바인딩되고,
-   * 실행 게이트를 통과하면 selected_checks에, 못하면 coverage_gaps에 들어간다.
-   */
+  private async prepareContext(context: ProjectContext): Promise<ProjectContext> {
+    return { ...context, ownershipVerified: modeForContext(context) === "A" ? false : await this.ownershipVerifier(context),
+      linkedBaasProjects: extractBaasProjects(context.files, "verified_source") };
+  }
+
   async buildScanPlan(context: ProjectContext): Promise<ScanPlan> {
+    return this.buildPreparedPlan(await this.prepareContext(context));
+  }
+
+  private async buildPreparedPlan(context: ProjectContext): Promise<ScanPlan> {
     const applicable = await this.selectApplicable(context);
+    const legacyChecks = new Set(applicable.flatMap((scanner) => LEGACY_CHECKS[scanner.name] ?? []));
     const selectedChecks: PlannedCheck[] = [];
     const coverageGaps: CoverageGap[] = [];
-
-    const applicableNames = new Set(applicable.map((s) => s.name));
-
-    for (const scanner of applicable) {
-      const rule = ruleForScanner(scanner.name);
-      if (!rule) continue; // 단일 규칙에 매이지 않은 스캐너는 아래에서 별도 처리
-      this.planRule(rule, context, selectedChecks, coverageGaps);
-    }
-
-    // 정적 웹 스캐너는 여러 규칙(WEB-003/004/005)을 담당한다. 스캐너가
-    // 적용 대상이면 각 규칙을 개별적으로 게이트에 통과시켜 계획에 반영한다.
-    if (applicableNames.has("static-web-scanner")) {
-      for (const ruleId of STATIC_WEB_RULES) {
-        const rule = getRule(ruleId);
-        if (rule) this.planRule(rule, context, selectedChecks, coverageGaps);
-      }
-    }
-
-    return {
-      schemaVersion: "1.0",
-      planId: id("plan"),
-      projectId: context.projectId,
-      sourceCommitSha: context.commitSha,
-      policyVersion: POLICY_VERSION,
-      ruleRegistryDigest: registryDigest(),
-      selectedChecks,
-      coverageGaps,
-    };
-  }
-
-  /**
-   * 단일 규칙을 게이트에 통과시켜 selectedChecks 또는 coverageGaps에 반영한다.
-   * (여러 규칙을 담당하는 스캐너를 위해 규칙별 로직을 분리.)
-   */
-  private planRule(
-    rule: SecurityRule,
-    context: ProjectContext,
-    selectedChecks: PlannedCheck[],
-    coverageGaps: CoverageGap[]
-  ): void {
-    const gate = this.gateRule(rule, context);
-    if (gate.blocked) {
-      for (const chk of rule.checks) {
-        coverageGaps.push({ ruleId: rule.id, checkId: chk.id, reason: gate.reason });
-      }
-      return;
-    }
-
-    const prereq = evaluatePrerequisites(rule, context);
-    for (const chk of rule.checks) {
-      const methodMissing = (rule.prerequisites[chk.method] ?? []).filter((c) =>
-        prereq.missing.includes(c)
-      );
-      if (methodMissing.length > 0) {
-        coverageGaps.push({
-          ruleId: rule.id,
-          checkId: chk.id,
-          reason: `선행 조건 부족: ${methodMissing.join(", ")}`,
-        });
+    for (const rule of getRules()) {
+      if (!MODE_INCLUDES[modeForContext(context)].includes(rule.mode)) continue;
+      if (rule.mode === "A" && !Object.keys(context.files).length) {
+        for (const check of rule.checks) coverageGaps.push({ ruleId: rule.id, checkId: check.id, reason: "소스가 없어 정적 점검을 수행하지 못했습니다." });
         continue;
       }
-      selectedChecks.push({
-        ruleId: rule.id,
-        ruleVersion: rule.version,
-        componentId: context.projectId,
-        checkId: chk.id,
-        toolId: chk.toolId,
-        tier: rule.execution.tier,
-        prerequisiteStatus: "READY",
+      if (!selectorMatches(rule.selector, context)) continue;
+      if (rule.coverageGap && conditionMatches(rule.coverageGap.when, context)) coverageGaps.push({
+        ruleId: rule.id, checkId: "coverage", reason: rule.coverageGap.messageKo,
       });
+      this.planRule(rule, context, selectedChecks, coverageGaps, legacyChecks);
     }
+    return { schemaVersion: "1.0", planId: id("plan"), projectId: context.projectId,
+      sourceCommitSha: context.commitSha, policyVersion: POLICY_VERSION, ruleRegistryDigest: registryDigest(), selectedChecks, coverageGaps };
   }
 
-  /** 규칙에 대해 게이트를 실행하고 차단 여부/사유를 반환(예외를 잡아서 사유화). */
-  private gateRule(
-    rule: SecurityRule,
-    context: ProjectContext
-  ): { blocked: boolean; reason: string } {
+  private planRule(rule: SecurityRule, context: ProjectContext, selected: PlannedCheck[], gaps: CoverageGap[], legacyChecks: ReadonlySet<string>): void {
+    const prereq = evaluatePrerequisites(rule, context);
+    let gateReason = "";
     try {
-      assertRegisteredRule(rule);
-      assertNonDestructive(rule);
-      for (const chk of rule.checks) assertRegisteredTool(chk);
-      assertTierAllowed(rule, context);
-      return { blocked: false, reason: "" };
-    } catch (e) {
-      if (e instanceof GateError) {
-        // TIER_NOT_ALLOWED는 "테스트 대상 없음" 등 정상적 미검사 사유.
-        const reason =
-          e.code === "TIER_NOT_ALLOWED"
-            ? "테스트 배포 대상이 없어 능동 검사를 실행하지 않음"
-            : e.message;
-        return { blocked: true, reason };
-      }
-      throw e;
+      assertRegisteredRule(rule); assertNonDestructive(rule); assertTierAllowed(rule, context);
+      for (const check of rule.checks) assertRegisteredTool(check);
+    } catch (error) {
+      if (!(error instanceof GateError)) throw error;
+      gateReason = error.message;
+    }
+    for (const check of rule.checks) {
+      let reason = gateReason;
+      if (check.when && !conditionMatches(check.when, context)) reason ||= "체크의 실행 조건에 필요한 입력이 없습니다.";
+      const missing = (rule.prerequisites[check.method] ?? []).filter((p) => prereq.missing.includes(p));
+      if (missing.length) reason ||= `선행 조건 부족: ${missing.join(", ")}`;
+      const internalDemoCheck = context.isUserProject === false && rule.id === "WEB-002";
+      if (rule.mode !== "A" && !internalDemoCheck && !context.ownershipVerified) reason ||= "DNS/파일 토큰으로 검증된 대상 소유권이 필요합니다.";
+      if (!supportsNewToolCheck(check) && !legacyChecks.has(`${rule.id}/${check.id}`)) reason ||= "현재 구현에서 이 체크를 실행하지 못합니다.";
+      if (reason) gaps.push({ ruleId: rule.id, checkId: check.id, reason });
+      else selected.push({ ruleId: rule.id, ruleVersion: rule.version, componentId: context.projectId, checkId: check.id,
+        toolId: check.toolId, tier: rule.execution.tier, prerequisiteStatus: "READY" });
     }
   }
 
-  async run(
-    context: ProjectContext
-  ): Promise<{ findings: SecurityFinding[]; scope: ScanScope; plan: ScanPlan }> {
-    const plan = await this.buildScanPlan(context);
-    const applicable = await this.selectApplicable(context);
+  async run(context: ProjectContext): Promise<{ findings: SecurityFinding[]; scope: ScanScope; plan: ScanPlan }> {
+    context = await this.prepareContext(context);
+    const plan = await this.buildPreparedPlan(context);
     const findings: SecurityFinding[] = [];
     const testedCategories = new Set<string>();
-
-    // 계획에 포함된 규칙 ID(게이트 통과) 집합.
-    const plannedRuleIds = new Set(plan.selectedChecks.map((c) => c.ruleId));
-
-    for (const scanner of applicable) {
-      const rule = ruleForScanner(scanner.name);
-
-      // 규칙에 바인딩된 스캐너는 계획에 없으면(게이트 차단) 실행하지 않음.
-      if (rule && !plannedRuleIds.has(rule.id)) continue;
-
-      const results = await scanner.scan(context);
-      for (const f of results) {
-        this.decorateWithRule(f);
-        findings.push(f);
-      }
-
-      if (rule) testedCategories.add(rule.titleKo);
-      if (scanner.name === "static-web-scanner") {
-        // 여러 규칙을 담당: 계획에 포함된 정적 웹 규칙 제목을 카테고리로 추가.
-        for (const ruleId of STATIC_WEB_RULES) {
-          if (plannedRuleIds.has(ruleId)) {
-            const r = getRule(ruleId);
-            if (r) testedCategories.add(r.titleKo);
+    // Rules are in A/B/C order. Bundle discovery fills actual BaaS prerequisites before BaaS checks.
+    for (const rule of getRules()) {
+      const checks = rule.checks.filter((check) => check.toolId in NEW_TOOL_CHECKS &&
+        plan.selectedChecks.some((selected) => selected.ruleId === rule.id && selected.checkId === check.id));
+      if (!checks.length) continue;
+      const runtime = new RuleToolRuntime(context, rule, this.toolFetch);
+      for (const check of checks) {
+        const result = await executeNewToolCheck(runtime, check);
+        result.findings.forEach((finding) => { this.decorateWithRule(finding); findings.push(finding); });
+        if (result.gap) {
+          plan.coverageGaps.push({ ruleId: rule.id, checkId: check.id, reason: result.gap });
+          plan.selectedChecks = plan.selectedChecks.filter((selected) => selected.ruleId !== rule.id || selected.checkId !== check.id);
+        } else testedCategories.add(rule.titleKo);
+        if (result.linkedBaasProjects?.length && rule.produces?.includes("linked_baas_project")) {
+          context = { ...context, linkedBaasProjects: [...(context.linkedBaasProjects ?? []), ...result.linkedBaasProjects] };
+          const refreshed = await this.buildPreparedPlan(context);
+          for (const selected of refreshed.selectedChecks) {
+            if (selected.toolId === "baas_access_probe" && !plan.selectedChecks.some((old) => old.ruleId === selected.ruleId && old.checkId === selected.checkId)) {
+              plan.selectedChecks.push(selected);
+              plan.coverageGaps = plan.coverageGaps.filter((old) => old.ruleId !== selected.ruleId || old.checkId !== selected.checkId);
+            }
           }
         }
       }
+    }
+    const plannedIds = new Set(plan.selectedChecks.map((check) => check.ruleId));
+    const plannedKeys = new Set(plan.selectedChecks.map((check) => `${check.ruleId}/${check.checkId}`));
+    for (const scanner of await this.selectApplicable(context)) {
+      if (scanner.name !== "ai-code-scanner" && !(LEGACY_CHECKS[scanner.name] ?? []).some((key) => plannedKeys.has(key))) continue;
+      const results = await scanner.scan(context);
+      for (const finding of results) {
+        this.decorateWithRule(finding);
+        if (finding.ruleId && !plannedIds.has(finding.ruleId)) continue;
+        findings.push(finding);
+      }
+      const rule = ruleForScanner(scanner.name);
+      if (rule) testedCategories.add(rule.titleKo);
+      if (scanner.name === "static-web-scanner") {
+        for (const ruleId of STATIC_WEB_RULES) if (plannedIds.has(ruleId)) testedCategories.add(getRule(ruleId)!.titleKo);
+      }
       if (scanner.name === "ai-code-scanner") testedCategories.add("AI 분석 발견");
     }
-
-    const scope: ScanScope = {
-      scanDate: now(),
-      repository: context.repositoryUrl,
-      deploymentUrl: context.deploymentUrl,
-      testedCommit: context.commitSha,
-      scannerVersion: SCANNER_VERSION,
-      rulesetVersion: RULESET_VERSION,
+    const scope: ScanScope = { scanDate: now(), repository: context.repositoryUrl, deploymentUrl: context.deploymentUrl,
+      testedCommit: context.commitSha, scannerVersion: SCANNER_VERSION, rulesetVersion: RULESET_VERSION,
       testedCategories: [...testedCategories],
-      untestedCategories: UNTESTED_CATEGORIES,
-    };
-
+      untestedCategories: [...UNTESTED_CATEGORIES, ...new Set(plan.coverageGaps.map((gap) => getRule(gap.ruleId)?.titleKo ?? gap.ruleId))] };
     return { findings, scope, plan };
   }
 
-  /** finding에 규칙 메타(ruleId/standards/tier/testStatus)를 부착한다. */
-  private decorateWithRule(f: SecurityFinding): void {
-    const ruleId = ruleIdForVerificationKey(f.verificationKey);
-    if (ruleId) {
-      const rule = getRules().find((r) => r.id === ruleId);
-      if (rule) {
-        f.ruleId = rule.id;
-        f.standards = rule.standards.map((s) => `${s.framework} ${s.id}`);
-        f.executionTier = rule.execution.tier;
-      }
+  private decorateWithRule(finding: SecurityFinding): void {
+    const rule = getRule(finding.ruleId ?? ruleIdForVerificationKey(finding.verificationKey) ?? "");
+    if (rule) {
+      finding.ruleId = rule.id; finding.family = rule.family;
+      finding.standards = rule.standards.map((standard) => `${standard.framework} ${standard.id}`);
+      finding.executionTier = rule.execution.tier;
+      if (rule.checks.every((check) => check.confidence === "tentative")) finding.status = "detected";
     }
-    f.testStatus = toTestStatus(f.status);
+    finding.testStatus = toTestStatus(finding.status);
   }
 
-  /** 진행 UI용 파이프라인 단계(적용 여부 포함). */
   async plan(context: ProjectContext) {
-    const applicable = await this.selectApplicable(context);
-    const applicableSteps = new Set(applicable.map((s) => s.step));
-    applicableSteps.add("detect_stack");
-    applicableSteps.add("generating_findings");
-    if (applicableSteps.has("authorization_analysis")) {
-      applicableSteps.add("dynamic_testing");
+    const plan = await this.buildScanPlan(context);
+    const steps = new Set<ScanStep>(["detect_stack", "generating_findings"]);
+    for (const scanner of await this.selectApplicable(context)) {
+      if ((LEGACY_CHECKS[scanner.name] ?? []).some((key) => plan.selectedChecks.some((c) => `${c.ruleId}/${c.checkId}` === key))) steps.add(scanner.step);
     }
-    return (Object.keys(SCAN_STEP_LABELS) as ScanStep[]).map((step) => ({
-      step,
-      label: SCAN_STEP_LABELS[step],
-      active: applicableSteps.has(step),
-    }));
+    for (const check of plan.selectedChecks) {
+      if (check.toolId in NEW_TOOL_CHECKS) steps.add(check.tier === "PASSIVE" ? check.toolId === "package_provenance_checker" ? "dependency_scan" : "static_analysis" : "dynamic_testing");
+    }
+    return (Object.keys(SCAN_STEP_LABELS) as ScanStep[]).map((step) => ({ step, label: SCAN_STEP_LABELS[step], active: steps.has(step) }));
   }
 }

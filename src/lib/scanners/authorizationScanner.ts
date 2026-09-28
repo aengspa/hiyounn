@@ -69,7 +69,7 @@ export class AuthorizationScanner implements SecurityScanner {
   readonly simulated = false;
 
   async isApplicable(context: ProjectContext): Promise<boolean> {
-    return HANDLER_FILE in context.files;
+    return context.isUserProject === false && HANDLER_FILE in context.files;
   }
 
   async scan(context: ProjectContext): Promise<SecurityFinding[]> {

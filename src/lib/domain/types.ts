@@ -161,6 +161,8 @@ export interface SecurityFinding {
   // ── 규칙 엔진 참조 (Phase A) ──
   /** 이 발견을 만든 규칙 ID(예: WEB-002). 규칙 레지스트리 기반임을 나타냄. */
   ruleId?: string;
+  /** Variants of the same security issue, used for report grouping. */
+  family?: string;
   /** 표준 참조(OWASP 등). 예: ["OWASP API1:2023"]. */
   standards?: string[];
   /** 이 발견을 확인한 검사의 실행 등급. */
