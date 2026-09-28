@@ -36,6 +36,21 @@ export interface ProjectContext {
   isUserProject?: boolean;
 
   /**
+   * 재검증 때만: 수정 전(원본) 파일. 규칙 재검사가 "원래 그 줄"이 남았는지,
+   * 수정이 같은 문제를 새 줄에 만들었는지 가려낼 때 쓴다.
+   */
+  baselineFiles?: Record<string, string>;
+
+  /** 사용자가 승인한 AI 제안 규칙(기준 규칙으로 돈다). */
+  customRules?: import("@/lib/domain/types").CustomRule[];
+
+  /**
+   * 재업로드 증분 점검: AI가 새로 볼 파일(바뀐 파일)만. 없으면 전체를 본다.
+   * 규칙 검사는 항상 전체 파일을 본다.
+   */
+  aiScope?: string[];
+
+  /**
    * True only when the user has explicitly confirmed they own/are authorized to
    * test `deploymentUrl`. Active (network) checks require this — a URL alone is
    * NOT authorization. The bundled demo target is always authorized.

@@ -1,4 +1,5 @@
 import type {
+  CustomRule,
   Project,
   Scan,
   SecurityFinding,
@@ -13,6 +14,7 @@ import { Buffer } from "buffer";
 import { toTestStatus } from "@/lib/domain/types";
 import { id, now } from "@/lib/util";
 import { contextForProject } from "@/lib/scanners/contextFor";
+import { runScanPipeline } from "@/lib/scan/scanPipeline";
 import { SecurityOrchestrator } from "@/lib/scanners/orchestrator";
 import { generateScanReport } from "@/lib/reporting/reportGenerator";
 import { generateFixSmart } from "@/lib/remediation/fixGenerator";
@@ -65,6 +67,8 @@ interface Db {
   sourceVersions: Map<string, SourceVersion>;
   /** Fix-all jobs by id. */
   fixJobs: Map<string, FixJob>;
+  /** AI-proposed rules by id. */
+  customRules: Map<string, CustomRule>;
 }
 
 function freshDb(): Db {
@@ -80,6 +84,7 @@ function freshDb(): Db {
     artifactBytes: new Map(),
     sourceVersions: new Map(),
     fixJobs: new Map(),
+    customRules: new Map(),
   };
 }
 
@@ -280,8 +285,13 @@ export class MemoryStore implements StoreBackend {
     if (!project.isDemo && !version) throw new SourceMissingError();
 
     const startedAt = now();
-    const context = contextForProject(project, { files: version?.files });
-    const { findings, scope, plan } = await this.orchestrator.run(context);
+    const { findings, scope, plan, proposals } = await runScanPipeline({
+      backend: this,
+      project,
+      version,
+      ownerId,
+      orchestrator: this.orchestrator,
+    });
 
     const scan: Scan = {
       id: id("scan"),
@@ -307,6 +317,12 @@ export class MemoryStore implements StoreBackend {
       scan.report = await generateScanReport(findings, scope);
     } catch {
       // 보고서 생성 실패가 스캔 자체를 실패시키지는 않는다.
+    }
+
+    // AI가 제안한 규칙은 "제안" 상태로 저장한다(사람이 승인해야 돈다).
+    for (const rule of proposals) {
+      rule.sourceScanId = scan.id;
+      await this.saveCustomRule(rule).catch(() => {});
     }
 
     this.db.scans.set(scan.id, scan);
@@ -467,6 +483,46 @@ export class MemoryStore implements StoreBackend {
   ): Promise<VerificationResult | undefined> {
     this.assertFindingOwner(findingId, ownerId);
     return this.db.verifications.get(findingId);
+  }
+
+  // ── AI-proposed rules ──
+  async listCustomRules(ownerId: string, projectId?: string): Promise<CustomRule[]> {
+    return [...this.db.customRules.values()]
+      .filter((r) => r.ownerId === ownerId && (!projectId || r.projectId === projectId))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map(clone);
+  }
+
+  async getCustomRule(ruleId: string, ownerId: string): Promise<CustomRule> {
+    const r = this.db.customRules.get(ruleId);
+    if (!r) throw new NotFoundError();
+    if (r.ownerId !== ownerId) throw new NotAuthorizedError();
+    return clone(r);
+  }
+
+  async saveCustomRule(rule: CustomRule): Promise<void> {
+    this.assertProjectOwner(rule.projectId, rule.ownerId);
+    const existing = this.db.customRules.get(rule.id);
+    if (existing && existing.ownerId !== rule.ownerId) throw new NotAuthorizedError();
+    this.db.customRules.set(rule.id, clone(rule));
+  }
+
+  // ── Re-upload ──
+  async addSourceVersion(
+    projectId: string,
+    ownerId: string,
+    files: Record<string, string>,
+    meta?: { sourceKind: "zip" | "paste"; zipName?: string }
+  ): Promise<SourceVersion> {
+    const project = this.assertProjectOwner(projectId, ownerId);
+    assertHasSourceFiles(files);
+    const version = makeSourceVersion({ projectId, ownerId, kind: "reupload", files, parentVersionId: project.currentSourceVersionId });
+    this.db.sourceVersions.set(version.id, version);
+    project.currentSourceVersionId = version.id;
+    project.sourceCode = serializeFileMap(version.files);
+    project.sourceZipName = meta?.sourceKind === "zip" ? meta.zipName : undefined;
+    this.db.projects.set(project.id, project);
+    return clone(version);
   }
 
   // ── Legacy per-finding artifacts ──

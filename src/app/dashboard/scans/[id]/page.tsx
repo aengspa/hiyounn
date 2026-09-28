@@ -6,17 +6,21 @@ import {
   getScan,
   getProject,
   getFindingsForScan,
+  getSourceVersion,
+  listCustomRules,
   listFixJobsForScan,
   NotFoundError,
   NotAuthorizedError,
 } from "@/lib/store/store";
 import { Card, TechnicalDetails, categoryLabel, tierLabel } from "@/components/ui";
-import type { ScanPlan, ScanScope } from "@/lib/domain/types";
+import type { AiScanCoverage, RouteAuthzEntry, ScanPlan, ScanScope } from "@/lib/domain/types";
 import { sortBySeverity } from "@/lib/ui/presentation";
 import { FixAllPanel, type FindingView } from "@/components/FixAllPanel";
+import { RuleProposals } from "@/components/RuleProposals";
 import { toPublicJob } from "@/lib/fixjobs/publicJob";
 import { isStale } from "@/lib/fixjobs/fixAllService";
 import { LIMITS } from "@/lib/config/limits";
+import { codeContextFor, secretValues } from "@/lib/ui/codeContext";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +52,10 @@ export default async function ScanResultsPage({ params }: { params: { id: string
       )
     : undefined;
 
+  // 점검한 그 버전의 코드로 문제가 된 줄을 보여 준다(비밀값은 가림).
+  const scanned = scan.sourceVersionId ? await getSourceVersion(scan.sourceVersionId, uid).catch(() => undefined) : undefined;
+  const secrets = scanned ? secretValues(scanned.files) : [];
+
   const views: FindingView[] = findings.map((f) => ({
     id: f.id,
     title: f.title,
@@ -57,7 +65,14 @@ export default async function ScanResultsPage({ params }: { params: { id: string
     remediation: f.remediation,
     location: f.location,
     isAi: Boolean(f.verificationKey?.startsWith("ai:") || f.category === "AI Detected"),
+    aiReview: f.aiReview,
+    code: scanned ? codeContextFor(f, scanned.files, secrets) : undefined,
+    corroboratedBy: f.corroboratedBy,
+    carriedOver: Boolean(f.carriedOverFromScanId),
   }));
+  const proposals = (await listCustomRules(uid, scan.projectId).catch(() => [])).filter((r) => r.sourceScanId === scan.id);
+  const falsePositiveCount = views.filter((v) => v.aiReview?.adjudication?.verdict === "not_vulnerable").length;
+  const activeCount = views.length - falsePositiveCount;
 
   const projectHref = `/dashboard/projects/${scan.projectId}`;
   const scannedAt = new Date(scan.completedAt ?? scan.startedAt).toLocaleString("ko-KR");
@@ -69,10 +84,24 @@ export default async function ScanResultsPage({ params }: { params: { id: string
         <section aria-labelledby="report-title">
           <p className="text-sm text-ink-muted">{scannedAt} 점검</p>
           <h2 id="report-title" className="mt-1 text-2xl font-bold text-ink">
-            {findings.length > 0
-              ? `확인할 부분 ${findings.length}개를 찾았어요`
+            {activeCount > 0
+              ? `확인할 부분 ${activeCount}개를 찾았어요`
               : "이번 범위에서 확인할 부분을 찾지 못했어요"}
           </h2>
+          {falsePositiveCount > 0 && (
+            <p className="mt-1 text-sm text-ink-muted">
+              규칙 결과 중 {falsePositiveCount}개는 AI가 코드 근거를 확인해 오탐으로 판정해서 아래에 따로 모았어요.
+            </p>
+          )}
+          {scan.scope.aiCoverage && <AiCoverageNotice coverage={scan.scope.aiCoverage} />}
+          {scan.scope.semgrep && <SemgrepNotice semgrep={scan.scope.semgrep} />}
+          {scan.scope.incremental && (
+            <p className="mt-1 text-sm text-ink-muted">
+              새로 올린 코드에서 바뀐 파일 {scan.scope.incremental.changedFiles.length}개만 AI가 새로 봤어요. 바뀌지 않은 파일{" "}
+              {scan.scope.incremental.unchangedFiles}개는 규칙으로 다시 점검했고, 이전 AI 결과 {scan.scope.incremental.carriedOver}건은
+              “이전 점검에서 이어옴”으로 표시했어요.
+            </p>
+          )}
         </section>
 
         {findings.length === 0 ? (
@@ -92,6 +121,9 @@ export default async function ScanResultsPage({ params }: { params: { id: string
           />
         )}
 
+        {scan.scope.authzMatrix && scan.scope.authzMatrix.length > 0 && <AuthzTable rows={scan.scope.authzMatrix} />}
+        {proposals.length > 0 && <RuleProposals rules={proposals} />}
+
         <section className="mt-12" aria-labelledby="coverage-title">
           <h2 id="coverage-title" className="sr-only">점검 범위와 한계</h2>
           <TechnicalDetails summary="점검 범위와 한계 보기">
@@ -105,6 +137,129 @@ export default async function ScanResultsPage({ params }: { params: { id: string
         </section>
       </div>
     </>
+  );
+}
+
+const CELL: Record<string, { text: string; tone: string }> = {
+  required: { text: "확인함", tone: "text-success" },
+  checked: { text: "확인함", tone: "text-success" },
+  none: { text: "없음", tone: "font-bold text-danger" },
+  missing: { text: "없음", tone: "font-bold text-danger" },
+  "n/a": { text: "—", tone: "text-ink-muted" },
+  public: { text: "공개(의도)", tone: "text-ink-subtle" },
+  unknown: { text: "모름", tone: "text-warning" },
+};
+
+/**
+ * 라우트별 권한 확인 표. 사실은 AI가 코드에서 뽑았고(선언 줄로 검증),
+ * 빨간 칸의 문제 판단은 규칙이 했다.
+ */
+function AuthzTable({ rows }: { rows: RouteAuthzEntry[] }) {
+  const gaps = rows.filter((r) => (r.findingIds ?? []).length > 0).length;
+  return (
+    <section className="mt-10" aria-labelledby="authz-title">
+      <details open={gaps > 0} className="rounded-3xl border border-line bg-surface p-4 sm:p-5">
+        <summary id="authz-title" className="cursor-pointer text-base font-bold text-ink">
+          라우트 권한 확인 표 ({rows.length}개 라우트{gaps > 0 ? `, 빈틈 ${gaps}곳` : ""})
+        </summary>
+        <p className="mt-2 text-sm text-ink-subtle">
+          AI가 코드에서 라우트마다 로그인·관리자·소유자 확인이 있는지 뽑고(각 행은 실제 선언 줄로 확인했어요), 빨간 칸은 규칙이 빈틈으로 판단한 곳이에요.
+        </p>
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <thead className="text-xs text-ink-muted">
+              <tr className="border-b border-line">
+                <th className="py-2 pr-3 font-bold">라우트</th>
+                <th className="py-2 pr-3 font-bold">로그인</th>
+                <th className="py-2 pr-3 font-bold">관리자</th>
+                <th className="py-2 pr-3 font-bold">소유자 확인</th>
+                <th className="py-2 font-bold">위치</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i} className="border-b border-line align-top last:border-0">
+                  <td className="py-2 pr-3 font-mono text-xs text-ink">
+                    <span className="font-bold">{r.method}</span> {r.path}
+                    {r.notes && <span className="mt-0.5 block font-sans text-ink-muted">{r.notes}</span>}
+                  </td>
+                  {[r.auth, r.admin, r.ownership].map((v, j) => (
+                    <td key={j} className={`py-2 pr-3 ${CELL[v]?.tone ?? ""}`}>
+                      {CELL[v]?.text ?? v}
+                    </td>
+                  ))}
+                  <td className="py-2 font-mono text-xs text-ink-muted">
+                    {r.file}:{r.line}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+  );
+}
+
+function SemgrepNotice({ semgrep }: { semgrep: NonNullable<ScanScope["semgrep"]> }) {
+  const text =
+    semgrep.status === "ran"
+      ? `Semgrep 규칙 검사도 함께 돌렸어요(${semgrep.findings}건${semgrep.config ? `, ${semgrep.config}` : ""}). 같은 문제는 규칙 결과와 합쳤어요.`
+      : semgrep.status === "not_installed"
+        ? "Semgrep이 설치돼 있지 않아 Semgrep 규칙 검사는 건너뛰었어요."
+        : semgrep.status === "failed"
+          ? `Semgrep 규칙 검사를 끝내지 못했어요${semgrep.detail ? ` (${semgrep.detail})` : ""}.`
+          : "Semgrep 규칙 검사를 건너뛰었어요.";
+  return <p className={`mt-1 text-sm ${semgrep.status === "failed" ? "text-warning" : "text-ink-muted"}`}>{text}</p>;
+}
+
+const OMIT_REASON: Record<AiScanCoverage["omitted"][number]["reason"], string> = {
+  too_large: "너무 긴 파일",
+  over_budget: "한 번에 볼 수 있는 양을 넘은 파일",
+  time_budget: "시간이 모자라 보지 못한 파일",
+  call_failed: "AI 응답을 받지 못한 파일",
+  ai_unavailable: "AI 설정 문제로 보지 못한 파일",
+};
+
+/**
+ * AI 분석이 실제로 어디까지 봤는지 제목 바로 아래에 알린다. AI가 일부만 봤는데
+ * 발견 수만 보이면, 적게 찾은 결과가 "문제가 적다"로 읽히기 때문이다.
+ */
+function AiCoverageNotice({ coverage }: { coverage: AiScanCoverage }) {
+  if (coverage.status === "off") {
+    return (
+      <p className="mt-2 text-sm text-ink-muted">
+        AI 분석이 꺼져 있어 규칙 기반 점검만 했어요. 권한 확인 누락 같은 로직 문제는 규칙으로 잘 잡히지 않아요.
+      </p>
+    );
+  }
+  if (coverage.status === "complete") {
+    return (
+      <p className="mt-2 text-sm text-ink-muted">
+        규칙 기반 점검과 함께 AI가 코드 파일 {coverage.filesTotal}개를 모두 살펴봤어요.
+        {coverage.mergedWithRules > 0 && ` 같은 문제를 가리킨 규칙·AI 결과 ${coverage.mergedWithRules}건은 하나로 합쳤어요.`}
+      </p>
+    );
+  }
+  const counts = new Map<string, number>();
+  for (const o of coverage.omitted) counts.set(o.reason, (counts.get(o.reason) ?? 0) + 1);
+  const reasons = [...counts.entries()]
+    .map(([reason, n]) => `${OMIT_REASON[reason as keyof typeof OMIT_REASON] ?? reason} ${n}개`)
+    .join(", ");
+  const retryable = coverage.omitted.some((o) => o.reason === "time_budget" || o.reason === "call_failed");
+  return (
+    <Card variant={coverage.status === "failed" ? "danger" : "warm"} className="mt-4 p-4 text-sm leading-relaxed">
+      <p className="font-bold text-ink">
+        {coverage.status === "failed"
+          ? "AI 분석을 하지 못해 규칙 기반 결과만 보여 드려요"
+          : `AI는 코드 파일 ${coverage.filesTotal}개 중 ${coverage.filesReviewed}개만 살펴봤어요`}
+      </p>
+      {reasons && <p className="mt-1 text-ink-subtle">보지 못한 이유: {reasons}.</p>}
+      <p className="mt-1 text-ink-subtle">
+        AI가 보지 못한 파일의 문제는 이 목록에 없을 수 있어요.
+        {retryable && " 다시 점검하면 이어서 확인할 수 있어요."}
+      </p>
+    </Card>
   );
 }
 

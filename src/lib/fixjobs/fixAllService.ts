@@ -22,17 +22,22 @@ import {
 import { AppError } from "@/lib/store/errors";
 import { LIMITS, type Limits } from "@/lib/config/limits";
 import { isLlmConfigured } from "@/lib/ai/llmConfig";
-import { generateFix } from "@/lib/remediation/fixGenerator";
+import { deterministicFixFor } from "@/lib/remediation/deterministicFix";
 import { generateLlmFileFix } from "@/lib/remediation/llmFileFix";
+import { redactSecrets, scrubPlaceholders } from "@/lib/ai/redact";
+import { buildProjectMap } from "@/lib/scanners/aiScanPlanner";
 import {
   applyDiffsAtomically,
   safeProjectPath,
+  textsFromPatch,
   PATCH_FAILURE_MESSAGE,
 } from "@/lib/remediation/patchEngine";
+import { maskSecretValues, secretValues } from "@/lib/ui/codeContext";
+import { requiredEnvForFix } from "@/lib/remediation/requiredEnv";
 import { buildChangedFilesZip } from "@/lib/remediation/artifactBuilder";
 import { makeSourceVersion } from "@/lib/source/sourceVersion";
 import { artifactKey, getArtifactStorage, type ArtifactStorage } from "@/lib/storage/artifactStorage";
-import { id } from "@/lib/util";
+import { id, runPool } from "@/lib/util";
 
 /**
  * 전체 수정 (fix-all).
@@ -50,11 +55,35 @@ import { id } from "@/lib/util";
  */
 
 /**
- * 실제 코드에 그대로 적용해도 안전한 규칙 기반 수정안. 나머지 규칙 수정안은
- * 변수 이름 등을 가정한 "예시"라서 실제 프로젝트에 자동 적용하지 않는다.
- * 여기 있는 것도 원본과 정확히 맞을 때만 적용된다.
+ * 규칙 기반 수정(deterministicFix)이 먼저다. 비밀값·의존성 항목은 규칙으로만
+ * 고치고 AI로 보내지 않는다. 나머지는 AI가 실제 파일을 보고 수정안을 만든다.
+ * AI에 보내는 코드와 근거에서는 비밀값을 가린다(redactSecrets).
  */
-const SAFE_DETERMINISTIC_PREFIXES = ["cookie:", "headers:", "secret:"];
+
+/** 이 오류가 나면 같은 작업의 남은 AI 호출도 실패하므로 더 부르지 않는다. */
+const AI_BLOCKING_ERRORS = new Set(["auth_failed", "not_configured"]);
+
+function aiErrorReason(code: string): string {
+  switch (code) {
+    case "auth_failed":
+      return "AI 키가 올바르지 않거나 권한이 없어 수정안을 받지 못했어요. 관리자에게 AI 설정 확인을 요청해 주세요.";
+    case "not_configured":
+      return "AI 설정이 없어 수정안을 받지 못했어요.";
+    case "rate_limited":
+      return "AI 요청 한도에 걸렸어요. 잠시 후 다시 시도해 주세요.";
+    case "timeout":
+      return "AI 수정안을 기다리다 시간이 초과됐어요. 다시 시도해 주세요.";
+    default:
+      return "AI 수정안을 받지 못했어요. 잠시 후 다시 시도해 주세요.";
+  }
+}
+
+/** 같은 파일을 고치는 항목은 한 줄로 묶는다(서로 다른 파일은 동시에 처리). */
+function fileGroupKey(f: SecurityFinding, index: number): string {
+  if ((f.verificationKey ?? "").startsWith("dep:")) return "package.json";
+  const file = f.location?.file ? safeProjectPath(f.location.file) : null;
+  return file ?? `\u0000nofile:${index}`;
+}
 
 /** 남은 시간이 이보다 적으면 새 항목을 시작하지 않는다. */
 const MIN_ITEM_BUDGET_MS = 5_000;
@@ -257,35 +286,49 @@ async function processJob(job: FixJob, ctx: ProcessCtx): Promise<void> {
   const llmOn = ctx.opts.llmConfigured ?? isLlmConfigured();
   const llmFix = ctx.opts.llmFix ?? generateLlmFileFix;
   const working: Record<string, string> = { ...base.files };
+  // AI 수정안이 다른 파일에 있는 미들웨어·헬퍼를 알 수 있게 지도를 한 번 만든다.
+  const ai: AiGate = { projectMap: buildProjectMap(redactSecrets(base.files).files), secrets: secretValues(base.files) };
 
-  for (let i = 0; i < ctx.selected.length; i++) {
-    const finding = ctx.selected[i];
-    const remaining = deadline - clock();
-    let item: FixJobItem;
-    if (remaining < MIN_ITEM_BUDGET_MS) {
-      item = {
-        ...itemBase(finding),
-        outcome: "skipped",
-        reasonCode: "time_budget",
-        reason: "처리 시간 한도에 닿아 이번에는 다루지 못했어요. 남은 항목은 다시 시도해 주세요.",
-      };
-    } else {
-      item = await fixOne(finding, working, base, {
-        llmOn,
-        llmFix,
-        timeoutMs: Math.min(limits.llmCallTimeoutMs, remaining - 1_000),
-        llmFileChars: limits.llmFileChars,
-      });
+  // 파일별로 묶어 서로 다른 파일은 동시에, 같은 파일은 심각도 순서대로 고친다.
+  // 한 묶음은 자기 파일만 바꾸므로 묶음끼리 충돌하지 않는다.
+  const groups = new Map<string, number[]>();
+  ctx.selected.forEach((f, i) => {
+    const key = fileGroupKey(f, i);
+    groups.set(key, [...(groups.get(key) ?? []), i]);
+  });
+
+  await runPool([...groups.values()], limits.fixAllConcurrency, async (indices) => {
+    for (const i of indices) {
+      const finding = ctx.selected[i];
+      const remaining = deadline - clock();
+      let item: FixJobItem;
+      if (remaining < MIN_ITEM_BUDGET_MS) {
+        item = {
+          ...itemBase(finding),
+          outcome: "skipped",
+          reasonCode: "time_budget",
+          reason: "처리 시간 한도에 닿아 이번에는 다루지 못했어요. 남은 항목은 다시 시도해 주세요.",
+        };
+      } else {
+        item = await fixOne(finding, working, base, {
+          llmOn,
+          llmFix,
+          ai,
+          timeoutMs: Math.min(limits.llmCallTimeoutMs, remaining - 1_000),
+          llmFileChars: limits.llmFileChars,
+        });
+      }
+      job.items[i] = item;
+      job.updatedAt = iso(clock());
+      await updateFixJob(job);
     }
-    job.items[i] = item;
-    job.updatedAt = iso(clock());
-    await updateFixJob(job);
-  }
+  });
 
   const changedFiles = Object.keys(working)
     .filter((p) => working[p] !== base.files[p])
     .sort();
   job.changedFiles = changedFiles;
+  job.requiredEnv = requiredEnvForFix(base.files, working, changedFiles);
   const applied = job.items.filter((it) => it.outcome === "applied").length;
 
   if (changedFiles.length > 0) {
@@ -342,35 +385,63 @@ async function processJob(job: FixJob, ctx: ProcessCtx): Promise<void> {
   await updateFixJob(job);
 }
 
+/** 작업 안에서 공유하는 AI 상태. 키 오류가 한 번 나면 남은 호출을 막는다. */
+interface AiGate {
+  blocked?: string;
+  projectMap?: string;
+  /** 화면에 남길 수정 내용에서 가릴 비밀값. */
+  secrets?: string[];
+}
+
 async function fixOne(
   finding: SecurityFinding,
   working: Record<string, string>,
   base: SourceVersion,
-  o: { llmOn: boolean; llmFix: typeof generateLlmFileFix; timeoutMs: number; llmFileChars: number }
+  o: { llmOn: boolean; llmFix: typeof generateLlmFileFix; ai: AiGate; timeoutMs: number; llmFileChars: number }
 ): Promise<FixJobItem> {
   const head = itemBase(finding);
-  const key = finding.verificationKey ?? "";
-  let ruleFailure: { code: string; reason: string } | undefined;
 
-  // 1) 실제 코드에 안전한 규칙 기반 수정안.
-  if (SAFE_DETERMINISTIC_PREFIXES.some((p) => key.startsWith(p))) {
-    const fix = generateFix(finding);
-    if (fix.diffs.length > 0) {
-      const r = applyDiffsAtomically(working, base.files, fix.diffs);
-      if (r.ok) return appliedItem(head, fix, r.changedFiles, "deterministic", key.startsWith("secret:"));
-      ruleFailure = { code: r.failure, reason: PATCH_FAILURE_MESSAGE[r.failure] };
+  // 1) 규칙 기반 수정. 이 경로의 항목(비밀값·의존성)은 AI로 넘기지 않는다.
+  const det = deterministicFixFor(finding, working);
+  if (det) {
+    if (det.kind === "unsupported") {
+      return { ...head, outcome: "unsupported", reasonCode: det.reasonCode, reason: det.reason };
     }
+    const snapshot = { ...working };
+    const r = applyDiffsAtomically(working, base.files, det.fix.diffs);
+    if (!r.ok) return { ...head, outcome: "apply_failed", reasonCode: r.failure, reason: PATCH_FAILURE_MESSAGE[r.failure] };
+    return appliedItem(head, det.fix, r.changedFiles, "deterministic", false, o.ai.secrets, snapshot);
   }
 
-  // 2) 실제 파일 내용을 보고 만드는 AI 수정안.
+  // 2) 규칙은 문제로 봤지만 AI가 오탐 가능성이 높다고 본 항목은 코드를 자동으로
+  //    바꾸지 않는다. 항목은 그대로 남기고(규칙이 기준), 판단은 사람에게 맡긴다.
+  //    (오탐을 "고치면" 멀쩡한 동작을 바꿔 운영을 깨뜨릴 수 있다.)
+  // 재판정에서 AI가 "실제 취약점"이라고 바꿔 말했으면 고친다.
+  if (finding.aiReview?.verdict === "likely_false_positive" && finding.aiReview.adjudication?.verdict !== "vulnerable") {
+    return {
+      ...head,
+      outcome: "unsupported",
+      reasonCode: "disputed_at_scan",
+      reason:
+        finding.aiReview.adjudication?.verdict === "not_vulnerable"
+          ? `AI가 코드 근거를 확인해 실제 취약점이 아니라고 판정해서 고치지 않았어요. ${finding.aiReview.adjudication.reason}`.trim()
+          : `규칙은 문제로 봤지만 AI는 실제 문제가 아닐 가능성이 높다고 봐서 자동으로 고치지 않았어요${
+              finding.aiReview.reason ? ` (${finding.aiReview.reason})` : ""
+            }. 코드를 보고 판단해 주세요.`,
+    };
+  }
+
+  // 3) 실제 파일 내용을 보고 만드는 AI 수정안.
   if (!o.llmOn) {
-    if (ruleFailure) return { ...head, outcome: "apply_failed", reasonCode: ruleFailure.code, reason: ruleFailure.reason };
     return {
       ...head,
       outcome: "unsupported",
       reasonCode: "no_auto_fix",
       reason: "이 항목은 규칙으로 안전하게 고칠 수 없고, AI 수정도 설정돼 있지 않아요. 설명을 보고 직접 고쳐 주세요.",
     };
+  }
+  if (o.ai.blocked) {
+    return { ...head, outcome: "skipped", reasonCode: "ai_unavailable", reason: aiErrorReason(o.ai.blocked) };
   }
   const file = finding.location?.file ? safeProjectPath(finding.location.file) : null;
   if (!file || working[file] === undefined) {
@@ -391,16 +462,28 @@ async function fixOne(
     };
   }
 
-  const res = await o.llmFix({ finding, filePath: file, fileContent: working[file], timeoutMs: o.timeoutMs });
+  // 비밀값은 가려서 보내고, 돌아온 수정안은 원래 값으로 되돌려 실제 파일과 대조한다.
+  const redaction = redactSecrets(working);
+  const aiFinding: SecurityFinding = {
+    ...finding,
+    description: redaction.redactText(finding.description),
+    remediation: finding.remediation ? redaction.redactText(finding.remediation) : undefined,
+    evidence: finding.evidence.map((e) => ({ ...e, content: redaction.redactText(e.content) })),
+  };
+  const res = await o.llmFix({
+    finding: aiFinding,
+    filePath: file,
+    fileContent: redaction.files[file],
+    timeoutMs: o.timeoutMs,
+    projectMap: o.ai.projectMap,
+  });
   if (res.kind === "error") {
+    if (AI_BLOCKING_ERRORS.has(res.code)) o.ai.blocked = res.code;
     return {
       ...head,
       outcome: "apply_failed",
       reasonCode: `ai_${res.code}`,
-      reason:
-        res.code === "timeout"
-          ? "AI 수정안을 기다리다 시간이 초과됐어요. 다시 시도해 주세요."
-          : "AI 수정안을 받지 못했어요. 잠시 후 다시 시도해 주세요.",
+      reason: aiErrorReason(res.code),
       llmCorrelationId: res.correlationId ?? undefined,
     };
   }
@@ -409,7 +492,7 @@ async function fixOne(
       ...head,
       outcome: "unsupported",
       reasonCode: "ai_declined",
-      reason: res.reason || "코드만 바꿔서는 안전하게 고칠 수 없는 항목이에요.",
+      reason: scrubPlaceholders(res.reason || "코드만 바꿔서는 안전하게 고칠 수 없는 항목이에요."),
       llmCorrelationId: res.correlationId,
     };
   }
@@ -422,7 +505,19 @@ async function fixOne(
       llmCorrelationId: res.correlationId,
     };
   }
-  const r = applyDiffsAtomically(working, base.files, res.fix.diffs);
+  const fix: FixAttempt = {
+    ...res.fix,
+    summary: scrubPlaceholders(res.fix.summary),
+    plainExplanation: scrubPlaceholders(res.fix.plainExplanation),
+    diffs: res.fix.diffs.map((d) => ({
+      ...d,
+      patch: scrubPlaceholders(d.patch ?? ""),
+      beforeText: d.beforeText === undefined ? undefined : redaction.restore(d.beforeText),
+      afterText: d.afterText === undefined ? undefined : redaction.restore(d.afterText),
+    })),
+  };
+  const snapshot = { ...working };
+  const r = applyDiffsAtomically(working, base.files, fix.diffs);
   if (!r.ok) {
     return {
       ...head,
@@ -434,7 +529,7 @@ async function fixOne(
     };
   }
   return {
-    ...appliedItem(head, res.fix, r.changedFiles, "llm", key.startsWith("secret:") || finding.category === "secrets"),
+    ...appliedItem(head, fix, r.changedFiles, "llm", finding.category === "secrets", o.ai.secrets, snapshot),
     llmCorrelationId: res.correlationId,
   };
 }
@@ -445,8 +540,24 @@ function appliedItem(
   changedFiles: string[],
   source: "deterministic" | "llm",
   /** 노출된 비밀값 항목이면 키 교체 안내를 붙인다. */
-  rotate = false
+  rotate = false,
+  secrets: string[] = [],
+  /** 이 항목을 적용하기 직전의 파일들(수정 조각의 줄 번호를 찾는 데 쓴다). */
+  before: Record<string, string> = {}
 ): FixJobItem {
+  // 이 항목이 바꾼 코드(전·후). 화면의 diff에 쓰며 비밀값은 가린다.
+  const edits = fix.diffs.slice(0, 8).map((d) => {
+    const t = d.beforeText !== undefined || d.afterText !== undefined
+      ? { before: d.beforeText ?? "", after: d.afterText ?? "" }
+      : textsFromPatch(d.patch ?? "");
+    const at = t.before ? (before[d.file] ?? "").indexOf(t.before) : -1;
+    return {
+      file: d.file,
+      before: maskSecretValues(t.before, secrets).slice(0, 6000),
+      after: maskSecretValues(t.after, secrets).slice(0, 6000),
+      line: at >= 0 ? before[d.file].slice(0, at).split("\n").length : undefined,
+    };
+  });
   return {
     ...head,
     outcome: "applied",
@@ -458,6 +569,7 @@ function appliedItem(
       : fix.plainExplanation,
     // 같은 수정이 앞 항목에서 이미 적용된 경우도 applied다(파일은 한 번만 바뀜).
     reasonCode: changedFiles.length === 0 ? "same_fix_already_applied" : undefined,
+    edits,
   };
 }
 
@@ -481,6 +593,14 @@ function summaryText(job: FixJob, project: Project, base: SourceVersion, result:
     ``,
     `이 파일들은 아직 재검증 전이에요. 반영 전에 직접 확인하고, 재검증 결과도 함께 확인해 주세요.`,
     ``,
+    ...(job.requiredEnv && job.requiredEnv.length > 0
+      ? [
+          `## 반영 전에 설정할 환경변수 (${job.requiredEnv.length}개)`,
+          `설정하지 않으면 해당 기능이 안전하게 멈추도록(요청 거절) 고쳐져 있어요.`,
+          ...job.requiredEnv.map((e) => `- ${e.name} (${e.files.join(", ")}): ${e.guidance}`),
+          ``,
+        ]
+      : []),
     `## 바뀐 파일 (${job.changedFiles.length}개)`,
     ...job.changedFiles.map((p) => `- ${p}`),
     ``,

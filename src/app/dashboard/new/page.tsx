@@ -1,4 +1,6 @@
 ﻿import Link from "next/link";
+import { SampleProjectCard } from "@/components/SampleProjectCard";
+import { SAMPLE_APPS } from "@/lib/samples";
 import { PageHeader } from "@/components/PageHeader";
 import { HoiSpeech } from "@/components/mascot/HoiSpeech";
 import { Card, Disclosure, buttonClassName } from "@/components/ui";
@@ -37,6 +39,10 @@ export default function ChooseScanModePage() {
             note="내 사이트라는 확인이 필요해요. 데이터를 바꾸는 검사는 진행하지 않아요."
             actionLabel="웹사이트도 함께 확인하기"
           />
+        </div>
+
+        <div className="mt-6">
+          <SampleProjectCard sample={SAMPLE_APPS[0]} />
         </div>
 
         {/* 네이티브 details/summary: 기본 접힘, summary 포커스 시 Enter/Space로 펼치고 접힌다. */}

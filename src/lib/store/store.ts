@@ -1,4 +1,5 @@
 ﻿import type {
+  CustomRule,
   Project,
   Scan,
   SecurityFinding,
@@ -197,6 +198,27 @@ export function getVerification(
   ownerId: string
 ): Promise<VerificationResult | undefined> {
   return backend().getVerification(findingId, ownerId);
+}
+
+// ── AI-proposed rules ──
+export function listCustomRules(ownerId: string, projectId?: string): Promise<CustomRule[]> {
+  return backend().listCustomRules(ownerId, projectId);
+}
+export function getCustomRule(ruleId: string, ownerId: string): Promise<CustomRule> {
+  return backend().getCustomRule(ruleId, ownerId);
+}
+export function saveCustomRule(rule: CustomRule): Promise<void> {
+  return backend().saveCustomRule(rule);
+}
+
+// ── Re-upload ──
+export function addSourceVersion(
+  projectId: string,
+  ownerId: string,
+  files: Record<string, string>,
+  meta?: { sourceKind: "zip" | "paste"; zipName?: string }
+): Promise<SourceVersion> {
+  return backend().addSourceVersion(projectId, ownerId, files, meta);
 }
 
 // ── Legacy per-finding artifacts ──

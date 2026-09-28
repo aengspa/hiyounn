@@ -7,6 +7,7 @@ import type {
   RegressionTest,
 } from "@/lib/domain/types";
 import { id, now } from "@/lib/util";
+import { stillPresentAfterFix } from "@/lib/scanners/findingPresence";
 
 /**
  * REAL static analysis scanner (regex/signal based).
@@ -57,6 +58,27 @@ function looksDynamic(line: string): boolean {
   );
 }
 
+const SQL_KEYWORD = /\b(?:SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM|WHERE)\b/i;
+
+/**
+ * SQL 문자열 자체가 값과 이어 붙거나 보간되는지 본다. 같은 줄의 바인딩 인자
+ * (예: `.all(id, "%" + q + "%")`)에서 일어나는 연결은 쿼리 구조를 바꾸지 못하므로
+ * 취약으로 보지 않는다. 줄 안에 SQL 문자열이 온전히 없으면(여러 줄 템플릿의 중간 줄 등)
+ * 줄 전체로 판단한다.
+ */
+function sqlStringIsBuilt(line: string): boolean {
+  let sawSql = false;
+  for (const m of line.matchAll(/(["'`])((?:\\.|(?!\1)[^\\\n])*)\1/g)) {
+    if (!SQL_KEYWORD.test(m[2])) continue;
+    sawSql = true;
+    if (m[1] === "`" && m[2].includes("${")) return true;
+    const before = line.slice(0, m.index);
+    const after = line.slice((m.index ?? 0) + m[0].length);
+    if (/\+\s*$/.test(before) || /^\s*\+(?!=)/.test(after)) return true;
+  }
+  return sawSql ? false : looksDynamic(line);
+}
+
 const MENTIONS_CONSTANT_ONLY = (line: string) =>
   !looksDynamic(line);
 
@@ -93,14 +115,39 @@ const SIGNALS: Signal[] = [
     isVulnerable: (line) => looksDynamic(line), // 동적 값이 들어갈 때만 취약으로 본다
   },
 
+  // ── WEB-003 XSS (서버가 만든 HTML 응답) ─────────────────────────
+  {
+    kind: "xss",
+    ruleTitleKo: "XSS(교차 사이트 스크립팅)",
+    // res.send/write/end에 HTML 태그 문자열과 요청 값이 한 줄에서 이어 붙는 경우.
+    regex: /\bres\.(?:send|write|end)\s*\([^\n]*<[a-zA-Z!/][^\n]*/g,
+    severity: "high",
+    owasp: "A03 – Injection",
+    cwe: "CWE-79",
+    cvss: 6.8,
+    category: "Cross-Site Scripting",
+    title: "사용자 입력이 그대로 화면에 삽입될 수 있습니다 (XSS)",
+    humanReadableImpact:
+      "사용자가 입력한 값이 안전하게 처리되지 않고 페이지에 그대로 들어가면, 공격자가 심어둔 스크립트가 방문자의 브라우저에서 실행될 수 있습니다.",
+    whyItMatters:
+      "공격자가 다른 사용자의 세션을 탈취하거나 화면을 조작할 수 있습니다.",
+    remediation:
+      "응답 HTML에 넣기 전에 값을 HTML 이스케이프하거나, 템플릿 엔진의 자동 이스케이프를 사용하세요.",
+    isVulnerable: (line) =>
+      /(?:\+|\$\{)/.test(line) &&
+      /\breq\.(?:query|params|body|cookies|headers)\b|\brequest\.|searchParams/.test(line) &&
+      !/escape|sanitize|encode|DOMPurify|&lt;|xss\(/i.test(line),
+  },
+
   // ── WEB-004 Injection: SQL ───────────────────────────────────
   {
     kind: "inj",
     ruleTitleKo: "인젝션(SQL·커맨드·eval)",
     // SQL 키워드를 포함하면서 보간(${})이나 문자열 연결(+)이 있는 라인.
-    // (라인 단위로 실행되므로 isVulnerable에서 SQL 키워드 동반을 재확인한다.)
+    // 한 줄 안에서만 찾는다([^\n]). 줄을 넘어가면 바인딩 파라미터로 고친 쿼리가
+    // 아래쪽 다른 줄의 문자열 연결과 이어져 "아직 취약"으로 잘못 잡힌다.
     regex:
-      /(?:SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM|\bWHERE\b)[\s\S]*?(?:\$\{|["'`]\s*\+|\+\s*["'`])/gi,
+      /(?:SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM|\bWHERE\b)[^\n]*?(?:\$\{|["'`]\s*\+|\+\s*["'`])/gi,
     severity: "critical",
     owasp: "A03 – Injection",
     cwe: "CWE-89",
@@ -113,8 +160,7 @@ const SIGNALS: Signal[] = [
       "데이터베이스 전체가 읽히거나 손상될 수 있는 매우 심각한 취약점입니다.",
     remediation:
       "문자열을 붙이지 말고 파라미터 바인딩(prepared statement)을 사용하세요.",
-    isVulnerable: (line) =>
-      /(?:SELECT|INSERT|UPDATE|DELETE|WHERE)/i.test(line) && looksDynamic(line),
+    isVulnerable: (line) => /(?:SELECT|INSERT|UPDATE|DELETE|WHERE)/i.test(line) && sqlStringIsBuilt(line),
   },
 
   // ── WEB-004 Injection: command / eval ────────────────────────
@@ -361,31 +407,26 @@ function scanFile(file: string, content: string): SecurityFinding[] {
   return out;
 }
 
-/** 단일 파일에서 특정 종류(kind)의 취약 신호가 남아있는지 재검사(verify용). */
-function stillVulnerable(
-  content: string,
-  kind: "xss" | "inj" | "expose" | "trav" | "sidor"
+/**
+ * 재검증용: 이 항목(같은 신호)이 수정본에 아직 남았는지. 원래 문제가 된 줄을
+ * 따라가며, 같은 파일의 다른 항목이나 다른 신호에 끌려가지 않는다.
+ */
+function stillVulnerableFor(
+  finding: SecurityFinding,
+  fixedContent: string,
+  baselineContent: string | undefined
 ): boolean {
-  const lines = content.split("\n");
-  for (const sig of SIGNALS) {
-    if (sig.kind !== kind) continue;
-    sig.regex.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = sig.regex.exec(content)) !== null) {
-      const lineNo = lineNumberAt(content, m.index);
-      const lineText = lines[lineNo - 1] ?? "";
-      if (kind === "expose") {
-        if (exposesSensitiveField(lines, lineNo - 1).length > 0) return true;
-      } else if (kind === "trav") {
-        if (taintedPathInput(lines, lineNo - 1)) return true;
-      } else if (kind === "sidor") {
-        if (missingOwnershipCheck(lines, lineNo - 1)) return true;
-      } else if (!sig.isVulnerable || sig.isVulnerable(lineText)) {
-        return true;
-      }
-    }
-  }
-  return false;
+  const file = finding.location?.file ?? "";
+  const hits = scanFile(file, fixedContent)
+    .filter((f) => f.title === finding.title && f.cwe === finding.cwe)
+    .map((f) => ({ line: f.location?.line ?? 0, text: f.evidence.find((e) => e.kind === "source_code")?.content ?? "" }));
+  return stillPresentAfterFix({
+    hits,
+    originalLineText: finding.evidence.find((e) => e.kind === "source_code")?.content,
+    originalLine: finding.location?.line,
+    baselineContent,
+    fixedLineCount: fixedContent.split("\n").length,
+  });
 }
 
 export class StaticWebScanner implements SecurityScanner {
@@ -428,7 +469,9 @@ export class StaticWebScanner implements SecurityScanner {
 
     const before = true; // 최초 탐지 시 취약했음(스캔에서 확정)
     const after =
-      source !== undefined ? stillVulnerable(source, kind) : true;
+      source !== undefined
+        ? stillVulnerableFor(finding, source, file ? context.baselineFiles?.[file] : undefined)
+        : true;
     const securityPass = before && !after;
 
     const security: VerificationTest = {

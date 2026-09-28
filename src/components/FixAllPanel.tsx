@@ -6,6 +6,11 @@ import type { PublicFixJob } from "@/lib/fixjobs/publicJob";
 import { Badge, Button, Card, SeverityBadge, type BadgeTone } from "@/components/ui";
 import { ProgressDialog } from "@/components/ProgressDialog";
 import { fixStatusFor, type FixStatusKey } from "@/lib/ui/fixStatus";
+import type { CodeContext } from "@/lib/ui/codeContext";
+import type { SecurityFinding } from "@/lib/domain/types";
+import { CodeView } from "@/components/CodeView";
+import { EditDiff, JobDiff } from "@/components/DiffView";
+import { AdjudicationNote, VerifyNote } from "@/components/ReviewNotes";
 
 export interface FindingView {
   id: string;
@@ -15,14 +20,32 @@ export interface FindingView {
   whyItMatters: string;
   remediation?: string;
   location?: { file: string; line: number };
+  /** AI 분석만 찾은 항목. */
   isAi: boolean;
+  /** 규칙 기반 항목에 대한 AI 의견과 재판정(있을 때). */
+  aiReview?: SecurityFinding["aiReview"];
+  /** 문제가 된 실제 코드(비밀값은 가림). */
+  code?: CodeContext;
+  /** 같은 문제를 함께 찾은 다른 검사기. */
+  corroboratedBy?: string[];
+  /** 재업로드 증분 점검에서 이전 결과를 이어 온 항목. */
+  carriedOver?: boolean;
+}
+
+/** 점검 때 AI가 근거와 함께 오탐으로 판정한 규칙 항목. */
+function isAdjudicatedFalsePositive(f: FindingView): boolean {
+  return f.aiReview?.adjudication?.verdict === "not_vulnerable";
 }
 
 const STATUS_TONE: Record<FixStatusKey, BadgeTone> = {
   fixing: "info",
   needs_check: "warning",
+  not_fixed: "warning",
   resolved: "success",
-  failed: "danger",
+  resolved_ai: "info",
+  still_present: "danger",
+  disputed: "warning",
+  false_positive: "neutral",
 };
 
 const GUIDANCE = "받은 파일을 프로젝트에 반영해주세요. 공개한 웹사이트도 적용하려면 다시 배포해야 해요.";
@@ -138,6 +161,28 @@ export function FixAllPanel({
   }
 
   const finished = job && job.status !== "running";
+  const falsePositives = findings.filter(isAdjudicatedFalsePositive);
+  const active = findings.filter((f) => !isAdjudicatedFalsePositive(f));
+
+  function renderRow(f: FindingView) {
+    const item = job?.items.find((it) => it.findingId === f.id);
+    const status =
+      busy === "fix"
+        ? fixStatusFor(f.id, { jobStatus: "running", item: { findingId: f.id, outcome: "skipped", reasonCode: "pending" } })
+        : fixStatusFor(f.id, { jobStatus: job?.status, item, verification, adjudicatedFalsePositive: isAdjudicatedFalsePositive(f) });
+    const verifyItem = verification && verification.status !== "running" ? verification.items.find((it) => it.findingId === f.id) : undefined;
+    return (
+      <FindingRow
+        finding={f}
+        statusKey={status.key}
+        statusLabel={status.label}
+        statusDetail={status.detail}
+        fixNote={item?.outcome === "applied" ? item.plainExplanation ?? item.summary : undefined}
+        edits={item?.outcome === "applied" ? item.edits : undefined}
+        verifyItem={verifyItem}
+      />
+    );
+  }
   const showFixButton = findings.length > 0 && canFix && (!job || job.status === "failed");
   const verification = job?.verification;
 
@@ -185,23 +230,30 @@ export function FixAllPanel({
       {/* 항목 목록 */}
       <section aria-labelledby="findings-title" className="mt-10">
         <h2 id="findings-title" className="text-lg font-bold text-ink">
-          확인할 부분 ({findings.length}개)
+          확인할 부분 ({active.length}개)
         </h2>
         <ol className="mt-4 space-y-3">
-          {findings.map((f) => {
-            const item = job?.items.find((it) => it.findingId === f.id);
-            const status =
-              busy === "fix"
-                ? fixStatusFor(f.id, { jobStatus: "running", item: { findingId: f.id, outcome: "skipped", reasonCode: "pending" } })
-                : fixStatusFor(f.id, { jobStatus: job?.status, item, verification });
-            return (
-              <li key={f.id}>
-                <FindingRow finding={f} statusKey={status.key} statusLabel={status.label} statusDetail={status.detail} fixNote={item?.outcome === "applied" ? item.plainExplanation ?? item.summary : undefined} />
-              </li>
-            );
-          })}
+          {active.map((f) => (
+            <li key={f.id}>{renderRow(f)}</li>
+          ))}
         </ol>
       </section>
+
+      {falsePositives.length > 0 && (
+        <details className="mt-8 rounded-3xl border border-line bg-surface p-4 sm:p-5">
+          <summary className="cursor-pointer text-base font-bold text-ink">
+            AI가 오탐으로 판정한 규칙 결과 ({falsePositives.length}개)
+          </summary>
+          <p className="mt-2 text-sm text-ink-subtle">
+            규칙 검사가 잡았지만, AI가 코드 근거를 확인해 실제 취약점이 아니라고 판정한 항목이에요. 기록으로 남겨 두었고 자동 수정 대상에서는 뺐어요.
+          </p>
+          <ol className="mt-4 space-y-3">
+            {falsePositives.map((f) => (
+              <li key={f.id}>{renderRow(f)}</li>
+            ))}
+          </ol>
+        </details>
+      )}
 
       <ProgressDialog
         open={busy !== null}
@@ -216,30 +268,74 @@ export function FixAllPanel({
   );
 }
 
+const CORROBORATOR_LABEL: Record<string, string> = {
+  semgrep: "Semgrep도 확인",
+  "authz-table": "권한 표도 확인",
+  ai: "AI도 확인",
+};
+
 function FindingRow({
   finding,
   statusKey,
   statusLabel,
   statusDetail,
   fixNote,
+  edits,
+  verifyItem,
 }: {
   finding: FindingView;
   statusKey: FixStatusKey;
   statusLabel: string;
   statusDetail: string;
   fixNote?: string;
+  edits?: { file: string; before: string; after: string }[];
+  verifyItem?: NonNullable<PublicFixJob["verification"]>["items"][number];
 }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
+  const adjudication = finding.aiReview?.adjudication;
   return (
     <div className="rounded-3xl border border-line bg-surface p-5 shadow-warm sm:p-6">
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone={STATUS_TONE[statusKey]}>{statusLabel}</Badge>
         <SeverityBadge severity={finding.severity} />
         {finding.isAi && <Badge tone="neutral">AI 분석</Badge>}
+        {finding.aiReview?.verdict === "confirmed" && <Badge tone="neutral">AI도 확인</Badge>}
+        {finding.aiReview?.verdict === "likely_false_positive" && !adjudication && <Badge tone="neutral">AI: 오탐 가능성</Badge>}
+        {(finding.corroboratedBy ?? [])
+          .filter((c) => c !== "ai")
+          .map((c) => (
+            <Badge key={c} tone="neutral">
+              {CORROBORATOR_LABEL[c] ?? `${c}도 확인`}
+            </Badge>
+          ))}
+        {finding.carriedOver && <Badge tone="neutral">이전 점검에서 이어옴</Badge>}
       </div>
       <h3 className="mt-3 break-words text-base font-bold text-ink sm:text-lg">{finding.title}</h3>
       <p className="mt-1 break-keep leading-relaxed text-ink-subtle">{finding.humanReadableImpact}</p>
+
+      {finding.code ? (
+        <CodeView code={finding.code} caption="문제가 된 코드" />
+      ) : (
+        finding.location && (
+          <p className="mt-3 break-all font-mono text-xs text-ink-muted">
+            {finding.location.file}:{finding.location.line}
+          </p>
+        )
+      )}
+
+      {adjudication && <AdjudicationNote adjudication={adjudication} />}
+
+      {edits && edits.length > 0 && (
+        <div className="mt-4">
+          <h4 className="text-sm font-bold text-ink">이번에 바꾼 코드</h4>
+          {fixNote && <p className="mt-1 text-sm text-ink-subtle">{fixNote}</p>}
+          <EditDiff edits={edits} />
+        </div>
+      )}
+
+      {verifyItem && <VerifyNote item={verifyItem} fallback={statusDetail} />}
+
       <button
         type="button"
         className="mt-3 inline-flex min-h-11 items-center rounded-xl pr-2 text-sm font-bold text-brand-800 hover:underline"
@@ -258,21 +354,17 @@ function FindingRow({
           <span className="font-bold text-ink">왜 위험한가요? </span>
           {finding.whyItMatters}
         </p>
+        {finding.aiReview?.verdict === "likely_false_positive" && !adjudication && (
+          <p>
+            <span className="font-bold text-ink">AI 의견: </span>
+            규칙이 찾은 항목이지만 AI는 실제 문제가 아닐 수 있다고 봤어요
+            {finding.aiReview.reason ? ` (${finding.aiReview.reason})` : ""}. 규칙 결과는 그대로 두었으니 코드를 보고 판단해 주세요.
+          </p>
+        )}
         {finding.remediation && (
           <p>
             <span className="font-bold text-ink">어떻게 고치나요? </span>
             {finding.remediation}
-          </p>
-        )}
-        {fixNote && (
-          <p>
-            <span className="font-bold text-ink">이번에 바꾼 내용: </span>
-            {fixNote}
-          </p>
-        )}
-        {finding.location && (
-          <p className="break-all font-mono text-xs text-ink-muted">
-            {finding.location.file}:{finding.location.line}
           </p>
         )}
       </div>
@@ -292,14 +384,25 @@ function FixResult({
   const failedItems = job.items.filter((it) => it.outcome !== "applied");
   const appliedItems = job.items.filter((it) => it.outcome === "applied");
   const v = job.verification;
-  const vCounts = { resolved: 0, failed: 0, check: 0 };
+  const vCounts = { resolved: 0, resolvedAi: 0, still: 0, disputed: 0, check: 0 };
   if (v && v.status !== "running") {
     for (const it of v.items) {
-      if (it.verdict === "fixed_in_source") vCounts.resolved += 1;
-      else if (it.verdict === "still_present") vCounts.failed += 1;
+      if (it.reasonCode === "disputed") vCounts.disputed += 1;
+      else if (it.verdict === "fixed_in_source" && it.method === "llm") vCounts.resolvedAi += 1;
+      else if (it.verdict === "fixed_in_source") vCounts.resolved += 1;
+      else if (it.verdict === "still_present") vCounts.still += 1;
       else vCounts.check += 1;
     }
   }
+  const vSummary = [
+    vCounts.resolved && `해결 확인 ${vCounts.resolved}개`,
+    vCounts.resolvedAi && `AI 판단 해결 ${vCounts.resolvedAi}개`,
+    vCounts.still && `남아 있음 ${vCounts.still}개`,
+    vCounts.disputed && `판단 엇갈림 ${vCounts.disputed}개`,
+    vCounts.check && `확인 필요 ${vCounts.check}개`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const headline =
     job.status === "completed"
       ? `${appliedItems.length}개 항목을 모두 고쳤어요`
@@ -326,6 +429,24 @@ function FixResult({
               {job.changedFiles.map((p) => (
                 <li key={p} className="break-all font-mono text-xs text-ink-subtle">
                   {p}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {job.changedFiles.length > 0 && <JobDiff jobId={job.id} />}
+
+        {job.requiredEnv.length > 0 && (
+          <div className="mt-4 rounded-2xl border border-[#f0d9a6] bg-warning-soft p-4 text-sm leading-relaxed">
+            <h3 className="font-bold text-warning">받은 파일을 반영하기 전에 설정할 환경변수 ({job.requiredEnv.length}개)</h3>
+            <p className="mt-1 text-ink-subtle">설정하지 않으면 해당 기능이 안전하게 멈추도록(요청 거절) 고쳐져 있어요.</p>
+            <ul className="mt-2 space-y-2">
+              {job.requiredEnv.map((e) => (
+                <li key={e.name}>
+                  <span className="font-mono font-bold text-ink">{e.name}</span>
+                  <span className="ml-1 text-xs text-ink-muted">({e.files.join(", ")})</span>
+                  <span className="block text-ink-subtle">{e.guidance}</span>
                 </li>
               ))}
             </ul>
@@ -376,15 +497,13 @@ function FixResult({
           <h2 className="text-lg font-bold text-ink">
             {v.status === "failed" ? "AI 재검증을 완료하지 못했어요" : "재검증 결과"}
           </h2>
-          {v.status === "failed" ? (
-            <p className="mt-1 text-sm text-ink-subtle">
-              {v.errorMessage ?? "잠시 후 다시 시도해 주세요."} 규칙으로 확인한 항목 결과는 아래 목록에 반영돼 있어요.
-            </p>
-          ) : (
-            <p className="mt-1 text-sm text-ink-subtle">
-              해결 완료 {vCounts.resolved}개 · 해결 실패 {vCounts.failed}개 · 점검 필요 {vCounts.check}개
-            </p>
+          {v.status === "failed" && (
+            <p className="mt-1 text-sm text-ink-subtle">{v.errorMessage ?? "잠시 후 다시 시도해 주세요."}</p>
           )}
+          {vSummary && <p className="mt-1 text-sm text-ink-subtle">{vSummary}</p>}
+          <p className="mt-2 text-xs leading-relaxed text-ink-muted">
+            규칙 재검사가 기준이에요. AI 판단은 규칙으로 볼 수 없는 항목을 판단하거나 규칙 결과를 교차 확인할 때 써요. 둘이 다르면 &ldquo;판단이 엇갈려요&rdquo;로 표시해요.
+          </p>
           <p className="mt-2 text-xs leading-relaxed text-ink-muted">
             수정본 코드를 기준으로 확인한 결과예요. 배포한 사이트에서 실행해 본 결과는 아니에요.
           </p>

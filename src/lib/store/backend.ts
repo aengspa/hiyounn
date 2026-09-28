@@ -1,4 +1,5 @@
 import type {
+  CustomRule,
   Project,
   Scan,
   SecurityFinding,
@@ -102,6 +103,21 @@ export interface StoreBackend {
     findingId: string,
     ownerId: string
   ): Promise<VerificationResult | undefined>;
+
+  // ── AI-proposed rules (approved by a person before they run) ──
+  listCustomRules(ownerId: string, projectId?: string): Promise<CustomRule[]>;
+  getCustomRule(ruleId: string, ownerId: string): Promise<CustomRule>;
+  /** Insert or update. The rule's project must belong to rule.ownerId. */
+  saveCustomRule(rule: CustomRule): Promise<void>;
+
+  // ── Re-upload ──
+  /** Stores a new "reupload" source version and makes it the project's current version. */
+  addSourceVersion(
+    projectId: string,
+    ownerId: string,
+    files: Record<string, string>,
+    meta?: { sourceKind: "zip" | "paste"; zipName?: string }
+  ): Promise<SourceVersion>;
 
   // ── Legacy per-finding artifacts (replaced by fix-all jobs) ──
   buildFixArtifact(findingId: string, ownerId: string): Promise<FixArtifact>;

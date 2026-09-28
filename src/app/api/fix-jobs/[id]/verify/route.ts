@@ -4,8 +4,9 @@ import { ok, handleApiError } from "@/lib/api";
 import { reverifyFixJob } from "@/lib/fixjobs/reverifyService";
 import { toPublicJob } from "@/lib/fixjobs/publicJob";
 
-// 동기 처리. 내부 예산(LIMITS.verifyTimeBudgetMs, 기본 90초) < maxDuration.
-export const maxDuration = 120;
+// 동기 처리. 내부 예산(LIMITS.verifyTimeBudgetMs, 기본 150초) < maxDuration.
+// 규칙 재검사 + AI 재검토 + 공격 재현 테스트(격리 실행). 내부 예산 150초.
+export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 /**

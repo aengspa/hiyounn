@@ -1,4 +1,5 @@
 import type {
+  CustomRule,
   Project,
   Scan,
   SecurityFinding,
@@ -14,6 +15,7 @@ import { toTestStatus } from "@/lib/domain/types";
 import { id, now } from "@/lib/util";
 import { Buffer } from "buffer";
 import { contextForProject } from "@/lib/scanners/contextFor";
+import { runScanPipeline } from "@/lib/scan/scanPipeline";
 import { SecurityOrchestrator } from "@/lib/scanners/orchestrator";
 import { generateScanReport } from "@/lib/reporting/reportGenerator";
 import { generateFixSmart } from "@/lib/remediation/fixGenerator";
@@ -497,8 +499,13 @@ export class SupabaseStore implements StoreBackend {
     if (!project.isDemo && !version) throw new SourceMissingError();
 
     const startedAt = now();
-    const context = contextForProject(project, { files: version?.files });
-    const { findings, scope, plan } = await this.orchestrator.run(context);
+    const { findings, scope, plan, proposals } = await runScanPipeline({
+      backend: this,
+      project,
+      version,
+      ownerId,
+      orchestrator: this.orchestrator,
+    });
 
     const scan: Scan = {
       id: id("scan"),
@@ -575,6 +582,12 @@ export class SupabaseStore implements StoreBackend {
       finding_ids: scan.findingIds,
     });
 
+    // AI가 제안한 규칙은 "제안" 상태로 저장한다(사람이 승인해야 돈다).
+    for (const rule of proposals) {
+      rule.sourceScanId = scan.id;
+      await this.saveCustomRule(rule).catch(() => {});
+    }
+
     // reset applied-fix state + update project scan metadata
     await updateRows("projects", `id=eq.${q(project.id)}`, {
       handler_fixed: false,
@@ -590,6 +603,62 @@ export class SupabaseStore implements StoreBackend {
     const version = await this.getCurrentSourceVersion(projectId, ownerId);
     const context = contextForProject(project, { files: version?.files });
     return this.orchestrator.plan(context);
+  }
+
+  // ── AI-proposed rules ──
+  async listCustomRules(ownerId: string, projectId?: string): Promise<CustomRule[]> {
+    const filter = `owner_id=eq.${q(ownerId)}${projectId ? `&project_id=eq.${q(projectId)}` : ""}&select=data&order=created_at.desc`;
+    const rows = await guarded("custom_rules", () => selectRows<{ data: CustomRule }>("custom_rules", filter));
+    return rows.map((r) => r.data);
+  }
+
+  async getCustomRule(ruleId: string, ownerId: string): Promise<CustomRule> {
+    const row = await guarded("custom_rules", () =>
+      selectOne<{ owner_id: string; data: CustomRule }>("custom_rules", `id=eq.${q(ruleId)}&select=owner_id,data`)
+    );
+    if (!row) throw new NotFoundError();
+    if (row.owner_id !== ownerId) throw new NotAuthorizedError();
+    return row.data;
+  }
+
+  async saveCustomRule(rule: CustomRule): Promise<void> {
+    await this.requireProject(rule.projectId, rule.ownerId);
+    const existing = await guarded("custom_rules", () =>
+      selectOne<{ owner_id: string }>("custom_rules", `id=eq.${q(rule.id)}&select=owner_id`)
+    );
+    if (existing && existing.owner_id !== rule.ownerId) throw new NotAuthorizedError();
+    await guarded("custom_rules", () =>
+      upsertRows("custom_rules", {
+        id: rule.id,
+        owner_id: rule.ownerId,
+        project_id: rule.projectId,
+        status: rule.status,
+        data: rule,
+        created_at: rule.createdAt,
+        updated_at: now(),
+      })
+    );
+  }
+
+  // ── Re-upload ──
+  async addSourceVersion(
+    projectId: string,
+    ownerId: string,
+    files: Record<string, string>,
+    meta?: { sourceKind: "zip" | "paste"; zipName?: string }
+  ): Promise<SourceVersion> {
+    const project = await this.requireProject(projectId, ownerId);
+    assertHasSourceFiles(files);
+    const version = makeSourceVersion({ projectId, ownerId, kind: "reupload", files, parentVersionId: project.currentSourceVersionId });
+    await this.saveSourceVersion(version);
+    await guarded("projects.current_source_version_id", () =>
+      updateRows("projects", `id=eq.${q(projectId)}`, {
+        current_source_version_id: version.id,
+        source_code: serializeFileMap(version.files),
+        source_zip_name: meta?.sourceKind === "zip" ? meta.zipName ?? null : null,
+      })
+    );
+    return version;
   }
 
   // ── Fix-all jobs ──

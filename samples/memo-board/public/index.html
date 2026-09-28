@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>메모 보드</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 520px; margin: 40px auto; padding: 0 16px; }
+    input, button { font: inherit; padding: 6px 10px; margin: 4px 0; }
+    li { margin: 6px 0; }
+  </style>
+</head>
+<body>
+  <h1>메모 보드</h1>
+  <form id="login">
+    <input name="name" placeholder="이름 (alice)" />
+    <input name="password" type="password" placeholder="비밀번호 (alice123)" />
+    <button>로그인</button>
+  </form>
+  <p id="who"></p>
+  <form id="search"><input name="q" placeholder="메모 검색" /><button>검색</button></form>
+  <ul id="memos"></ul>
+  <form id="add"><input name="text" placeholder="새 메모" /><button>추가</button></form>
+  <script src="app.js"></script>
+</body>
+</html>

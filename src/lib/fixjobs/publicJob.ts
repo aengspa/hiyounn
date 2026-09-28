@@ -16,6 +16,7 @@ export function toPublicJob(job: FixJob) {
     resultContentHash: job.resultContentHash,
     hasResultVersion: Boolean(job.resultVersionId),
     changedFiles: job.changedFiles,
+    requiredEnv: job.requiredEnv ?? [],
     skippedForLimit: job.skippedForLimit,
     counts,
     items: job.items.map((it) => ({
@@ -30,6 +31,7 @@ export function toPublicJob(job: FixJob) {
       files: it.files,
       summary: it.summary,
       plainExplanation: it.plainExplanation,
+      edits: it.edits ?? [],
     })),
     artifact: job.artifact
       ? {

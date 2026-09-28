@@ -1,6 +1,6 @@
 import type { SecurityScanner, ProjectContext } from "@/lib/scanners/types";
 import { SCANNER_VERSION, RULESET_VERSION } from "@/lib/scanners/types";
-import type { SecurityFinding, ScanScope, ScanStep, ScanPlan, PlannedCheck, CoverageGap } from "@/lib/domain/types";
+import type { SecurityFinding, ScanScope, ScanStep, ScanPlan, PlannedCheck, CoverageGap, AiScanCoverage } from "@/lib/domain/types";
 import { toTestStatus } from "@/lib/domain/types";
 import { SecretScanner } from "@/lib/scanners/secretScanner";
 import { HeaderScanner } from "@/lib/scanners/headerScanner";
@@ -15,7 +15,12 @@ import { UserEnumerationScanner } from "@/lib/scanners/userEnumerationScanner";
 import { BruteForceScanner } from "@/lib/scanners/bruteForceScanner";
 import { CookieScanner } from "@/lib/scanners/cookieScanner";
 import { BflaScanner } from "@/lib/scanners/bflaScanner";
-import { AiCodeScanner, AiScanUnavailableError, AI_SCAN_GAP_RULE } from "@/lib/scanners/aiCodeScanner";
+import { AiCodeScanner, AI_SCAN_GAP_RULE } from "@/lib/scanners/aiCodeScanner";
+import { SemgrepScanner } from "@/lib/scanners/semgrepScanner";
+import { CustomRuleScanner } from "@/lib/rules/customRules";
+import { mergeAiIntoRules, mergeCorroborating } from "@/lib/scanners/findingMerge";
+import type { RouteAuthzEntry } from "@/lib/domain/types";
+import { isConfigured as isLlmConfigured } from "@/lib/ai/llmClient";
 import { RuleToolRuntime, type ProbeFetch } from "@/lib/scanners/ruleToolRuntime";
 import { NEW_TOOL_CHECKS, executeNewToolCheck, supportsNewToolCheck } from "@/lib/scanners/newRuleTools";
 import { extractBaasProjects } from "@/lib/scanners/deployedRuleTools";
@@ -55,7 +60,7 @@ export class SecurityOrchestrator {
     this.scanners = scanners ?? [new SecretScanner(), new DependencyScanner(), new BaaSConfigScanner(),
       new AuthorizationScanner(), new StaticWebScanner(), new Asvs5Scanner(), new HeaderScanner(), new ExposedEndpointScanner(),
       new TlsScanner(), new UserEnumerationScanner(), new BruteForceScanner(), new CookieScanner(),
-      new BflaScanner(), new AiCodeScanner()];
+      new BflaScanner(), new CustomRuleScanner(), new SemgrepScanner(), new AiCodeScanner()];
   }
 
   getScanner(name: string): SecurityScanner | undefined { return this.scanners.find((s) => s.name === name); }
@@ -68,6 +73,7 @@ export class SecurityOrchestrator {
       dep: "dependency-scanner", rls: "baas-config-scanner", asvs5: "asvs5-static-scanner", xss: "static-web-scanner", inj: "static-web-scanner",
       expose: "static-web-scanner", trav: "static-web-scanner", sidor: "static-web-scanner", exposed: "exposed-endpoint-scanner",
       tls: "tls-scanner", enum: "user-enumeration-scanner", brute: "bruteforce-scanner", cookie: "cookie-scanner", bfla: "bfla-scanner", ai: "ai-code-scanner",
+      semgrep: "semgrep-scanner", custom: "custom-rule-scanner",
     };
     return this.getScanner(names[key.split(":")[0]]);
   }
@@ -162,28 +168,59 @@ export class SecurityOrchestrator {
         }
       }
     }
+    let aiCoverage: AiScanCoverage | undefined;
+    let authzMatrix: RouteAuthzEntry[] | undefined;
+    let semgrep: ScanScope["semgrep"] | undefined;
     const plannedIds = new Set(plan.selectedChecks.map((check) => check.ruleId));
     const plannedKeys = new Set(plan.selectedChecks.map((check) => `${check.ruleId}/${check.checkId}`));
     for (const scanner of await this.selectApplicable(context)) {
-      if (scanner.name !== "ai-code-scanner" && !(LEGACY_CHECKS[scanner.name] ?? []).some((key) => plannedKeys.has(key))) continue;
-      let results: SecurityFinding[];
-      if (scanner instanceof AiCodeScanner) {
-        // AI 실패는 "발견 0건"이 아니라 "검사하지 못함"이다.
-        try {
-          const report = await scanner.scanWithReport(context);
-          results = report.findings;
-          if (report.omittedFiles.length) plan.coverageGaps.push({ ruleId: AI_SCAN_GAP_RULE, checkId: "ai-code-review",
-            reason: `길이 한도 때문에 파일 ${report.omittedFiles.length}개는 AI 분석에 보내지 못했어요.` });
-        } catch (error) {
-          if (!(error instanceof AiScanUnavailableError)) throw error;
-          plan.coverageGaps.push({ ruleId: AI_SCAN_GAP_RULE, checkId: "ai-code-review",
-            reason: error.reason === "too_large" ? "파일이 너무 길어 AI 분석을 하지 못했어요."
-              : "AI 코드 분석을 완료하지 못했어요. 다시 점검하면 이어서 확인할 수 있어요." });
-          continue;
-        }
-      } else {
-        results = await scanner.scan(context);
+      const alwaysRun = ["ai-code-scanner", "semgrep-scanner", "custom-rule-scanner"].includes(scanner.name);
+      if (!alwaysRun && !(LEGACY_CHECKS[scanner.name] ?? []).some((key) => plannedKeys.has(key))) continue;
+      if (scanner instanceof CustomRuleScanner) {
+        // 사람이 승인한 규칙도 기준 규칙이다. 기존 규칙 결과와 같은 문제면 합친다.
+        const custom = await scanner.scan(context);
+        custom.forEach((finding) => this.decorateWithRule(finding));
+        const merged = mergeCorroborating(findings, custom, "custom-rule");
+        findings.push(...merged.kept);
+        if (custom.length > 0) testedCategories.add("승인한 규칙");
+        continue;
       }
+      if (scanner instanceof SemgrepScanner) {
+        // Semgrep은 기준 규칙 검사기다. 기존 규칙 결과와 같은 문제면 합치고 "Semgrep도 확인" 표시.
+        const report = await scanner.scanWithReport(context);
+        report.findings.forEach((finding) => this.decorateWithRule(finding));
+        const merged = mergeCorroborating(findings, report.findings, "semgrep");
+        findings.push(...merged.kept);
+        semgrep = report.status;
+        if (report.status.status === "ran") testedCategories.add("Semgrep 규칙 검사");
+        continue;
+      }
+      if (scanner instanceof AiCodeScanner) {
+        // 규칙 결과가 기준이다. AI는 (1) 규칙이 놓친 문제를 더하고 (2) 규칙 항목에
+        // 의견을 붙인다. 같은 문제를 가리키면 규칙 항목 하나로 합친다.
+        // AI가 못 본 파일은 "발견 0건"이 아니라 "검사하지 못함"으로 남긴다.
+        const report = await scanner.scanWithReport(context, { ruleFindings: findings });
+        for (const f of findings) {
+          const review = report.ruleReviews.get(f.id);
+          if (review) f.aiReview = review;
+        }
+        const aiFindings = report.findings.filter((finding) => {
+          this.decorateWithRule(finding);
+          return !finding.ruleId || plannedIds.has(finding.ruleId);
+        });
+        // 권한 표 발견(규칙 판단) → 기존 규칙 발견과 합친 뒤, AI 발견을 전체와 합친다.
+        report.authzFindings.forEach((finding) => this.decorateWithRule(finding));
+        const table = mergeCorroborating(findings, report.authzFindings, "authz-table");
+        findings.push(...table.kept);
+        authzMatrix = report.authzMatrix;
+        const { aiKept, merged } = mergeAiIntoRules(findings, aiFindings);
+        findings.push(...aiKept);
+        aiCoverage = { ...report.coverage, mergedWithRules: merged };
+        this.recordAiGaps(plan, report.coverage);
+        if (report.coverage.filesReviewed > 0) testedCategories.add("AI 분석 발견");
+        continue;
+      }
+      const results = await scanner.scan(context);
       for (const finding of results) {
         this.decorateWithRule(finding);
         if (finding.ruleId && !plannedIds.has(finding.ruleId)) continue;
@@ -196,11 +233,38 @@ export class SecurityOrchestrator {
       }
       if (scanner.name === "ai-code-scanner") testedCategories.add("AI 분석 발견");
     }
+    if (!semgrep && context.isUserProject !== false) semgrep = { status: "not_installed", findings: 0 };
+    if (!aiCoverage && context.isUserProject !== false && !isLlmConfigured()) {
+      aiCoverage = { status: "off", filesTotal: 0, filesReviewed: 0, omitted: [], calls: 0, mergedWithRules: 0 };
+    }
+    // 일부 검사라도 실행한 분류는 "확인하지 못한 항목"에 다시 넣지 않는다.
+    // 실행하지 못한 개별 검사는 plan.coverageGaps에 그대로 남는다.
+    const gapCategories = [...new Set(plan.coverageGaps.map((gap) => getRule(gap.ruleId)?.titleKo ?? gap.ruleId))]
+      .filter((title) => !testedCategories.has(title));
     const scope: ScanScope = { scanDate: now(), repository: context.repositoryUrl, deploymentUrl: context.deploymentUrl,
       testedCommit: context.commitSha, scannerVersion: SCANNER_VERSION, rulesetVersion: RULESET_VERSION,
       testedCategories: [...testedCategories],
-      untestedCategories: [...UNTESTED_CATEGORIES, ...new Set(plan.coverageGaps.map((gap) => getRule(gap.ruleId)?.titleKo ?? gap.ruleId))] };
+      untestedCategories: [...UNTESTED_CATEGORIES, ...gapCategories],
+      ...(aiCoverage ? { aiCoverage } : {}),
+      ...(authzMatrix ? { authzMatrix } : {}),
+      ...(semgrep ? { semgrep } : {}) };
     return { findings, scope, plan };
+  }
+
+  /** AI가 보지 못한 파일을 이유별로 한 줄씩 남긴다(파일마다 쓰지 않음). */
+  private recordAiGaps(plan: ScanPlan, coverage: AiScanCoverage): void {
+    const counts = new Map<string, number>();
+    for (const o of coverage.omitted) counts.set(o.reason, (counts.get(o.reason) ?? 0) + 1);
+    const text: Record<string, (n: number) => string> = {
+      too_large: (n) => `너무 긴 파일 ${n}개는 AI 분석에 보내지 않았어요.`,
+      over_budget: (n) => `한 번에 분석할 수 있는 양을 넘은 파일 ${n}개는 AI가 보지 못했어요.`,
+      time_budget: (n) => `시간 한도 때문에 파일 ${n}개는 AI 분석을 시작하지 못했어요. 다시 점검하면 이어서 확인할 수 있어요.`,
+      call_failed: (n) => `AI 응답을 받지 못해 파일 ${n}개를 분석하지 못했어요. 다시 점검하면 이어서 확인할 수 있어요.`,
+      ai_unavailable: (n) => `AI 설정 문제(키 확인 필요)로 파일 ${n}개를 분석하지 못했어요.`,
+    };
+    for (const [reason, n] of counts) {
+      plan.coverageGaps.push({ ruleId: AI_SCAN_GAP_RULE, checkId: "ai-code-review", reason: text[reason]?.(n) ?? `AI가 파일 ${n}개를 분석하지 못했어요.` });
+    }
   }
 
   private decorateWithRule(finding: SecurityFinding): void {

@@ -45,6 +45,19 @@ const PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
 const EXACT_VERSION =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
+/** 각 의존성 항목에 package.json에서 그 패키지를 선언한 줄 위치와 그 줄을 붙인다. */
+function withManifestLocations(findings: SecurityFinding[], pkgRaw: string): SecurityFinding[] {
+  const lines = pkgRaw.split("\n");
+  for (const f of findings) {
+    const name = (f.verificationKey ?? "").slice(4);
+    const idx = lines.findIndex((l) => l.includes(`"${name}"`));
+    if (idx < 0) continue;
+    f.location = { file: "package.json", line: idx + 1 };
+    f.evidence.unshift({ id: id("ev"), kind: "source_code", label: `package.json:${idx + 1}`, content: lines[idx].trim(), language: "json" });
+  }
+  return findings;
+}
+
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -331,11 +344,11 @@ export class DependencyScanner implements SecurityScanner {
     }
 
     if (osvResults !== null) {
-      return this.findingsFromOsv(osvResults, deps);
+      return withManifestLocations(this.findingsFromOsv(osvResults, deps), pkgRaw);
     }
 
     // 2) 오프라인 폴백(조회 불가 환경). simulated:true로 명확히 표시.
-    return this.offlineFallback(deps);
+    return withManifestLocations(this.offlineFallback(deps), pkgRaw);
   }
 
   async verify(

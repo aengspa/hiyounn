@@ -128,7 +128,7 @@ function logCall(entry: Record<string, unknown>): void {
 /** LLM을 호출하고 텍스트와 추적 메타데이터를 돌려준다. */
 export async function callLlm(opts: LlmCallOptions): Promise<LlmCallResult> {
   const cfg = resolveLlmConfig();
-  if (cfg.provider === "none" || !cfg.apiKey || !cfg.model) {
+  if (cfg.provider === "none" || !cfg.apiKey || !cfg.model || !isLlmConfigured()) {
     throw new LlmError("not_configured", null);
   }
   const provider = cfg.provider;
@@ -146,7 +146,10 @@ export async function callLlm(opts: LlmCallOptions): Promise<LlmCallResult> {
   let res: ProviderResponse;
   try {
     if (provider === "openai") {
-      res = await callOpenAi(key, model, system, opts.user, temperature, json, controller.signal, correlationId);
+      res = await callOpenAi(
+        { key, baseUrl: cfg.baseUrl, authHeader: cfg.authHeader, extraHeaders: cfg.extraHeaders },
+        model, system, opts.user, temperature, json, controller.signal, correlationId
+      );
     } else if (provider === "anthropic") {
       res = await callAnthropic(key, model, system, opts.user, temperature, controller.signal);
     } else {
@@ -209,8 +212,29 @@ async function readJson(res: Response): Promise<any> {
   }
 }
 
+/**
+ * 기본값(1) 외의 temperature를 거부한 OpenAI 모델(예: GPT-5 계열). 프로세스마다
+ * 한 번 배우고, 이후에는 temperature 없이 보낸다.
+ */
+const openAiFixedTemperatureModels = new Set<string>();
+
+interface OpenAiEndpoint {
+  key: string;
+  /** OpenAI 호환 게이트웨이. 없으면 공식 엔드포인트. */
+  baseUrl?: string;
+  authHeader: string;
+  extraHeaders: Record<string, string>;
+}
+
+const OFFICIAL_OPENAI = "https://api.openai.com/v1";
+
+export function chatCompletionsUrl(baseUrl: string | undefined): string {
+  const base = (baseUrl ?? OFFICIAL_OPENAI).replace(/\/+$/, "");
+  return base.endsWith("/chat/completions") ? base : `${base}/chat/completions`;
+}
+
 async function callOpenAi(
-  key: string,
+  endpoint: OpenAiEndpoint,
   model: string,
   system: string,
   user: string,
@@ -219,26 +243,43 @@ async function callOpenAi(
   signal: AbortSignal,
   correlationId: string
 ): Promise<ProviderResponse> {
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    signal,
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${key}`,
-      // 서버 로그와 제공자 요청을 연결하기 위한 진단용 헤더(비밀 아님).
-      "x-client-request-id": correlationId,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      temperature,
-      ...(json ? { response_format: { type: "json_object" } } : {}),
-    }),
-  });
-  const data = await readJson(res);
+  const auth: Record<string, string> =
+    endpoint.authHeader === "authorization"
+      ? { authorization: `Bearer ${endpoint.key}` }
+      : { [endpoint.authHeader]: endpoint.key };
+  const send = (withTemperature: boolean) =>
+    fetch(chatCompletionsUrl(endpoint.baseUrl), {
+      method: "POST",
+      signal,
+      // 리다이렉트를 따라가면 키가 다른 곳으로 갈 수 있다.
+      redirect: "error",
+      headers: {
+        ...endpoint.extraHeaders,
+        "content-type": "application/json",
+        ...auth,
+        // 서버 로그와 제공자 요청을 연결하기 위한 진단용 헤더(비밀 아님).
+        "x-client-request-id": correlationId,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        ...(withTemperature ? { temperature } : {}),
+        ...(json ? { response_format: { type: "json_object" } } : {}),
+      }),
+    });
+
+  const withTemperature = !openAiFixedTemperatureModels.has(model);
+  let res = await send(withTemperature);
+  let data = await readJson(res);
+  if (withTemperature && res.status === 400 && data?.error?.param === "temperature") {
+    // 모델이 기본 temperature만 지원한다. 기억해 두고 한 번만 다시 보낸다.
+    openAiFixedTemperatureModels.add(model);
+    res = await send(false);
+    data = await readJson(res);
+  }
   return {
     status: res.status,
     text: res.ok ? data?.choices?.[0]?.message?.content ?? "" : "",

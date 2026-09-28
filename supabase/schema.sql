@@ -129,3 +129,18 @@ alter table public.scans         enable row level security;
 alter table public.findings      enable row level security;
 alter table public.fix_attempts  enable row level security;
 alter table public.verifications enable row level security;
+
+-- ── custom_rules (AI-proposed rules, approved by a person) ─────
+-- See migrations/20260929000000_custom_rules.sql.
+create table if not exists public.custom_rules (
+  id          text primary key,
+  owner_id    text not null references public.app_users (id) on delete cascade,
+  project_id  text not null references public.projects (id) on delete cascade,
+  status      text not null check (status in ('proposed', 'approved', 'rejected')),
+  data        jsonb not null,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create index if not exists custom_rules_owner_idx   on public.custom_rules (owner_id);
+create index if not exists custom_rules_project_idx on public.custom_rules (project_id);
+alter table public.custom_rules enable row level security;

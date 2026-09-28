@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { unzipToFileMap } from "@/lib/net/unzip";
 import {
   createProject,
@@ -12,37 +12,48 @@ import {
 import { isStale, loadFixJob, readFixJobArtifact, startFixAll } from "@/lib/fixjobs/fixAllService";
 import type { generateLlmFileFix } from "@/lib/remediation/llmFileFix";
 import type { FixAttempt } from "@/lib/domain/types";
+import { LIMITS } from "@/lib/config/limits";
 
 // All values are fake test fixtures (no real secrets).
-const FILES = {
+const SECRET_FILES = {
   "src/a.ts": 'export const apiKey = "abcdefghijklmnop1234";\nexport const x = 1;\n',
   "src/b.ts": 'export const token = "qrstuvwxyzabcdef5678";\nexport const y = 2;\n',
   "README.md": "not scanned",
 };
 
+// Code-level issue the rules can't fix by themselves (goes to the AI path).
+const XSS_FILES = {
+  "src/view.ts": 'export function render(el: HTMLElement, name: string) {\n  el.innerHTML = "<b>" + name + "</b>";\n}\n',
+  "src/list.ts": 'export function row(li: HTMLElement, text: string) {\n  li.innerHTML = "<i>" + text + "</i>";\n}\n',
+};
+
 type LlmFix = typeof generateLlmFileFix;
 
-/** Stub LLM: replaces the hard-coded literal line with a process.env read. */
-const stubFix: LlmFix = async ({ finding, filePath, fileContent }) => {
-  const line = fileContent.split("\n").find((l) => /"[A-Za-z0-9]{16,}"/.test(l));
-  if (!line) return { kind: "declined", reason: "nothing", correlationId: "c-1" };
-  const after = line.replace(/"[A-Za-z0-9]{16,}"/, "process.env.APP_SECRET ?? \"\"");
+function llmFixOf(filePath: string, findingId: string, before: string, after: string): Awaited<ReturnType<LlmFix>> {
   const fix: FixAttempt = {
-    id: `fix_${finding.id}`,
-    findingId: finding.id,
+    id: `fix_${findingId}`,
+    findingId,
     source: "llm",
-    summary: "환경변수로 옮겼어요.",
-    plainExplanation: "비밀값을 코드에서 뺐어요.",
-    diffs: [{ file: filePath, patch: "", beforeText: line, afterText: after, mode: "replace" }],
+    summary: "텍스트로 넣도록 바꿨어요.",
+    plainExplanation: "HTML 대신 글자로 넣어요.",
+    diffs: [{ file: filePath, patch: "", beforeText: before, afterText: after, mode: "replace" }],
     applied: false,
     createdAt: new Date().toISOString(),
   };
   return { kind: "fix", fix, correlationId: "c-2" };
+}
+
+/** Stub LLM: turns an innerHTML concatenation into textContent. */
+const stubFix: LlmFix = async ({ finding, filePath, fileContent }) => {
+  const line = fileContent.split("\n").find((l) => l.includes("innerHTML"));
+  if (!line) return { kind: "declined", reason: "nothing", correlationId: "c-1" };
+  const after = line.replace(/innerHTML = "<\w>" \+ (\w+) \+ "<\/\w>"/, "textContent = $1");
+  return llmFixOf(filePath, finding.id, line, after);
 };
 
-async function setup(tag: string) {
-  const user = await createUser({ email: `${tag}-${Date.now()}@example.test`, passwordHash: "x:y" });
-  const project = await createProject(user.id, { name: `p-${tag}`, files: FILES, sourceKind: "paste" });
+async function setup(tag: string, files: Record<string, string>) {
+  const user = await createUser({ email: `${tag}-${Date.now()}-${Math.random()}@example.test`, passwordHash: "x:y" });
+  const project = await createProject(user.id, { name: `p-${tag}`, files, sourceKind: "paste" });
   const scan = await runScan(project.id, user.id);
   const findings = await getFindingsForScan(scan.id, user.id);
   return { user, project, scan, findings };
@@ -51,7 +62,7 @@ async function setup(tag: string) {
 describe("startFixAll", () => {
   let ctx: Awaited<ReturnType<typeof setup>>;
   beforeAll(async () => {
-    ctx = await setup("main");
+    ctx = await setup("main", SECRET_FILES);
   });
 
   it("scan records the immutable source version it read", async () => {
@@ -63,27 +74,31 @@ describe("startFixAll", () => {
     expect(ctx.findings.filter((f) => f.verificationKey?.startsWith("secret:")).length).toBeGreaterThanOrEqual(2);
   });
 
-  it("applies fixes, stores a new version and a changed-files-only ZIP", async () => {
+  it("fixes secrets by rule without the AI, stores a new version and a changed-files-only ZIP", async () => {
     const secretIds = ctx.findings.filter((f) => f.verificationKey?.startsWith("secret:")).map((f) => f.id);
+    const llm = vi.fn(stubFix);
     const { job, reused } = await startFixAll(
       { ownerId: ctx.user.id, scanId: ctx.scan.id, findingIds: secretIds },
-      { llmConfigured: true, llmFix: stubFix }
+      { llmConfigured: true, llmFix: llm }
     );
     expect(reused).toBe(false);
     expect(job.status).toBe("completed");
-    expect(job.items.every((i) => i.outcome === "applied")).toBe(true);
+    expect(job.items.every((i) => i.outcome === "applied" && i.fixSource === "deterministic")).toBe(true);
+    // Secrets never go to the AI.
+    expect(llm).not.toHaveBeenCalled();
     expect(job.changedFiles).toEqual(["src/a.ts", "src/b.ts"]);
 
     // Original version unchanged; result version holds the fix.
     const base = await getSourceVersion(job.baseVersionId, ctx.user.id);
-    expect(base.files["src/a.ts"]).toBe(FILES["src/a.ts"]);
+    expect(base.files["src/a.ts"]).toBe(SECRET_FILES["src/a.ts"]);
     const result = await getSourceVersion(job.resultVersionId!, ctx.user.id);
     expect(result.kind).toBe("fixed");
     expect(result.parentVersionId).toBe(base.id);
-    expect(result.files["src/a.ts"]).toContain("process.env.APP_SECRET");
-    expect(result.files["README.md"]).toBe(FILES["README.md"]);
+    expect(result.files["src/a.ts"]).toContain("export const apiKey = process.env.API_KEY;");
+    expect(result.files["src/b.ts"]).toContain("export const token = process.env.APP_TOKEN;");
+    expect(result.files["README.md"]).toBe(SECRET_FILES["README.md"]);
 
-    // ZIP: only changed files (+ summary), integrity matches.
+    // ZIP: only changed files (+ summary), integrity matches, no secret inside.
     const bytes = await readFixJobArtifact(job);
     expect(createHash("sha256").update(bytes).digest("hex")).toBe(job.artifact!.sha256);
     const unzipped = unzipToFileMap(Buffer.from(bytes));
@@ -91,6 +106,10 @@ describe("startFixAll", () => {
     expect(unzipped["src/a.ts"]).toBe(result.files["src/a.ts"]);
     expect(unzipped["HOI-SECURITY-FIX-SUMMARY.md"]).toContain("다시 배포해야 해요");
     expect(unzipped["HOI-SECURITY-FIX-SUMMARY.md"]).not.toContain("abcdefghijklmnop1234");
+    // The fix moved secrets to new env vars: the job and the ZIP say so before anyone applies it.
+    expect(job.requiredEnv?.map((e) => e.name)).toEqual(["API_KEY", "APP_TOKEN"]);
+    expect(unzipped["HOI-SECURITY-FIX-SUMMARY.md"]).toContain("반영 전에 설정할 환경변수 (2개)");
+    expect(unzipped["HOI-SECURITY-FIX-SUMMARY.md"]).toContain("- API_KEY (src/a.ts)");
 
     // Findings are never marked resolved by fixing.
     const after = await getFindingsForScan(ctx.scan.id, ctx.user.id);
@@ -117,35 +136,59 @@ describe("startFixAll", () => {
   });
 });
 
-describe("startFixAll failure handling", () => {
-  it("without LLM, unsupported items make the job failed with no artifact", async () => {
-    const c = await setup("nollm");
-    const { job } = await startFixAll(
-      { ownerId: c.user.id, scanId: c.scan.id },
-      { llmConfigured: false }
-    );
+describe("startFixAll AI path", () => {
+  it("applies AI fixes for code issues", async () => {
+    const c = await setup("ai-ok", XSS_FILES);
+    const { job } = await startFixAll({ ownerId: c.user.id, scanId: c.scan.id }, { llmConfigured: true, llmFix: stubFix });
+    expect(job.status).toBe("completed");
+    expect(job.items.every((i) => i.outcome === "applied" && i.fixSource === "llm")).toBe(true);
+    const result = await getSourceVersion(job.resultVersionId!, c.user.id);
+    expect(result.files["src/view.ts"]).toContain("el.textContent = name;");
+    // The per-item edit records where in the file it starts (line 2 of view.ts).
+    const item = job.items.find((i) => i.files.includes("src/view.ts"))!;
+    expect(item.edits?.[0]).toMatchObject({ file: "src/view.ts", line: 2 });
+  });
+
+  it("without LLM, code issues are unsupported and the job fails with no artifact", async () => {
+    const c = await setup("nollm", XSS_FILES);
+    const { job } = await startFixAll({ ownerId: c.user.id, scanId: c.scan.id }, { llmConfigured: false });
     expect(job.status).toBe("failed");
     expect(job.errorCode).toBe("nothing_applied");
     expect(job.artifact).toBeUndefined();
     expect(job.resultVersionId).toBeUndefined();
-    expect(job.items.some((i) => i.outcome === "applied")).toBe(false);
+    expect(job.items.every((i) => i.outcome === "unsupported" && i.reasonCode === "no_auto_fix")).toBe(true);
+  });
+
+  it("without LLM, secrets are still fixed by rule", async () => {
+    const c = await setup("nollm-secret", SECRET_FILES);
+    const { job } = await startFixAll({ ownerId: c.user.id, scanId: c.scan.id }, { llmConfigured: false });
+    expect(job.status).toBe("completed");
+    expect(job.artifact).toBeDefined();
   });
 
   it("LLM errors are failures, never success", async () => {
-    const c = await setup("llmerr");
+    const c = await setup("llmerr", XSS_FILES);
     const failing: LlmFix = async () => ({ kind: "error", code: "timeout", correlationId: "c-9" });
+    const { job } = await startFixAll({ ownerId: c.user.id, scanId: c.scan.id }, { llmConfigured: true, llmFix: failing });
+    expect(job.status).toBe("failed");
+    expect(job.items.every((i) => i.outcome === "apply_failed" && i.reasonCode === "ai_timeout")).toBe(true);
+  });
+
+  it("an auth failure stops further AI calls and says why", async () => {
+    const c = await setup("authfail", XSS_FILES);
+    const failing = vi.fn<LlmFix>(async () => ({ kind: "error", code: "auth_failed", correlationId: null }));
     const { job } = await startFixAll(
       { ownerId: c.user.id, scanId: c.scan.id },
-      { llmConfigured: true, llmFix: failing }
+      { llmConfigured: true, llmFix: failing, limits: { ...LIMITS, fixAllConcurrency: 1 } }
     );
-    expect(job.status).toBe("failed");
-    const secretItems = job.items.filter((i) => i.reasonCode?.startsWith("ai_"));
-    expect(secretItems.length).toBeGreaterThan(0);
-    expect(secretItems.every((i) => i.outcome === "apply_failed")).toBe(true);
+    expect(failing).toHaveBeenCalledTimes(1);
+    const outcomes = job.items.map((i) => `${i.outcome}:${i.reasonCode}`).sort();
+    expect(outcomes).toEqual(["apply_failed:ai_auth_failed", "skipped:ai_unavailable"]);
+    expect(job.items.every((i) => i.reason?.includes("AI 키"))).toBe(true);
   });
 
   it("a failed job can be retried with a fresh key", async () => {
-    const c = await setup("retry");
+    const c = await setup("retry", XSS_FILES);
     const failing: LlmFix = async () => ({ kind: "error", code: "http_error", correlationId: null });
     const first = await startFixAll({ ownerId: c.user.id, scanId: c.scan.id }, { llmConfigured: true, llmFix: failing });
     expect(first.job.status).toBe("failed");
@@ -155,12 +198,56 @@ describe("startFixAll failure handling", () => {
     expect(["completed", "partial"]).toContain(second.job.status);
   });
 
+  it("does not auto-edit code for a rule finding the AI flagged as a likely false positive", async () => {
+    const c = await setup("fp", XSS_FILES);
+    // The memory store returns its stored objects, so this sets the AI review
+    // the scan would have attached.
+    const target = (await getFindingsForScan(c.scan.id, c.user.id))[0];
+    target.aiReview = { verdict: "likely_false_positive", reason: "상수만 씀" };
+    const llm = vi.fn(stubFix);
+    const { job } = await startFixAll({ ownerId: c.user.id, scanId: c.scan.id }, { llmConfigured: true, llmFix: llm });
+    const item = job.items.find((i) => i.findingId === target.id)!;
+    expect(item.outcome).toBe("unsupported");
+    expect(item.reasonCode).toBe("disputed_at_scan");
+    expect(llm).toHaveBeenCalledTimes(c.findings.length - 1);
+  });
+
+  it("masks secrets in code sent to the AI and restores them when applying", async () => {
+    const secret = "sk_live_" + "Q".repeat(24);
+    const files = {
+      "src/widget.tsx": `"use client";\nconst key = "${secret}";\nexport function W(el: HTMLElement, v: string) {\n  el.innerHTML = "<i>" + v + "</i>";\n}\n`,
+    };
+    const c = await setup("redact", files);
+    const seen: string[] = [];
+    const llm: LlmFix = async ({ finding, filePath, fileContent }) => {
+      seen.push(fileContent);
+      const secretLine = fileContent.split("\n")[1];
+      const htmlLine = fileContent.split("\n")[3];
+      // The edit touches the (masked) secret line too, to prove restore works.
+      return llmFixOf(filePath, finding.id, `${secretLine}\nexport function W(el: HTMLElement, v: string) {\n${htmlLine}`,
+        `${secretLine} // TODO: move to server\nexport function W(el: HTMLElement, v: string) {\n  el.textContent = v;`);
+    };
+    const { job } = await startFixAll({ ownerId: c.user.id, scanId: c.scan.id }, { llmConfigured: true, llmFix: llm });
+
+    // The client-side secret is refused by rule (moving it to env would still expose it).
+    const secretItem = job.items.find((i) => c.findings.find((f) => f.id === i.findingId)?.verificationKey?.startsWith("secret:"))!;
+    expect(secretItem.outcome).toBe("unsupported");
+    expect(secretItem.reasonCode).toBe("secret_in_client_code");
+
+    expect(seen.length).toBe(1);
+    expect(seen[0]).not.toContain(secret);
+    expect(seen[0]).toContain("__HOI_REDACTED_SECRET_1__");
+    const result = await getSourceVersion(job.resultVersionId!, c.user.id);
+    expect(result.files["src/widget.tsx"]).toContain(`const key = "${secret}"; // TODO: move to server`);
+    expect(result.files["src/widget.tsx"]).toContain("el.textContent = v;");
+    expect(result.files["src/widget.tsx"]).not.toContain("__HOI_REDACTED_SECRET_");
+  });
+
   it("over-limit items are reported as skipped, not dropped", async () => {
-    const c = await setup("limit");
-    const limits = { ...(await import("@/lib/config/limits")).LIMITS, fixAllMaxItems: 1 };
+    const c = await setup("limit", XSS_FILES);
     const { job } = await startFixAll(
       { ownerId: c.user.id, scanId: c.scan.id },
-      { llmConfigured: true, llmFix: stubFix, limits }
+      { llmConfigured: true, llmFix: stubFix, limits: { ...LIMITS, fixAllMaxItems: 1 } }
     );
     expect(job.skippedForLimit).toBe(c.findings.filter((f) => f.status !== "resolved").length - 1);
     expect(job.items.filter((i) => i.reasonCode === "item_limit").length).toBe(job.skippedForLimit);
@@ -168,7 +255,7 @@ describe("startFixAll failure handling", () => {
   });
 
   it("stale check only touches running jobs", async () => {
-    const c = await setup("stale");
+    const c = await setup("stale", XSS_FILES);
     const { job } = await startFixAll({ ownerId: c.user.id, scanId: c.scan.id }, { llmConfigured: false });
     const later = Date.parse(job.updatedAt) + 10 * 60_000;
     const read = await loadFixJob(job.id, c.user.id, { nowMs: () => later });

@@ -31,7 +31,7 @@ export const DEFAULT_LIMITS = {
   pastedSourceChars: 100_000,
   fixAllMaxItems: 20,
   fixAllTimeBudgetMs: 90_000,
-  verifyTimeBudgetMs: 90_000,
+  verifyTimeBudgetMs: 150_000,
   llmCallTimeoutMs: 30_000,
   /** LLM에 보낼 한 파일의 최대 길이. 넘으면 그 파일은 LLM 수정·검토 대상에서 뺀다. */
   llmFileChars: 24_000,
@@ -41,6 +41,22 @@ export const DEFAULT_LIMITS = {
   reverifyPromptChars: 60_000,
   /** 재검증 AI 호출 한 번의 제한 시간. */
   reverifyLlmTimeoutMs: 60_000,
+  /** AI 코드 분석: 한 번의 호출에 담을 파일 내용 총량(파일 중간은 자르지 않음). */
+  aiScanChunkChars: 12_000,
+  /** AI 코드 분석: 한 번의 점검에서 보낼 최대 묶음 수. 넘는 파일은 기록만 한다. */
+  aiScanMaxChunks: 10,
+  /** AI 코드 분석: 동시에 보내는 호출 수. */
+  aiScanConcurrency: 3,
+  /** AI 코드 분석: 호출 한 번의 제한 시간. */
+  aiScanCallTimeoutMs: 60_000,
+  /** AI 코드 분석 전체 예산. 이 시간이 지나면 남은 묶음은 시작하지 않는다. */
+  aiScanTimeBudgetMs: 150_000,
+  /** 전체 수정: 서로 다른 파일을 동시에 고치는 작업 수. */
+  fixAllConcurrency: 3,
+  /** 재검증 한 번에 만들 공격 재현 테스트 최대 수. */
+  exploitMaxTests: 6,
+  /** 공격 재현 테스트 한 번(격리 프로세스)의 제한 시간. */
+  exploitRunTimeoutMs: 10_000,
 } as const;
 
 export interface Limits {
@@ -57,6 +73,14 @@ export interface Limits {
   staleJobMs: number;
   reverifyPromptChars: number;
   reverifyLlmTimeoutMs: number;
+  aiScanChunkChars: number;
+  aiScanMaxChunks: number;
+  aiScanConcurrency: number;
+  aiScanCallTimeoutMs: number;
+  aiScanTimeBudgetMs: number;
+  fixAllConcurrency: number;
+  exploitMaxTests: number;
+  exploitRunTimeoutMs: number;
 }
 
 export function readLimits(): Limits {
@@ -75,6 +99,14 @@ export function readLimits(): Limits {
     staleJobMs: intFromEnv("LIMIT_STALE_JOB_MS", d.staleJobMs, 10_000, 3_600_000),
     reverifyPromptChars: intFromEnv("LIMIT_REVERIFY_PROMPT_CHARS", d.reverifyPromptChars, 5_000, 400_000),
     reverifyLlmTimeoutMs: intFromEnv("LIMIT_REVERIFY_LLM_TIMEOUT_MS", d.reverifyLlmTimeoutMs, 5_000, 110_000),
+    aiScanChunkChars: intFromEnv("LIMIT_AI_SCAN_CHUNK_CHARS", d.aiScanChunkChars, 2_000, 100_000),
+    aiScanMaxChunks: intFromEnv("LIMIT_AI_SCAN_MAX_CHUNKS", d.aiScanMaxChunks, 1, 50),
+    aiScanConcurrency: intFromEnv("LIMIT_AI_SCAN_CONCURRENCY", d.aiScanConcurrency, 1, 8),
+    aiScanCallTimeoutMs: intFromEnv("LIMIT_AI_SCAN_CALL_TIMEOUT_MS", d.aiScanCallTimeoutMs, 5_000, 180_000),
+    aiScanTimeBudgetMs: intFromEnv("LIMIT_AI_SCAN_TIME_BUDGET_MS", d.aiScanTimeBudgetMs, 10_000, 280_000),
+    fixAllConcurrency: intFromEnv("LIMIT_FIX_ALL_CONCURRENCY", d.fixAllConcurrency, 1, 8),
+    exploitMaxTests: intFromEnv("LIMIT_EXPLOIT_MAX_TESTS", d.exploitMaxTests, 0, 30),
+    exploitRunTimeoutMs: intFromEnv("LIMIT_EXPLOIT_RUN_TIMEOUT_MS", d.exploitRunTimeoutMs, 2_000, 60_000),
   };
 }
 

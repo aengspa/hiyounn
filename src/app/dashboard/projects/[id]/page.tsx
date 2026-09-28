@@ -11,6 +11,7 @@ import {
   NotAuthorizedError,
 } from "@/lib/store/store";
 import { RunScanButton } from "@/components/RunScanButton";
+import { ReuploadForm } from "@/components/ReuploadForm";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +49,11 @@ export default async function ProjectPage({ params }: { params: { id: string } }
       </PageHeader>
 
       <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6">
+        {!project.isDemo && (
+          <div className="mb-8">
+            <ReuploadForm projectId={project.id} />
+          </div>
+        )}
         <section aria-labelledby="history-title">
           <h2 id="history-title" className="text-lg font-bold text-ink">
             점검 기록

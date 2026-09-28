@@ -21,9 +21,12 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
   const addActive = pathname.startsWith("/dashboard/new");
 
   return (
+    // 바깥 칸은 페이지 전체 높이로 늘어나 배경·테두리를 끝까지 칠하고,
+    // 안쪽 패널은 화면 높이로 고정(sticky)돼 아래 버튼이 항상 보인다.
+    <div className="z-20 w-full min-w-0 shrink-0 border-b border-line bg-surface-warm lg:w-64 lg:border-b-0 lg:border-r">
     <aside
       aria-label="내 프로젝트"
-      className="z-20 flex w-full min-w-0 shrink-0 flex-col border-b border-line bg-surface-warm lg:sticky lg:top-[65px] lg:h-[calc(100vh-65px)] lg:w-64 lg:border-b-0 lg:border-r"
+      className="flex w-full min-w-0 flex-col lg:sticky lg:top-[65px] lg:h-[calc(100vh-65px)]"
     >
       <div className="flex items-center justify-between px-4 pb-2 pt-4">
         <Link href="/dashboard" className="rounded-xl text-sm font-bold text-ink-subtle hover:text-ink hover:underline">
@@ -73,5 +76,6 @@ export function Sidebar({ projects }: { projects: SidebarProject[] }) {
         </Link>
       </div>
     </aside>
+    </div>
   );
 }

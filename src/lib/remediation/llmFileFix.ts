@@ -39,7 +39,23 @@ Rules:
   normal behavior. Keep existing identifiers, imports and style.
 - Only edit this file. Do not invent helper functions that do not exist
   unless you also add them in an edit to this file.
-- Never output secrets. If the fix needs a secret, read it from process.env.
+- Use only identifiers, middleware and request properties that exist in this
+  file or appear in the PROJECT MAP. If the fix needs authentication the
+  project does not have (for example req.user with no login middleware),
+  return canFix false and say what is missing.
+- If the fix needs configuration (a signing key, an allowed host list), read it
+  from process.env with a clear UPPER_SNAKE name (for example
+  process.env.JWT_SECRET) and fail closed when it is missing, instead of
+  declining. Require only what the fix strictly needs: do not add extra checks
+  (e.g. JWT issuer/audience) that would reject requests that are valid today,
+  unless the code already uses them.
+- Never add login/authentication to flows that must work for logged-out users
+  (login, signup, password-reset request, email verification, signed webhooks,
+  health checks). If the finding asks for that, return canFix false and explain
+  that the route is public by design.
+- When you switch to a safer API, also validate the untrusted value with a
+  strict allowlist (for command arguments, also reject values starting with "-").
+- Never output secrets. __HOI_REDACTED_SECRET_n__ is a masked secret: keep it as is.
 - At most 8 edits.`;
 
 const MAX_EDITS = 8;
@@ -84,6 +100,8 @@ export async function generateLlmFileFix(input: {
   filePath: string;
   fileContent: string;
   timeoutMs: number;
+  /** 파일 목록과 라우트·미들웨어 선언(다른 파일에 무엇이 있는지 알려 주는 참고용). */
+  projectMap?: string;
 }): Promise<LlmFileFixResult> {
   const { finding, filePath, fileContent } = input;
   const user = [
@@ -98,6 +116,7 @@ export async function generateLlmFileFix(input: {
     "Evidence:",
     evidenceText(finding) || "(none)",
     "",
+    input.projectMap ? `PROJECT MAP (reference only, do not edit other files):\n${input.projectMap}\n` : "",
     `File path: ${filePath}`,
     "File content (between markers):",
     "<<<FILE",

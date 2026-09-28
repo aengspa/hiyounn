@@ -171,6 +171,36 @@ export interface SecurityFinding {
   /** 문서 어휘 상태. 미지정 시 status에서 유도. */
   testStatus?: TestStatus;
 
+  /**
+   * 같은 문제를 다시 알아보기 위한 식별값(예: 비밀값의 잘린 SHA-256).
+   * 원래 값을 되살릴 수 없는 값만 넣는다.
+   */
+  fingerprint?: string;
+
+  /**
+   * 규칙 기반 발견에 대한 AI의 의견. 규칙 결과는 기준(baseline)이라 AI가
+   * 지우지 않고, 의견만 곁에 붙인다.
+   */
+  aiReview?: {
+    verdict: "confirmed" | "likely_false_positive" | "unsure";
+    reason?: string;
+    /**
+     * 오탐 의견이 붙은 규칙 항목을 AI가 근거 코드와 함께 다시 판정한 결과.
+     * not_vulnerable이면 "오탐으로 판정"으로 보여 주고 자동 수정 대상에서 뺀다.
+     */
+    adjudication?: {
+      verdict: "not_vulnerable" | "vulnerable" | "unsure";
+      reason: string;
+      evidence: { file: string; snippet: string; explanation: string }[];
+    };
+  };
+
+  /** 같은 문제를 함께 찾은 다른 검사기(예: "semgrep", "ai"). */
+  corroboratedBy?: string[];
+
+  /** 재업로드 증분 점검에서 바뀌지 않은 파일의 이전 AI 결과를 이어 온 경우. */
+  carriedOverFromScanId?: string;
+
   createdAt: string;
   updatedAt: string;
 }
@@ -310,6 +340,81 @@ export interface ScanScope {
   rulesetVersion: string;
   testedCategories: string[];
   untestedCategories: string[];
+  /** AI 코드 분석이 실제로 어디까지 봤는지. 없으면 기록 이전 점검. */
+  aiCoverage?: AiScanCoverage;
+  /** AI가 뽑고 규칙이 판단한 라우트별 권한 확인 표. */
+  authzMatrix?: RouteAuthzEntry[];
+  /** Semgrep 실행 결과 요약. */
+  semgrep?: { status: "ran" | "not_installed" | "failed" | "skipped"; findings: number; config?: string; detail?: string };
+  /** 재업로드 증분 점검 정보. */
+  incremental?: { previousScanId: string; changedFiles: string[]; unchangedFiles: number; carriedOver: number };
+}
+
+/** 라우트 하나의 권한 확인 사실(AI가 코드에서 뽑고 서버가 근거를 검증). */
+export interface RouteAuthzEntry {
+  method: string;
+  path: string;
+  file: string;
+  line: number;
+  snippet: string;
+  /** 로그인 확인. public = 로그인 없이 쓰도록 만든 라우트(로그인·가입·비밀번호 재설정 요청·서명 검증 웹훅 등). */
+  auth: "required" | "none" | "public" | "unknown";
+  /** 관리자 확인(관리자 기능이 아니면 n/a). */
+  admin: "required" | "none" | "n/a" | "unknown";
+  /** 특정 객체(id)를 다룰 때 소유자 확인(객체를 다루지 않으면 n/a). */
+  ownership: "checked" | "missing" | "n/a" | "unknown";
+  /** 데이터를 바꾸는 라우트인지. */
+  mutates: boolean;
+  notes?: string;
+  /** 규칙이 이 행에서 찾은 문제(finding id). */
+  findingIds?: string[];
+}
+
+/**
+ * AI가 제안하고 사람이 승인한 규칙. 승인되면 이후 점검에서 규칙(baseline)으로 쓴다.
+ */
+export interface CustomRule {
+  id: string;
+  ownerId: string;
+  projectId: string;
+  status: "proposed" | "approved" | "rejected";
+  title: string;
+  cwe?: string;
+  severity: Severity;
+  /** JavaScript 정규식 본문(한 줄 단위로 검사). */
+  pattern: string;
+  flags: string;
+  /** 같은 줄에 이 패턴이 있으면 안전한 것으로 본다(선택). */
+  safePattern?: string;
+  rationale: string;
+  remediation?: string;
+  /** 제안의 근거가 된 AI 발견. */
+  sourceFindingId?: string;
+  sourceScanId?: string;
+  /** 제안할 때 이 규칙이 프로젝트에서 잡은 줄(미리보기). */
+  preview: { file: string; line: number; text: string }[];
+  createdAt: string;
+  decidedAt?: string;
+}
+
+/**
+ * AI 코드 분석 범위.
+ *  - off: AI 설정이 없어 규칙 기반 점검만 함
+ *  - complete: 분석 대상 파일을 모두 봄
+ *  - partial: 일부 파일만 봄(한도·시간·호출 실패)
+ *  - failed: 한 파일도 분석하지 못함
+ */
+export interface AiScanCoverage {
+  status: "off" | "complete" | "partial" | "failed";
+  /** AI 분석 대상이 된 코드 파일 수. */
+  filesTotal: number;
+  /** 실제로 AI가 분석한 파일 수. */
+  filesReviewed: number;
+  /** 보내지 못했거나 분석이 끝나지 않은 파일과 이유. */
+  omitted: { path: string; reason: "too_large" | "over_budget" | "time_budget" | "call_failed" | "ai_unavailable" }[];
+  calls: number;
+  /** 규칙 결과와 합쳐진 AI 발견 수. */
+  mergedWithRules: number;
 }
 
 export type ScanStatus = "queued" | "running" | "completed" | "failed";
@@ -457,6 +562,8 @@ export interface FixJobItem {
   plainExplanation?: string;
   /** LLM 수정안을 요청했다면 그 요청의 추적 ID. */
   llmCorrelationId?: string;
+  /** 이 항목 때문에 바뀐 코드(비밀값은 가림). diff 화면에 쓴다. */
+  edits?: { file: string; before: string; after: string; /** 수정 전 파일에서 before가 시작하는 줄. */ line?: number }[];
 }
 
 export type FixJobStatus = "running" | "completed" | "partial" | "failed";
@@ -495,6 +602,8 @@ export interface FixJob {
   skippedForLimit: number;
   /** 수정본에 대한 가장 최근 재검증. */
   verification?: FixJobVerification;
+  /** 수정본이 새로 요구하는 환경변수(반영 전에 설정해야 함). */
+  requiredEnv?: import("@/lib/remediation/requiredEnv").RequiredEnv[];
   errorCode?: string;
   errorMessage?: string;
   createdAt: string;
@@ -513,7 +622,23 @@ export interface FixJob {
  *  - still_present: 수정본 코드에 문제가 남아 있다는 근거가 있음
  *  - inconclusive: 근거가 부족하거나 확인하지 못함
  */
-export type ReverifyVerdict = "fixed_in_source" | "still_present" | "inconclusive";
+export type ReverifyVerdict = "fixed_in_source" | "still_present" | "inconclusive" | "false_positive";
+
+/**
+ * 공격 재현 테스트(AI가 작성, 격리된 프로세스에서 실행).
+ *  - blocked: 원본에서는 공격이 성공했고 수정본에서는 막힘(실행으로 확인)
+ *  - still_exploitable: 수정본에서도 공격이 성공
+ *  - not_reproduced: 원본에서도 공격이 재현되지 않아 테스트를 믿을 수 없음
+ *  - error / not_run: 실행하지 못함(결론 없음)
+ */
+export interface ExploitCheck {
+  status: "blocked" | "still_exploitable" | "not_reproduced" | "error" | "not_run";
+  detail: string;
+  /** 사람이 확인할 수 있게 테스트 코드를 남긴다(비밀값은 가림). */
+  testCode?: string;
+  before?: { attackSucceeded: boolean | null; note: string };
+  after?: { attackSucceeded: boolean | null; note: string };
+}
 
 export interface ReverifyEvidence {
   file: string;
@@ -527,12 +652,26 @@ export interface ReverifyItem {
   title: string;
   severity: Severity;
   verdict: ReverifyVerdict;
-  /** 누가 판단했는지. rule = 규칙 기반 재검사, llm = AI 코드 재검토. */
-  method?: "rule" | "llm";
+  /**
+   * 누가 판단했는지. rule = 규칙 재검사, llm = AI 코드 재검토,
+   * rule+llm = 규칙과 AI가 같은 결론.
+   */
+  method?: "rule" | "llm" | "rule+llm" | "exploit";
+  /** 공격 재현 테스트가 원본에서 성공하고 수정본에서 막힌 것을 실행으로 확인했는지. */
+  executed?: boolean;
   summary?: string;
   evidence: ReverifyEvidence[];
-  /** inconclusive 등의 내부 사유 코드. */
+  /** inconclusive 등의 내부 사유 코드. disputed = 규칙과 AI 결론이 다름. */
   reasonCode?: string;
+  /** 규칙 재검사 결론(있을 때). 최종 verdict와 따로 남긴다. */
+  ruleVerdict?: ReverifyVerdict;
+  /** AI 재검토 결론(근거가 서버 검증을 통과했을 때만). */
+  aiVerdict?: ReverifyVerdict;
+  aiSummary?: string;
+  /** 규칙 재검사 설명(사람이 읽는 한국어). */
+  ruleSummary?: string;
+  /** 공격 재현 테스트 결과. */
+  exploit?: ExploitCheck;
 }
 
 export interface ReverifyFileNote {
