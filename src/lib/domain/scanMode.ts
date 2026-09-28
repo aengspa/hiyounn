@@ -188,9 +188,9 @@ export function validateScanModeInput(
     testAccounts: TestAccount[];
   }
 ): ScanModeValidationError | null {
-  if (mode === "static") {
-    return input.hasSource ? null : "source_required";
-  }
+  // 모든 방식에서 코드가 필요하다. 저장소·배포 주소만으로는 코드가 아니다.
+  if (!input.hasSource) return "source_required";
+  if (mode === "static") return null;
   if (!input.deploymentUrl) return "deployment_required";
   if (!input.deploymentAuthorized) return "authorization_required";
   if (mode === "isolated_active") {
@@ -202,7 +202,7 @@ export function validateScanModeInput(
 }
 
 export const SCAN_MODE_ERROR_MESSAGE: Record<ScanModeValidationError, string> = {
-  source_required: "A 방식은 소스 ZIP이나 붙여넣은 코드가 필요해요.",
+  source_required: "점검할 코드가 필요해요. ZIP 파일을 올리거나 코드를 붙여 넣어 주세요.",
   deployment_required: "B·C 방식은 배포된 서비스 URL이 필요해요.",
   authorization_required: "동적 분석을 하려면 이 주소의 소유·점검 권한을 확인해 주세요.",
   test_accounts_required: "C 방식은 서로 다른 테스트 계정 2개가 필요해요.",

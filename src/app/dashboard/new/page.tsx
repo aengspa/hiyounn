@@ -1,7 +1,7 @@
 ﻿import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { HoiSpeech } from "@/components/mascot/HoiSpeech";
-import { Badge, Card, Disclosure, buttonClassName } from "@/components/ui";
+import { Card, Disclosure, buttonClassName } from "@/components/ui";
 
 /**
  * 프로젝트 등록 1단계: 어떤 자료로 점검할지 고른다(요구사항 7.1~7.3, 설계 5-5).
@@ -16,11 +16,11 @@ export default function ChooseScanModePage() {
         title="호이에게 프로젝트를 소개해 주세요"
         subtitle="가지고 있는 자료에 맞는 방법을 골라 주세요."
         backHref="/dashboard"
-        backLabel="내 프로젝트"
+        backLabel="이전"
       />
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
         <HoiSpeech mood="guide" size="md">
-          어떤 자료가 있는지 알려 주시면 거기에 맞춰 살펴볼게요. 잘 모르겠다면 추천 방법부터 시작해요.
+          어떤 자료가 있는지 알려 주시면 거기에 맞춰 살펴볼게요. 어느 방법이든 코드(ZIP 또는 붙여넣기)는 꼭 필요해요.
         </HoiSpeech>
 
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -29,7 +29,6 @@ export default function ChooseScanModePage() {
             title="코드와 파일 확인"
             description="프로젝트 파일이나 코드를 읽어 보안 문제를 찾아요."
             actionLabel="코드와 파일로 시작하기"
-            recommended
           />
           <ModeCard
             mode="safe_active"
@@ -68,38 +67,32 @@ export default function ChooseScanModePage() {
   );
 }
 
+/** 두 카드는 같은 모양·같은 hover/focus·같은 버튼 색을 쓴다(추천 표시 없음). */
 function ModeCard({
   mode,
   title,
   description,
   note,
   actionLabel,
-  recommended = false,
 }: {
   mode: "static" | "safe_active";
   title: string;
   description: string;
   note?: string;
   actionLabel: string;
-  recommended?: boolean;
 }) {
   return (
-    <Card variant={recommended ? "raised" : "warm"} className="flex flex-col rounded-3xl p-6">
-      <div className="flex items-start justify-between gap-3">
-        <h2 className="text-lg font-bold text-ink">{title}</h2>
-        {recommended && <Badge tone="primary">추천</Badge>}
-      </div>
+    <Card
+      variant="raised"
+      className="flex flex-col rounded-3xl p-6 transition-colors hover:border-brand-300 focus-within:border-brand-500 motion-reduce:transition-none"
+    >
+      <h2 className="text-lg font-bold text-ink">{title}</h2>
       <p className="mt-2 text-sm leading-relaxed text-ink-subtle">{description}</p>
       {note && <p className="mt-3 text-sm leading-relaxed text-ink-muted">{note}</p>}
       <div className="mt-auto pt-6">
-        {/* 화면 전체에서 Primary는 추천 카드 하나뿐(요구사항 7.1). */}
         <Link
           href={`/dashboard/new/setup?mode=${mode}`}
-          className={buttonClassName({
-            variant: recommended ? "primary" : "secondary",
-            size: "lg",
-            className: "w-full",
-          })}
+          className={buttonClassName({ variant: "primary", size: "lg", className: "w-full" })}
         >
           {actionLabel}
         </Link>

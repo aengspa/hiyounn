@@ -13,6 +13,7 @@ import {
   type ScanModeValidationError,
 } from "@/lib/domain/scanMode";
 import {
+  MAX_PASTED_SOURCE_CHARS,
   MAX_ZIP_BYTES,
   nextTabIndex,
   projectEndpoint,
@@ -145,6 +146,24 @@ export function NewProjectForm({ mode }: { mode: ScanMode }) {
       return;
     }
 
+    // 코드는 모든 방식에서 필요하다. 붙여넣은 코드는 한도를 넘으면 자르지 않고 막는다.
+    if (!zipFile && !sourceCode.trim()) {
+      showError({
+        title: "점검할 코드가 필요해요",
+        description: SCAN_MODE_ERROR_MESSAGE.source_required,
+        field: sourceTab === "zip" ? "file" : "sourceCode",
+      });
+      return;
+    }
+    if (!zipFile && sourceCode.length > MAX_PASTED_SOURCE_CHARS) {
+      showError({
+        title: "붙여 넣은 코드가 너무 길어요",
+        description: `${MAX_PASTED_SOURCE_CHARS.toLocaleString("ko-KR")}자 이하로 줄이거나 ZIP 파일로 올려 주세요. 지금은 ${sourceCode.length.toLocaleString("ko-KR")}자예요.`,
+        field: "sourceCode",
+      });
+      return;
+    }
+
     // 2) 점검 방식별 입력 확인(기존 규칙 그대로).
     const testAccounts = isolated
       ? accounts.map((a, i) => ({
@@ -222,6 +241,8 @@ export function NewProjectForm({ mode }: { mode: ScanMode }) {
         return;
       }
       router.push(`/dashboard/projects/${data.project.id}`);
+      // 사이드바 프로젝트 목록(서버 레이아웃)을 새로 불러온다.
+      router.refresh();
     } catch {
       setError({
         title: "연결이 잠깐 끊겼어요",
@@ -252,7 +273,7 @@ export function NewProjectForm({ mode }: { mode: ScanMode }) {
         title={MODE_TITLE[mode]}
         subtitle="필요한 자료를 입력하면 프로젝트를 만들어요."
         backHref="/dashboard/new"
-        backLabel="방법 다시 고르기"
+        backLabel="이전"
       />
       <div className="mx-auto max-w-2xl px-4 py-8 sm:px-6">
         <form onSubmit={submit} noValidate className="space-y-5" aria-busy={submitting}>
@@ -283,9 +304,7 @@ export function NewProjectForm({ mode }: { mode: ScanMode }) {
           <Card variant="default" className="p-6">
             <h2 className="text-lg font-bold text-ink">코드 자료</h2>
             <p className="mt-1 text-sm leading-relaxed text-ink-subtle">
-              {dynamic
-                ? "ZIP을 올리면 코드 분석도 함께 진행해요. 없어도 괜찮아요."
-                : "ZIP 파일 또는 붙여넣은 코드 중 하나가 필요해요."}
+              ZIP 파일 또는 붙여넣은 코드 중 하나가 꼭 필요해요. GitHub 주소만으로는 코드를 읽을 수 없어요.
             </p>
 
             <div
@@ -370,7 +389,7 @@ export function NewProjectForm({ mode }: { mode: ScanMode }) {
               <Field
                 id="sourceCode"
                 label="소스 코드 붙여넣기"
-                hint="ZIP이 없을 때 호이가 코드를 직접 읽으려고 필요해요(여러 파일은 '// file: 경로'로 구분, 앞 100,000자까지 확인)."
+                hint={`ZIP이 없을 때 호이가 코드를 직접 읽으려고 필요해요. 여러 파일은 '// file: 경로'로 구분해 주세요. ${MAX_PASTED_SOURCE_CHARS.toLocaleString("ko-KR")}자까지 받을 수 있고, 넘으면 ZIP으로 올려 주세요. (${sourceCode.length.toLocaleString("ko-KR")}자)`}
               >
                 <textarea
                   id="sourceCode"
