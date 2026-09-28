@@ -1,4 +1,4 @@
-import type { SVGProps } from "react";
+﻿import type { SVGProps } from "react";
 
 export type HoiMood =
   | "welcome"
@@ -13,10 +13,10 @@ export type HoiMood =
 export type HoiSize = "sm" | "md" | "lg" | "xl";
 
 const SIZE_CLASS: Record<HoiSize, string> = {
-  sm: "h-12 w-12",
-  md: "h-24 w-24",
-  lg: "h-40 w-40",
-  xl: "h-56 w-56",
+  sm: "h-8 w-8",
+  md: "h-14 w-14",
+  lg: "h-20 w-20",
+  xl: "h-28 w-28",
 };
 
 const MOOD_LABEL: Record<HoiMood, string> = {

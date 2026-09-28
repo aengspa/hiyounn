@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { redirect } from "next/navigation";
 import { TopNav } from "@/components/TopNav";
 import { HoiSpeech } from "@/components/mascot/HoiSpeech";
@@ -17,8 +17,8 @@ export default async function LoginPage() {
       <TopNav />
       <main id="main-content" className="mx-auto grid min-h-[calc(100vh-5rem)] max-w-6xl items-center gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[0.85fr_1.15fr] lg:px-8 lg:py-16">
         <div className="mx-auto w-full max-w-md lg:order-2">
-          <p className="text-sm font-extrabold text-brand-700">다시 이어서 살펴봐요</p>
-          <h1 className="mt-2 break-keep text-3xl font-black tracking-tight text-ink sm:text-4xl">
+          <p className="text-sm font-semibold text-brand-700">다시 이어서 살펴봐요</p>
+          <h1 className="mt-2 break-keep text-3xl font-bold tracking-tight text-ink sm:text-4xl">
             다시 만나서 반가워요!
           </h1>
           <p className="mt-3 text-lg text-ink-subtle">

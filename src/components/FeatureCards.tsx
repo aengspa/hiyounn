@@ -1,4 +1,4 @@
-import { Card } from "@/components/ui";
+﻿import { Card } from "@/components/ui";
 
 type Item = { title: string; body: string };
 
@@ -22,7 +22,7 @@ export function FeatureCards() {
     <section aria-label="호이의 점검 원칙" className="mx-auto grid max-w-4xl gap-4 pb-20 md:grid-cols-3">
       {ITEMS.map((item) => (
         <Card key={item.title} variant="raised" className="min-w-0 p-5 text-center sm:p-6">
-          <h3 className="break-keep text-xl font-black text-ink">{item.title}</h3>
+          <h3 className="break-keep text-xl font-bold text-ink">{item.title}</h3>
           <p className="mt-3 break-keep text-sm leading-relaxed text-ink-subtle">{item.body}</p>
         </Card>
       ))}

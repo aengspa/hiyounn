@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -147,7 +147,7 @@ export function RunScanButton({ projectId }: { projectId: string }) {
       </div>
 
       {running && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#3a2b20]/45 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#192638]/45 p-4 backdrop-blur-sm">
           <div
             ref={dialogRef}
             role="dialog"
@@ -156,12 +156,12 @@ export function RunScanButton({ projectId }: { projectId: string }) {
             aria-labelledby="scan-dialog-title"
             aria-describedby="scan-dialog-description"
             tabIndex={-1}
-            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-line bg-surface p-5 shadow-2xl outline-none sm:p-7"
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-line bg-surface p-5 shadow-2xl outline-none sm:p-7"
           >
             <div className="flex flex-col items-center gap-3 text-center sm:flex-row sm:text-left">
               <Hoi mood="searching" size="md" decorative />
               <div>
-                <h2 id="scan-dialog-title" className="text-xl font-black text-ink">
+                <h2 id="scan-dialog-title" className="text-xl font-bold text-ink">
                   {phase === "planning"
                     ? "어떤 항목을 볼지 정하고 있어요"
                     : phase === "complete"
@@ -186,7 +186,7 @@ export function RunScanButton({ projectId }: { projectId: string }) {
 
             {steps.length > 0 && (
               <div className="mt-5">
-                <p className="text-sm font-extrabold text-ink">이번에 실제로 실행하는 단계</p>
+                <p className="text-sm font-semibold text-ink">이번에 실제로 실행하는 단계</p>
                 <ol className="mt-3 space-y-2">
                   {steps.map((step) => {
                     const complete = phase === "complete";
@@ -197,7 +197,7 @@ export function RunScanButton({ projectId }: { projectId: string }) {
                       >
                         <span
                           aria-hidden="true"
-                          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-black ${
+                          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-bold ${
                             complete ? "bg-success-soft text-success" : "bg-primary-soft text-brand-900"
                           }`}
                         >

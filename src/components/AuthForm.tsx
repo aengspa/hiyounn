@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useFormState, useFormStatus } from "react-dom";
 import Link from "next/link";
@@ -40,9 +40,9 @@ export function AuthForm({
           id={errorId}
           role="alert"
           aria-live="assertive"
-          className="rounded-2xl border border-red-200 bg-danger-soft px-4 py-3 text-sm font-medium leading-relaxed text-danger"
+          className="rounded-xl border border-red-200 bg-danger-soft px-4 py-3 text-sm font-medium leading-relaxed text-danger"
         >
-          <p className="font-extrabold">입력한 내용을 다시 확인해 주세요</p>
+          <p className="font-semibold">입력한 내용을 다시 확인해 주세요</p>
           <p className="mt-1">{state.error}</p>
         </div>
       )}
@@ -103,14 +103,14 @@ export function AuthForm({
         {isSignup ? (
           <>
             이미 계정이 있나요?{" "}
-            <Link href="/login" className="inline-flex min-h-11 items-center font-extrabold text-brand-700 hover:underline">
+            <Link href="/login" className="inline-flex min-h-11 items-center font-semibold text-brand-700 hover:underline">
               로그인하기
             </Link>
           </>
         ) : (
           <>
             아직 계정이 없나요?{" "}
-            <Link href="/signup" className="inline-flex min-h-11 items-center font-extrabold text-brand-700 hover:underline">
+            <Link href="/signup" className="inline-flex min-h-11 items-center font-semibold text-brand-700 hover:underline">
               계정 만들기
             </Link>
           </>
@@ -137,14 +137,14 @@ function Field({
 
   return (
     <div>
-      <label htmlFor={id} className="mb-2 flex items-baseline justify-between gap-3 text-base font-extrabold text-ink">
+      <label htmlFor={id} className="mb-2 flex items-baseline justify-between gap-3 text-base font-semibold text-ink">
         <span>{label}</span>
         {optional && <span className="text-xs font-medium text-ink-muted">선택</span>}
       </label>
       <input
         id={id}
         name={id}
-        className="min-h-12 w-full rounded-2xl border border-line-strong bg-white px-4 py-3 text-base text-ink shadow-sm outline-none transition-colors hover:border-brand-500 focus:border-brand-700 focus:ring-2 focus:ring-primary-soft"
+        className="min-h-12 w-full rounded-xl border border-line-strong bg-white px-4 py-3 text-base text-ink shadow-sm outline-none transition-colors hover:border-brand-500 focus:border-brand-600 focus:ring-2 focus:ring-primary-soft"
         {...props}
         aria-describedby={describedBy}
       />

@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   ButtonHTMLAttributes,
   DetailsHTMLAttributes,
   HTMLAttributes,
@@ -19,14 +19,10 @@ export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 export type ButtonSize = "sm" | "md" | "lg";
 
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
-  primary:
-    "border border-brand-700 border-b-brand-900 bg-brand-600 text-white shadow-sm hover:bg-brand-700",
-  secondary:
-    "border border-line-strong border-b-[#bc9d7d] bg-white text-ink hover:bg-surface-warm",
-  ghost:
-    "border border-transparent border-b-transparent bg-transparent text-ink-subtle hover:bg-primary-soft/60 hover:text-ink",
-  danger:
-    "border border-red-700 border-b-red-900 bg-red-700 text-white hover:bg-red-800",
+  primary: "border border-brand-600 bg-brand-600 text-white hover:bg-brand-700",
+  secondary: "border border-line-strong bg-white text-ink hover:bg-surface-warm",
+  ghost: "border border-transparent bg-transparent text-ink-subtle hover:bg-primary-soft/60 hover:text-ink",
+  danger: "border border-red-600 bg-red-600 text-white hover:bg-red-700",
 };
 
 const BUTTON_SIZES: Record<ButtonSize, string> = {
@@ -46,12 +42,13 @@ export function buttonClassName({
   className?: string;
 } = {}) {
   return cx(
-    "hoi-button-3d inline-flex items-center justify-center gap-2 rounded-2xl font-bold leading-tight disabled:cursor-not-allowed disabled:opacity-55",
+    "hoi-button-3d inline-flex items-center justify-center gap-2 rounded-xl font-semibold leading-tight disabled:cursor-not-allowed disabled:opacity-55",
     BUTTON_VARIANTS[variant],
     BUTTON_SIZES[size],
     className,
   );
 }
+
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
@@ -96,7 +93,7 @@ export function Card({
   return (
     <div
       className={cx(
-        "rounded-3xl border",
+        "rounded-2xl border",
         CARD_VARIANTS[variant],
         className,
       )}
@@ -117,7 +114,7 @@ export type BadgeTone =
 
 const BADGE_TONES: Record<BadgeTone, string> = {
   neutral: "border-line bg-surface-warm text-ink-subtle",
-  primary: "border-orange-200 bg-primary-soft text-brand-900",
+  primary: "border-blue-200 bg-primary-soft text-brand-900",
   info: "border-blue-200 bg-info-soft text-info",
   success: "border-green-200 bg-success-soft text-success",
   warning: "border-amber-200 bg-warning-soft text-warning",
@@ -366,7 +363,7 @@ export function EmptyState({
       className={cx("hoi-decoration px-5 py-10 text-center sm:px-8", className)}
     >
       {illustration && <div className="mb-4 flex justify-center">{illustration}</div>}
-      <h2 className="text-xl font-extrabold text-ink">{title}</h2>
+      <h2 className="text-xl font-semibold text-ink">{title}</h2>
       {description && (
         <div className="mx-auto mt-2 max-w-xl text-sm text-ink-subtle sm:text-base">
           {description}
@@ -396,7 +393,7 @@ export function FriendlyError({
         className,
       )}
     >
-      <p className="font-extrabold">{title}</p>
+      <p className="font-semibold">{title}</p>
       {description && <div className="mt-1 text-sm text-red-800">{description}</div>}
       {action && <div className="mt-4">{action}</div>}
     </div>
@@ -425,9 +422,9 @@ export function SectionHeader({
     >
       <div className="min-w-0">
         {eyebrow && (
-          <p className="mb-1 text-sm font-extrabold text-brand-700">{eyebrow}</p>
+          <p className="mb-1 text-sm font-semibold text-brand-700">{eyebrow}</p>
         )}
-        <h2 className="text-2xl font-black tracking-tight text-ink">{title}</h2>
+        <h2 className="text-2xl font-bold tracking-tight text-ink">{title}</h2>
         {description && <div className="mt-1 text-ink-subtle">{description}</div>}
       </div>
       {action && <div className="shrink-0">{action}</div>}
@@ -462,7 +459,7 @@ export function MetricCard({
       <div className={cx("h-2", accent[tone])} aria-hidden="true" />
       <div className="p-5">
         <p className="text-sm font-bold text-ink-subtle">{label}</p>
-        <div className="mt-1 text-3xl font-black tracking-tight text-ink">{value}</div>
+        <div className="mt-1 text-3xl font-bold tracking-tight text-ink">{value}</div>
         {hint && <div className="mt-2 text-sm text-ink-muted">{hint}</div>}
       </div>
     </Card>

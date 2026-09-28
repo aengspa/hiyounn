@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -137,12 +137,12 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
       />
 
       {status === "resolved" ? (
-        <div className="relative overflow-hidden rounded-3xl border border-green-300 bg-success-soft p-5 sm:p-6" aria-live="polite">
+        <div className="relative overflow-hidden rounded-xl border border-green-300 bg-success-soft p-5 sm:p-6" aria-live="polite">
           {celebrating && <Confetti />}
           <div className="relative flex flex-col items-center gap-4 text-center sm:flex-row sm:text-left">
             <Hoi mood="celebrate" size="md" decorative />
             <div>
-              <h3 className="text-xl font-black text-success">고친 내용이 잘 막히는지 확인했어요!</h3>
+              <h3 className="text-xl font-bold text-success">고친 내용이 잘 막히는지 확인했어요!</h3>
               <p className="mt-1 text-sm leading-relaxed text-green-800">
                 같은 보안 문제가 다시 생기지 않았고, 이 점검에서 확인 가능한 기본 기능 조건도 통과했어요. 이 한 항목에 대한 결과이며 서비스 전체 안전을 보장하지는 않아요.
               </p>
@@ -172,7 +172,7 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
 
       {!fix && confirmingFix && (
         <Card variant="warm" className="p-5" role="group" aria-labelledby="generate-confirm-title">
-          <h3 id="generate-confirm-title" className="font-extrabold text-ink">2단계 · 수정안을 만들어 볼까요?</h3>
+          <h3 id="generate-confirm-title" className="font-semibold text-ink">2단계 · 수정안을 만들어 볼까요?</h3>
           <p className="mt-2 text-sm leading-relaxed text-ink-subtle">
             승인하면 AI 또는 결정적 규칙이 제안만 만들어요. 이 단계에서는 코드, 저장소, 배포 환경이 바뀌지 않아요.
           </p>
@@ -196,7 +196,7 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
       {fix && (
         <section aria-labelledby="proposed-fix-title">
           <div className="flex flex-wrap items-center gap-2">
-            <h3 id="proposed-fix-title" className="text-xl font-black text-ink">제안된 수정</h3>
+            <h3 id="proposed-fix-title" className="text-xl font-bold text-ink">제안된 수정</h3>
             <Badge tone={fix.source === "llm" ? "info" : "neutral"}>
               {fix.source === "llm" ? "AI 모델 제안" : "규칙 기반 제안"}
             </Badge>
@@ -225,7 +225,7 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
 
           {!fix.applied && confirmingApply && (
             <Card variant="danger" className="mt-5 p-5" role="group" aria-labelledby="apply-confirm-title">
-              <h3 id="apply-confirm-title" className="font-extrabold text-red-900">4단계 · 반영 상태를 갱신할까요?</h3>
+              <h3 id="apply-confirm-title" className="font-semibold text-red-900">4단계 · 반영 상태를 갱신할까요?</h3>
               <p className="mt-2 text-sm leading-relaxed text-red-800">
                 이 버튼은 점검 기록에서 수정안의 적용 상태를 갱신해요. 실제 저장소·파일·배포 환경에 diff를 쓰지 않으므로, 직접 반영했는지 별도로 확인해야 해요.
               </p>
@@ -234,7 +234,7 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
                   type="checkbox"
                   checked={reviewConfirmed}
                   onChange={(event) => setReviewConfirmed(event.target.checked)}
-                  className="mt-0.5 h-5 w-5 shrink-0 accent-[#9e1b32]"
+                  className="mt-0.5 h-5 w-5 shrink-0 accent-brand-600"
                 />
                 <span>diff, 영향, 되돌림 안내를 읽었고 실제 반영 여부를 별도로 확인하겠습니다.</span>
               </label>
@@ -253,7 +253,7 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
 
       {canVerify && (
         <Card variant="raised" className="p-5 sm:p-6">
-          <h3 className="text-lg font-black text-ink">5단계 · 보안과 기존 기능 다시 확인</h3>
+          <h3 className="text-lg font-bold text-ink">5단계 · 보안과 기존 기능 다시 확인</h3>
           <p className="mt-2 text-sm leading-relaxed text-ink-subtle">
             마지막으로 저장된 소스 또는 허가된 배포 대상을 같은 규칙으로 점검해요. 실제 변경이 그 대상에 반영되지 않았다면 제안만으로 통과할 수 없어요.
           </p>
@@ -296,7 +296,7 @@ function JourneyTimeline({ currentStage, status, hasFix, applied, verification }
   return (
     <section aria-labelledby="journey-title">
       <div className="flex items-center justify-between gap-3">
-        <h3 id="journey-title" className="text-xl font-black text-ink">6단계 해결 여정</h3>
+        <h3 id="journey-title" className="text-xl font-bold text-ink">6단계 해결 여정</h3>
         <Badge tone="primary">현재 {currentStage}/6단계</Badge>
       </div>
       <ol className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -308,10 +308,10 @@ function JourneyTimeline({ currentStage, status, hasFix, applied, verification }
               key={step.label}
               aria-current={current ? "step" : undefined}
               className={`flex min-h-12 items-center gap-3 rounded-2xl border px-3 py-2 ${
-                step.done ? "border-green-200 bg-success-soft" : current ? "border-orange-300 bg-primary-soft" : "border-line bg-white"
+                step.done ? "border-green-200 bg-success-soft" : current ? "border-blue-200 bg-primary-soft" : "border-line bg-white"
               }`}
             >
-              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-black ${step.done ? "bg-success text-white" : current ? "bg-brand-700 text-white" : "bg-surface-warm text-ink-muted"}`}>
+              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold ${step.done ? "bg-success text-white" : current ? "bg-brand-700 text-white" : "bg-surface-warm text-ink-muted"}`}>
                 {step.done ? "✓" : number}
               </span>
               <span className={`text-sm font-bold ${step.done ? "text-success" : current ? "text-brand-900" : "text-ink-muted"}`}>{step.label}</span>
@@ -337,15 +337,15 @@ function DiffBlock({ file, patch }: { file: string; patch: string }) {
 }
 
 function InfoCard({ title, text }: { title: string; text: string }) {
-  return <Card variant="warm" className="p-4"><h4 className="font-extrabold text-ink">{title}</h4><p className="mt-1 text-sm leading-relaxed text-ink-subtle">{text}</p></Card>;
+  return <Card variant="warm" className="p-4"><h4 className="font-semibold text-ink">{title}</h4><p className="mt-1 text-sm leading-relaxed text-ink-subtle">{text}</p></Card>;
 }
 
 function OutcomeGuide({ title, description, next }: { title: string; description: string; next: string }) {
   return (
     <Card variant="danger" className="p-5">
-      <h3 className="text-lg font-black text-red-900">{title}</h3>
+      <h3 className="text-lg font-bold text-red-900">{title}</h3>
       <p className="mt-2 text-sm leading-relaxed text-red-800">{description}</p>
-      <p className="mt-3 rounded-2xl bg-white p-3 text-sm font-extrabold text-ink">{next}</p>
+      <p className="mt-3 rounded-2xl bg-white p-3 text-sm font-semibold text-ink">{next}</p>
     </Card>
   );
 }
@@ -355,19 +355,19 @@ function VerificationResultPanel({ verification, status }: { verification: Verif
   const regression = verification.regression;
   return (
     <section className="space-y-5" aria-labelledby="verification-result-title">
-      <h3 id="verification-result-title" className="text-xl font-black text-ink">재검증 결과</h3>
+      <h3 id="verification-result-title" className="text-xl font-bold text-ink">재검증 결과</h3>
       <div className="grid gap-3 md:grid-cols-2">
         {security.before && (
-          <div><p className="mb-2 font-extrabold text-ink">수정 전 · 문제가 생겼던 기록</p><Evidence content={security.before.response} tone="danger" /></div>
+          <div><p className="mb-2 font-semibold text-ink">수정 전 · 문제가 생겼던 기록</p><Evidence content={security.before.response} tone="danger" /></div>
         )}
         {security.after && (
-          <div><p className="mb-2 font-extrabold text-ink">수정 후 · {security.after.attackSucceeded ? "아직 문제가 생겨요" : "문제가 막혔어요"}</p><Evidence content={security.after.response} tone={security.after.attackSucceeded ? "danger" : "success"} /></div>
+          <div><p className="mb-2 font-semibold text-ink">수정 후 · {security.after.attackSucceeded ? "아직 문제가 생겨요" : "문제가 막혔어요"}</p><Evidence content={security.after.response} tone={security.after.attackSucceeded ? "danger" : "success"} /></div>
         )}
       </div>
       <div className="grid gap-3 md:grid-cols-2">
         <Verdict title={`보안 확인 · ${security.label}`} passed={security.outcome === "pass"} success="같은 취약 동작이 다시 나타나지 않았어요." failure="같은 취약 동작이 여전히 나타났어요." />
         <Card variant={regression.outcome === "pass" ? "warm" : "danger"} className="p-5">
-          <h4 className="font-extrabold text-ink">기존 기능·무결성 확인</h4>
+          <h4 className="font-semibold text-ink">기존 기능·무결성 확인</h4>
           <ul className="mt-3 space-y-2 text-sm">
             {regression.checks.map((check, index) => (
               <li key={`${check.label}-${index}`} className="flex items-start gap-2">
@@ -396,7 +396,7 @@ function VerificationResultPanel({ verification, status }: { verification: Verif
 function Verdict({ title, passed, success, failure }: { title: string; passed: boolean; success: string; failure: string }) {
   return (
     <Card variant={passed ? "warm" : "danger"} className="p-5">
-      <h4 className="font-extrabold text-ink">{title}</h4>
+      <h4 className="font-semibold text-ink">{title}</h4>
       <p className={`mt-2 text-sm font-bold ${passed ? "text-success" : "text-danger"}`}>{passed ? `✓ ${success}` : `✕ ${failure}`}</p>
     </Card>
   );
@@ -404,9 +404,9 @@ function Verdict({ title, passed, success, failure }: { title: string; passed: b
 
 function Confetti() {
   const dots = [
-    ["left-[8%]", "top-4", "bg-brand-600"], ["left-[20%]", "top-10", "bg-[#ffc857]"],
-    ["left-[35%]", "top-3", "bg-[#9e1b32]"], ["right-[8%]", "top-5", "bg-success"],
-    ["right-[22%]", "top-12", "bg-brand-600"], ["right-[38%]", "top-2", "bg-[#ffc857]"],
+    ["left-[8%]", "top-4", "bg-brand-600"], ["left-[20%]", "top-10", "bg-[#F5B93D]"],
+    ["left-[35%]", "top-3", "bg-[#C23B4B]"], ["right-[8%]", "top-5", "bg-success"],
+    ["right-[22%]", "top-12", "bg-brand-600"], ["right-[38%]", "top-2", "bg-[#F5B93D]"],
   ];
   return <div aria-hidden="true" className="pointer-events-none absolute inset-0">{dots.map(([x, y, color], index) => <span key={index} className={`absolute ${x} ${y} ${color} h-2.5 w-2.5 animate-ping rounded-sm`} style={{ animationDelay: `${index * 90}ms`, animationIterationCount: "1" }} />)}</div>;
 }

@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode } from "react";
+﻿import type { HTMLAttributes, ReactNode } from "react";
 import { Hoi, type HoiMood, type HoiSize } from "./Hoi";
 
 export interface HoiSpeechProps extends HTMLAttributes<HTMLDivElement> {
@@ -23,7 +23,7 @@ export function HoiSpeech({
       {...props}
     >
       {!hideMascot && <Hoi mood={mood} size={size} decorative />}
-      <div className="relative mb-2 min-w-0 rounded-3xl rounded-bl-md border border-line bg-white px-5 py-4 font-bold leading-relaxed text-ink shadow-warm">
+      <div className="relative mb-2 min-w-0 rounded-xl rounded-bl-md border border-line bg-white px-5 py-4 font-bold leading-relaxed text-ink shadow-warm">
         <span
           aria-hidden="true"
           className="absolute -left-2 bottom-4 h-4 w-4 rotate-45 border-b border-l border-line bg-white"

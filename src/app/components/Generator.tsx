@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { Button, Card, FriendlyError } from "@/components/ui";
@@ -37,7 +37,7 @@ export default function Generator() {
     <Card variant="raised" className="mx-auto w-full max-w-2xl p-5 sm:p-6">
       <form onSubmit={generate} className="space-y-4" aria-busy={loading}>
         <div>
-          <label htmlFor="generator-prompt" className="block text-base font-extrabold text-ink">
+          <label htmlFor="generator-prompt" className="block text-base font-semibold text-ink">
             호이에게 요청할 내용
           </label>
           <textarea

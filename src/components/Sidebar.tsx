@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -31,23 +31,18 @@ export function Sidebar({
   const pathname = usePathname();
 
   return (
-    <aside className="z-20 flex w-full shrink-0 flex-col border-b border-line bg-white/95 lg:sticky lg:top-0 lg:h-screen lg:w-64 lg:border-b-0 lg:border-r">
+    <aside className="z-20 flex w-full shrink-0 flex-col border-b border-line bg-white lg:sticky lg:top-0 lg:h-screen lg:w-60 lg:border-b-0 lg:border-r">
       <div className="flex items-center justify-between gap-3 border-b border-line px-3 py-2 lg:px-4 lg:py-3">
         <Link
           href="/"
-          className="flex min-h-11 min-w-0 items-center gap-2 rounded-2xl pr-2 font-black text-ink"
+          className="flex min-h-11 min-w-0 items-center gap-2 rounded-xl pr-2 font-bold text-ink"
           aria-label="호이 보안 코치 홈"
         >
-          <Hoi mood="guide" size="sm" decorative className="-my-1" />
-          <span className="min-w-0 leading-tight">
-            <span className="block truncate">호이 보안 코치</span>
-            <span className="block truncate text-[11px] font-medium text-ink-muted">
-              같이 튼튼하게 만들어요
-            </span>
-          </span>
+          <Hoi mood="guide" size="sm" decorative className="h-7 w-7" />
+          <span className="min-w-0 truncate leading-tight">호이 보안 코치</span>
         </Link>
         {user && (
-          <span className="max-w-24 truncate text-xs font-bold text-ink-subtle lg:hidden" title={user.email}>
+          <span className="max-w-24 truncate text-xs font-medium text-ink-subtle lg:hidden" title={user.email}>
             {user.name || user.email}
           </span>
         )}
@@ -65,13 +60,13 @@ export function Sidebar({
               key={item.href}
               href={item.href}
               aria-current={active ? "page" : undefined}
-              className={`flex min-h-11 min-w-fit flex-1 items-center justify-center gap-2 rounded-2xl px-3 py-2 text-sm font-bold transition-colors lg:flex-none lg:justify-start ${
+              className={`flex min-h-11 min-w-fit flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-colors lg:flex-none lg:justify-start ${
                 active
-                  ? "bg-primary-soft text-brand-900"
+                  ? "bg-primary-soft text-brand-700"
                   : "text-ink-subtle hover:bg-surface-warm hover:text-ink"
               }`}
             >
-              <Icon className={active ? "h-5 w-5 text-brand-700" : "h-5 w-5 text-ink-muted"} />
+              <Icon className={active ? "h-5 w-5 text-brand-600" : "h-5 w-5 text-ink-muted"} />
               <span>{item.label}</span>
             </Link>
           );
@@ -81,7 +76,7 @@ export function Sidebar({
       <div className="hidden space-y-3 border-t border-line p-4 lg:block">
         {user ? (
           <div className="space-y-2">
-            <div className="truncate text-xs font-bold text-ink-subtle" title={user.email}>
+            <div className="truncate text-xs font-medium text-ink-subtle" title={user.email}>
               {user.name || user.email}
             </div>
             <form action={logoutAction}>
@@ -99,8 +94,8 @@ export function Sidebar({
           </Link>
         )}
 
-        <p className="rounded-2xl border border-line bg-surface-warm p-3 text-[11px] leading-relaxed text-ink-muted">
-          호이는 점검한 시점과 범위 안에서 살펴봐요. 자동 점검만으로 모든 문제를 찾는다고 보장하지 않아요.
+        <p className="rounded-xl border border-line bg-surface-warm p-3 text-[11px] leading-relaxed text-ink-muted">
+          점검한 시점과 범위 안에서 확인한 결과예요. 자동 점검만으로 모든 문제를 찾는다고 보장하지 않아요.
         </p>
       </div>
     </aside>

@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { HoiScene } from "@/components/mascot/HoiScene";
@@ -79,10 +79,10 @@ export default async function ScanResultsPage({ params }: { params: { id: string
 
         <section className="mt-7" aria-labelledby="first-action-title">
           <Card variant={counts.critical > 0 ? "danger" : "raised"} className="p-5 sm:p-6">
-            <p className="text-sm font-extrabold text-brand-700">가장 먼저 할 일</p>
+            <p className="text-sm font-semibold text-brand-700">가장 먼저 할 일</p>
             <div className="mt-1 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 id="first-action-title" className="text-xl font-black text-ink">
+                <h2 id="first-action-title" className="text-xl font-bold text-ink">
                   {firstFixable ? "첫 번째 미해결 항목의 영향부터 확인해요" : "점검 범위와 확인하지 못한 항목을 살펴봐요"}
                 </h2>
                 <p className="mt-1 text-sm leading-relaxed text-ink-subtle">
@@ -157,7 +157,7 @@ export default async function ScanResultsPage({ params }: { params: { id: string
                 <Link
                   key={finding.id}
                   href={`/dashboard/findings/${finding.id}`}
-                  className="group block rounded-3xl border border-line bg-white p-5 shadow-warm transition hover:border-orange-300 sm:p-6"
+                  className="group block rounded-xl border border-line bg-white p-5 shadow-warm transition hover:border-brand-300 sm:p-6"
                 >
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
@@ -168,7 +168,7 @@ export default async function ScanResultsPage({ params }: { params: { id: string
                         {finding.simulated && <SimulatedTag />}
                         {finding.verificationKey?.startsWith("ai:") && <AiTag />}
                       </div>
-                      <h3 className="mt-3 text-lg font-black text-ink">{finding.title}</h3>
+                      <h3 className="mt-3 text-lg font-bold text-ink">{finding.title}</h3>
                       <p className="mt-2 leading-relaxed text-ink-subtle">{finding.humanReadableImpact}</p>
                       {finding.location && (
                         <p className="mt-3 break-all font-mono text-xs text-ink-muted">
@@ -228,7 +228,7 @@ function ScanScopePanel({ scope }: { scope: ScanScope }) {
     <Card variant="warm" className="mt-5 p-5 sm:p-6">
       <div className="grid gap-6 md:grid-cols-2">
         <div>
-          <h3 className="font-extrabold text-ink">확인한 항목</h3>
+          <h3 className="font-semibold text-ink">확인한 항목</h3>
           {scope.testedCategories.length > 0 ? (
             <ul className="mt-3 space-y-2 text-sm text-ink-subtle">
               {scope.testedCategories.map((category) => <li key={category}>✓ {categoryLabel(category)}</li>)}
@@ -236,7 +236,7 @@ function ScanScopePanel({ scope }: { scope: ScanScope }) {
           ) : <p className="mt-3 text-sm text-ink-muted">기록된 점검 항목이 없어요.</p>}
         </div>
         <div>
-          <h3 className="font-extrabold text-ink">확인하지 못한 항목</h3>
+          <h3 className="font-semibold text-ink">확인하지 못한 항목</h3>
           {scope.untestedCategories.length > 0 ? (
             <ul className="mt-3 space-y-2 text-sm text-ink-subtle">
               {scope.untestedCategories.map((category) => <li key={category}>— {categoryLabel(category)}</li>)}
@@ -280,7 +280,7 @@ function PlanPanel({ plan }: { plan: ScanPlan }) {
         <ScopeRow label="소스 커밋" value={plan.sourceCommitSha ?? "기록 없음"} mono />
       </dl>
 
-      <h3 className="mt-6 font-extrabold text-ink">실행한 검사 ({plan.selectedChecks.length}개)</h3>
+      <h3 className="mt-6 font-semibold text-ink">실행한 검사 ({plan.selectedChecks.length}개)</h3>
       {plan.selectedChecks.length === 0 ? (
         <p className="mt-2 text-sm text-ink-subtle">실행 가능한 검사가 없었어요.</p>
       ) : (
@@ -304,7 +304,7 @@ function PlanPanel({ plan }: { plan: ScanPlan }) {
         </div>
       )}
 
-      <h3 className="mt-6 font-extrabold text-ink">확인하지 못한 검사 ({plan.coverageGaps.length}개)</h3>
+      <h3 className="mt-6 font-semibold text-ink">확인하지 못한 검사 ({plan.coverageGaps.length}개)</h3>
       {plan.coverageGaps.length === 0 ? (
         <p className="mt-2 text-sm text-ink-subtle">별도로 기록된 커버리지 갭이 없어요. 그래도 전체 안전을 보장하지는 않아요.</p>
       ) : (

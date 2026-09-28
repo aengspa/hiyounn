@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { listProjects, listScans, getFindingsForScan } from "@/lib/store/store";
 import { getCurrentUserId } from "@/lib/auth";
 import { SeverityStrip } from "@/components/SeverityStrip";
@@ -151,8 +151,8 @@ export default async function DashboardPage() {
             <section aria-labelledby="project-list-title">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <p className="text-sm font-extrabold text-brand-700">내 프로젝트</p>
-                  <h2 id="project-list-title" className="text-2xl font-black tracking-tight text-ink">
+                  <p className="text-sm font-semibold text-brand-700">내 프로젝트</p>
+                  <h2 id="project-list-title" className="text-2xl font-bold tracking-tight text-ink">
                     어디부터 살펴볼까요?
                   </h2>
                 </div>
@@ -176,7 +176,7 @@ export default async function DashboardPage() {
                     <Card key={project.id} variant="raised" className="flex min-w-0 flex-col p-5 sm:p-6">
                       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                          <h3 className="break-words text-xl font-black text-ink">{project.name}</h3>
+                          <h3 className="break-words text-xl font-bold text-ink">{project.name}</h3>
                           <p className="mt-1 truncate text-sm text-ink-muted" title={address}>
                             {address ?? "연결된 저장소·서비스 주소가 없어요"}
                           </p>
@@ -185,7 +185,7 @@ export default async function DashboardPage() {
                       </div>
 
                       <div className="mt-5 rounded-2xl bg-surface-warm p-4">
-                        <p className="font-extrabold leading-relaxed text-ink">{status}</p>
+                        <p className="font-semibold leading-relaxed text-ink">{status}</p>
                         <p className="mt-1 text-sm text-ink-subtle">
                           마지막 점검 · {formatDate(lastCheckedAt)}
                         </p>

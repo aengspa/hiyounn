@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+﻿import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { HoiSpeech } from "@/components/mascot/HoiSpeech";
 import { getCurrentUserId } from "@/lib/auth";
@@ -70,16 +70,16 @@ export default async function FindingPage({ params }: { params: { id: string } }
             {finding.simulated && <SimulatedTag />}
             {isAi && <AiTag />}
           </div>
-          <h2 id="finding-title" className="mt-4 break-words text-3xl font-black tracking-tight text-ink">
+          <h2 id="finding-title" className="mt-4 break-words text-3xl font-bold tracking-tight text-ink">
             {finding.title}
           </h2>
           <HoiSpeech mood={finding.status === "resolved" ? "celebrate" : "concerned"} size="md" className="mt-6">
             <span>
-              <span className="block text-sm font-extrabold text-brand-700">현재 단계 · {currentStep}</span>
+              <span className="block text-sm font-semibold text-brand-700">현재 단계 · {currentStep}</span>
               <span className="mt-1 block">
                 {finding.status === "resolved"
                   ? "이 항목은 수정 후 보안과 기본 기능 확인을 모두 통과했어요."
-                  : "괜찮아요. 먼저 영향과 위치를 확인한 뒤, 아래 해결 여정의 주황색 버튼 하나만 따라오면 돼요."}
+                  : "괜찮아요. 먼저 영향과 위치를 확인한 뒤, 아래 해결 여정의 버튼 하나만 따라오면 돼요."}
               </span>
             </span>
           </HoiSpeech>
@@ -102,7 +102,7 @@ export default async function FindingPage({ params }: { params: { id: string } }
 
         <GuideSection eyebrow="먼저 읽어요" title="한눈에 보기">
           <Card variant="raised" className="p-5 sm:p-6">
-            <p className="text-lg font-extrabold leading-relaxed text-ink">{finding.whyItMatters}</p>
+            <p className="text-lg font-semibold leading-relaxed text-ink">{finding.whyItMatters}</p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Badge tone={finding.severity === "critical" ? "danger" : finding.severity === "high" ? "warning" : "neutral"}>
                 우선순위 · <SeverityBadge severity={finding.severity} className="ml-1 border-0 bg-transparent px-0" />
@@ -204,7 +204,7 @@ export default async function FindingPage({ params }: { params: { id: string } }
               <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed">{finding.description}</p>
             </div>
             <div className="mt-6 space-y-4 border-t border-line pt-5">
-              <h3 className="font-extrabold text-ink">스캐너 원문</h3>
+              <h3 className="font-semibold text-ink">스캐너 원문</h3>
               {finding.evidence.map((evidence) => (
                 <div key={evidence.id}>
                   {evidence.masked && <p className="mb-2 text-xs font-bold text-warning">민감한 값은 저장된 마스킹 상태로만 표시해요.</p>}
@@ -227,8 +227,8 @@ function GuideSection({ eyebrow, title, children }: { eyebrow: string; title: st
   const id = `section-${title.replace(/[^가-힣a-zA-Z0-9]/g, "-")}`;
   return (
     <section className="mt-12" aria-labelledby={id}>
-      <p className="text-sm font-extrabold text-brand-700">{eyebrow}</p>
-      <h2 id={id} className="mt-1 mb-4 text-2xl font-black tracking-tight text-ink">{title}</h2>
+      <p className="text-sm font-semibold text-brand-700">{eyebrow}</p>
+      <h2 id={id} className="mt-1 mb-4 text-2xl font-bold tracking-tight text-ink">{title}</h2>
       {children}
     </section>
   );
@@ -237,7 +237,7 @@ function GuideSection({ eyebrow, title, children }: { eyebrow: string; title: st
 function CheckItem({ title, description }: { title: string; description: string }) {
   return (
     <li className="rounded-2xl border border-line bg-white p-4 shadow-warm">
-      <p className="font-extrabold text-ink">□ {title}</p>
+      <p className="font-semibold text-ink">□ {title}</p>
       <p className="mt-1 text-sm leading-relaxed text-ink-subtle">{description}</p>
     </li>
   );
@@ -248,7 +248,7 @@ function EvidenceSummary({ evidence, index }: { evidence: SecurityEvidence; inde
     <Card variant="flat" className="p-4">
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone={evidence.kind === "attack_reproduction" ? "danger" : "neutral"}>근거 {index + 1}</Badge>
-        <span className="font-extrabold text-ink">{evidence.label}</span>
+        <span className="font-semibold text-ink">{evidence.label}</span>
       </div>
       <p className="mt-2 text-sm leading-relaxed text-ink-subtle">
         {EVIDENCE_KIND_LABEL[evidence.kind]} 기록이 저장되어 있어요.

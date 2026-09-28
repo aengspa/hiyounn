@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -21,12 +21,12 @@ export function ScanReportPanel({
   return (
     <section id="solution" className="scroll-mt-32 pt-10" aria-labelledby="solution-title">
       <div className="flex flex-wrap items-center gap-2">
-        <p className="text-sm font-extrabold text-brand-700">호이의 해결 가이드</p>
+        <p className="text-sm font-semibold text-brand-700">호이의 해결 가이드</p>
         <Badge tone={report.source === "llm" ? "info" : "neutral"}>
           {report.source === "llm" ? "AI가 정리했어요" : "규칙으로 정리했어요"}
         </Badge>
       </div>
-      <h2 id="solution-title" className="mt-1 text-2xl font-black tracking-tight text-ink">해결은 이렇게 시작해요</h2>
+      <h2 id="solution-title" className="mt-1 text-2xl font-bold tracking-tight text-ink">해결은 이렇게 시작해요</h2>
 
       <HoiSpeech mood="guide" size="sm" className="mt-5">
         {report.recommendation}
@@ -34,7 +34,7 @@ export function ScanReportPanel({
 
       {report.highlights.length > 0 && (
         <Card variant="warm" className="mt-5 p-5">
-          <h3 className="font-extrabold text-ink">해결할 때 기억할 점</h3>
+          <h3 className="font-semibold text-ink">해결할 때 기억할 점</h3>
           <ul className="mt-3 space-y-2">
             {report.highlights.map((highlight, index) => (
               <li key={index} className="flex gap-3 text-sm leading-relaxed text-ink-subtle">
@@ -50,7 +50,7 @@ export function ScanReportPanel({
         {!asked ? (
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h3 className="font-extrabold text-ink">
+              <h3 className="font-semibold text-ink">
                 {canFix ? "가장 급한 미해결 항목부터 볼까요?" : "지금 바로 시작할 미해결 항목은 없어요"}
               </h3>
               <p className="mt-1 text-sm leading-relaxed text-ink-subtle">
@@ -65,7 +65,7 @@ export function ScanReportPanel({
           </div>
         ) : (
           <div role="group" aria-labelledby="start-fix-title">
-            <h3 id="start-fix-title" className="font-extrabold text-ink">이 항목의 해결 가이드로 이동할까요?</h3>
+            <h3 id="start-fix-title" className="font-semibold text-ink">이 항목의 해결 가이드로 이동할까요?</h3>
             <p className="mt-2 text-sm leading-relaxed text-ink-subtle">
               이동만으로 수정안이 생성되거나 코드가 바뀌지 않아요. 상세 내용을 확인한 뒤 각 단계를 직접 승인합니다.
             </p>

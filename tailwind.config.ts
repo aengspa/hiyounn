@@ -1,4 +1,4 @@
-import type { Config } from "tailwindcss";
+﻿import type { Config } from "tailwindcss";
 
 const config: Config = {
   content: [
@@ -35,19 +35,19 @@ const config: Config = {
         "info-soft": "var(--info-soft)",
         code: "var(--code)",
         brand: {
-          50: "#fff6ea",
-          100: "#ffead0",
-          300: "#f6b273",
-          500: "#d6651d",
-          600: "#b84a12",
-          700: "#92380b",
-          900: "#58220a",
+          50: "#EEF1FC",
+          100: "#E8ECFB",
+          300: "#9DAEEF",
+          500: "#4A62DE",
+          600: "#2945D7",
+          700: "#1F35B0",
+          900: "#152578",
         },
         sev: {
-          critical: "#b83232",
-          high: "#b84a12",
-          medium: "#9a5b08",
-          low: "#27699e",
+          critical: "#C23B4B",
+          high: "#B5590E",
+          medium: "#A5690A",
+          low: "#2568B3",
         },
       },
       fontFamily: {
@@ -55,7 +55,6 @@ const config: Config = {
           "Pretendard",
           "Apple SD Gothic Neo",
           "Noto Sans KR",
-          "ui-rounded",
           "system-ui",
           "sans-serif",
         ],
@@ -69,20 +68,20 @@ const config: Config = {
         ],
       },
       borderRadius: {
-        "4xl": "2rem",
+        "4xl": "1.5rem",
       },
       boxShadow: {
-        warm: "0 12px 30px rgba(116, 67, 28, 0.10)",
-        press: "0 4px 0 rgba(112, 54, 16, 0.28)",
+        warm: "0 1px 2px rgba(25, 38, 56, 0.04), 0 8px 20px rgba(25, 38, 56, 0.06)",
+        press: "none",
       },
       keyframes: {
         "hoi-in": {
-          "0%": { opacity: "0", transform: "translateY(8px) scale(.98)" },
-          "100%": { opacity: "1", transform: "translateY(0) scale(1)" },
+          "0%": { opacity: "0", transform: "translateY(4px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
         },
       },
       animation: {
-        "hoi-in": "hoi-in 260ms cubic-bezier(.2,.8,.2,1) both",
+        "hoi-in": "hoi-in 200ms ease-out both",
       },
     },
   },
