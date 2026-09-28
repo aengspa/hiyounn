@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getCurrentUserId } from "@/lib/auth";
+import { requireUserId } from "@/lib/auth";
 import { listProjects, createProject } from "@/lib/store/store";
 import { ok, handleApiError } from "@/lib/api";
 import {
@@ -9,10 +9,12 @@ import {
   validateScanModeInput,
   SCAN_MODE_ERROR_MESSAGE,
 } from "@/lib/domain/scanMode";
+import { parseSourceBlob } from "@/lib/demo/sourceFiles";
+import { LIMITS } from "@/lib/config/limits";
 
 export async function GET() {
   try {
-    const uid = await getCurrentUserId();
+    const uid = await requireUserId();
     const projects = await listProjects(uid);
     return ok({ projects: projects.map(redactProject) });
   } catch (err) {
@@ -20,9 +22,15 @@ export async function GET() {
   }
 }
 
+/**
+ * Create a project from pasted source code (ZIP uploads use ./upload).
+ *
+ * Code is required: a repository URL alone is not code, and the server never
+ * fetches it. Oversized pastes are rejected, never silently truncated.
+ */
 export async function POST(req: NextRequest) {
   try {
-    const uid = await getCurrentUserId();
+    const uid = await requireUserId();
     const body = await req.json().catch(() => ({}));
 
     // 입력 검증.
@@ -39,11 +47,29 @@ export async function POST(req: NextRequest) {
       return ok({ error: "배포 주소가 올바른 URL이 아닙니다." }, 400);
     }
 
-    // 붙여넣은 소스 코드(선택). 과도한 크기는 방지.
-    const sourceCode =
-      typeof body.sourceCode === "string"
-        ? body.sourceCode.slice(0, 100000)
-        : undefined;
+    // 붙여넣은 소스 코드(필수). 한도를 넘으면 자르지 않고 거절한다.
+    const sourceCode = typeof body.sourceCode === "string" ? body.sourceCode : "";
+    if (!sourceCode.trim()) {
+      return ok(
+        {
+          error: "source_required",
+          message: "점검할 코드가 필요해요. ZIP 파일을 올리거나 코드를 붙여 넣어 주세요.",
+        },
+        400
+      );
+    }
+    if (sourceCode.length > LIMITS.pastedSourceChars) {
+      return ok(
+        {
+          error: "source_too_large",
+          message: `붙여 넣은 코드가 너무 길어요. ${LIMITS.pastedSourceChars.toLocaleString("ko-KR")}자 이하로 줄이거나 ZIP 파일로 올려 주세요.`,
+          limit: LIMITS.pastedSourceChars,
+          length: sourceCode.length,
+        },
+        413
+      );
+    }
+    const files = parseSourceBlob(sourceCode);
 
     // 능동 검사는 사용자가 대상 소유/테스트 권한을 확인했을 때만 허용.
     const deploymentAuthorized =
@@ -60,7 +86,7 @@ export async function POST(req: NextRequest) {
     }
     if (scanMode) {
       const invalid = validateScanModeInput(scanMode, {
-        hasSource: Boolean(sourceCode?.trim()),
+        hasSource: true,
         deploymentUrl: deploymentUrl ?? undefined,
         deploymentAuthorized,
         testAccounts,
@@ -74,7 +100,8 @@ export async function POST(req: NextRequest) {
       name,
       repositoryUrl: repositoryUrl ?? undefined,
       deploymentUrl: deploymentUrl ?? undefined,
-      sourceCode,
+      files,
+      sourceKind: "paste",
       deploymentAuthorized,
       scanMode: scanMode ?? undefined,
       // 테스트 계정은 C(격리 동적 분석)에서만 보관한다.

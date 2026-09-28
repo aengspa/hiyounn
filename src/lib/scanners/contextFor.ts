@@ -9,20 +9,22 @@ import { toRuleMode } from "@/lib/domain/scanMode";
  *
  * - Demo project (project.isDemo): the bundled vulnerable fixture, so the IDOR
  *   full-loop demo works. The demo fixture is used ONLY here.
- * - Real project: a context built from the project's OWN source only (pasted
- *   blob split on `// file:` markers, or an uploaded file map). No demo
- *   vulnerabilities are ever mixed into a real project's results.
+ * - Real project: a context built from the project's OWN source only. Callers
+ *   pass the immutable source version's file map; the legacy `sourceCode` blob
+ *   is only a fallback for rows created before source versions existed.
+ *
+ * `commitSha` is only set when a real Git commit is known — never a fake one.
  */
 export function contextForProject(
   project: Project,
   opts?: {
     /** Demo-only: reflect the applied fix in the handler. */
     fixedHandler?: boolean;
-    /** Pre-split file map for real projects (e.g. from a ZIP upload). */
+    /** File map of the source version to scan (original or fixed copy). */
     files?: Record<string, string>;
   }
 ): ProjectContext {
-  const commit = project.currentCommit ?? "b72c42d";
+  const commit = project.currentCommit || undefined;
 
   if (project.isDemo) {
     return buildDemoContext(project.id, {
@@ -40,7 +42,7 @@ export function contextForProject(
     deploymentUrl: project.deploymentUrl,
     commitSha: commit,
     files: opts?.files,
-    sourceBlob: project.sourceCode,
+    sourceBlob: opts?.files ? undefined : project.sourceCode,
     deploymentAuthorized: project.deploymentAuthorized,
   });
   // 사용자가 고른 스캔 방식(A/B/C)을 규칙 엔진의 모드로 넘긴다.

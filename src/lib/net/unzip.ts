@@ -1,4 +1,5 @@
 import { inflateRawSync } from "node:zlib";
+import { LIMITS } from "@/lib/config/limits";
 
 /**
  * Minimal, dependency-free ZIP reader (server-only).
@@ -23,9 +24,9 @@ export interface UnzipLimits {
 }
 
 export const DEFAULT_UNZIP_LIMITS: UnzipLimits = {
-  maxEntries: 2000,
-  maxFileBytes: 2 * 1024 * 1024, // 2 MB per file
-  maxTotalBytes: 20 * 1024 * 1024, // 20 MB total uncompressed
+  maxEntries: LIMITS.unzipMaxEntries,
+  maxFileBytes: LIMITS.unzipFileBytes, // 기본 2 MB per file
+  maxTotalBytes: LIMITS.unzipTotalBytes, // 기본 20 MB total uncompressed
 };
 
 export class UnzipError extends Error {
@@ -63,10 +64,28 @@ function safeEntryPath(raw: string): string | null {
  * Extract a ZIP archive into a { path: content } text map.
  * Binary-looking entries and directories are skipped.
  */
+export type UnzipSkipReason =
+  | "unsafe_path"
+  | "symlink"
+  | "too_large"
+  | "unsupported_compression"
+  | "corrupt"
+  | "binary";
+
+export interface UnzipSkipped {
+  path: string;
+  reason: UnzipSkipReason;
+}
+
 export function unzipToFileMap(
   buf: Buffer,
-  limits: UnzipLimits = DEFAULT_UNZIP_LIMITS
+  limits: UnzipLimits = DEFAULT_UNZIP_LIMITS,
+  /** When given, every entry that was not extracted is recorded here. */
+  skipped?: UnzipSkipped[]
 ): Record<string, string> {
+  const skip = (path: string, reason: UnzipSkipReason) => {
+    skipped?.push({ path: path.slice(0, 300), reason });
+  };
   const eocd = findEocd(buf);
   const entryCount = buf.readUInt16LE(eocd + 10);
   let cenOffset = buf.readUInt32LE(eocd + 16);
@@ -102,19 +121,27 @@ export function unzipToFileMap(
 
     // Skip unix symlinks (mode 0xA000 in high 16 bits of external attrs).
     const unixMode = externalAttrs >>> 16;
-    if ((unixMode & 0xf000) === 0xa000) continue;
+    if ((unixMode & 0xf000) === 0xa000) {
+      skip(rawName, "symlink");
+      continue;
+    }
 
     const safe = safeEntryPath(rawName);
-    if (!safe) continue; // traversal/absolute — skip silently
+    if (!safe) {
+      skip(rawName, "unsafe_path"); // traversal/absolute
+      continue;
+    }
 
-    if (uncompSize > limits.maxFileBytes) continue; // oversized single file
-    totalBytes += uncompSize;
-    if (totalBytes > limits.maxTotalBytes) {
-      throw new UnzipError("압축 해제 크기가 상한을 초과했습니다 (zip bomb 방지).");
+    if (uncompSize > limits.maxFileBytes) {
+      skip(safe, "too_large");
+      continue;
     }
 
     // Read the local file header to find the data start.
-    if (buf.readUInt32LE(localOffset) !== LOC_SIG) continue;
+    if (localOffset + 30 > buf.length || buf.readUInt32LE(localOffset) !== LOC_SIG) {
+      skip(safe, "corrupt");
+      continue;
+    }
     const locNameLen = buf.readUInt16LE(localOffset + 26);
     const locExtraLen = buf.readUInt16LE(localOffset + 28);
     const dataStart = localOffset + 30 + locNameLen + locExtraLen;
@@ -123,15 +150,34 @@ export function unzipToFileMap(
     let content: Buffer;
     try {
       if (method === 0) content = Buffer.from(compData); // STORE
-      else if (method === 8) content = inflateRawSync(compData); // DEFLATE
-      else continue; // unsupported compression
-    } catch {
-      continue; // corrupt entry — skip
+      // The header's size can lie; cap the real inflated output too.
+      else if (method === 8)
+        content = inflateRawSync(compData, { maxOutputLength: limits.maxFileBytes });
+      else {
+        skip(safe, "unsupported_compression");
+        continue;
+      }
+    } catch (e) {
+      skip(safe, e instanceof RangeError ? "too_large" : "corrupt");
+      continue;
+    }
+    if (content.length > limits.maxFileBytes) {
+      skip(safe, "too_large");
+      continue;
+    }
+
+    // Count what was actually produced, not what the header claimed.
+    totalBytes += content.length;
+    if (totalBytes > limits.maxTotalBytes) {
+      throw new UnzipError("압축 해제 크기가 상한을 초과했습니다 (zip bomb 방지).");
     }
 
     // Skip binary content (NUL byte in the first chunk).
     const sample = content.subarray(0, 8000);
-    if (sample.includes(0)) continue;
+    if (sample.includes(0)) {
+      skip(safe, "binary");
+      continue;
+    }
 
     files[safe] = content.toString("utf8");
   }

@@ -184,7 +184,32 @@ function crc32(buf: Buffer): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-function makeZip(files: Record<string, string>): Buffer {
+/** General-purpose flag bit 11: file names are UTF-8 (needed for 한글 paths). */
+const UTF8_FLAG = 0x0800;
+
+/**
+ * ZIP of ONLY the given files (e.g. the files a fix job changed), each at its
+ * original relative path, plus a summary text file. Returns bytes + SHA-256.
+ * The summary name never overwrites a project file.
+ */
+export function buildChangedFilesZip(
+  changed: Record<string, string>,
+  summary: { text: string; baseName?: string }
+): { zip: Buffer; sha256: string; size: number; summaryPath: string } {
+  const base = summary.baseName ?? "HOI-SECURITY-FIX-SUMMARY";
+  let summaryPath = `${base}.md`;
+  for (let n = 2; summaryPath in changed; n++) summaryPath = `${base}-${n}.md`;
+
+  const entries: Record<string, string> = {};
+  for (const path of Object.keys(changed).sort()) entries[path] = changed[path];
+  entries[summaryPath] = summary.text;
+
+  const zip = makeZip(entries);
+  const sha256 = createHash("sha256").update(zip).digest("hex");
+  return { zip, sha256, size: zip.length, summaryPath };
+}
+
+export function makeZip(files: Record<string, string>): Buffer {
   const { time, date } = dosDateTime();
   const entries: Buffer[] = [];
   const central: Buffer[] = [];
@@ -203,7 +228,7 @@ function makeZip(files: Record<string, string>): Buffer {
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4); // version needed
-    local.writeUInt16LE(0, 6); // flags
+    local.writeUInt16LE(UTF8_FLAG, 6); // flags
     local.writeUInt16LE(method, 8);
     local.writeUInt16LE(time, 10);
     local.writeUInt16LE(date, 12);
@@ -219,7 +244,7 @@ function makeZip(files: Record<string, string>): Buffer {
     cen.writeUInt32LE(0x02014b50, 0);
     cen.writeUInt16LE(20, 4);
     cen.writeUInt16LE(20, 6);
-    cen.writeUInt16LE(0, 8);
+    cen.writeUInt16LE(UTF8_FLAG, 8);
     cen.writeUInt16LE(method, 10);
     cen.writeUInt16LE(time, 12);
     cen.writeUInt16LE(date, 14);

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { HoiScene } from "@/components/mascot/HoiScene";
 import { HoiSpeech } from "@/components/mascot/HoiSpeech";
-import { getCurrentUserId } from "@/lib/auth";
+import { requirePageUserId } from "@/lib/auth";
 import {
   getScan,
   getFindingsForScan,
@@ -39,7 +39,7 @@ export const dynamic = "force-dynamic";
 const SEVERITY_KEYS: readonly Severity[] = ["critical", "high", "medium", "low"];
 
 export default async function ScanResultsPage({ params }: { params: { id: string } }) {
-  const uid = await getCurrentUserId();
+  const uid = await requirePageUserId(`/dashboard/scans/${params.id}`);
   let scan;
   try {
     scan = await getScan(params.id, uid);

@@ -1,6 +1,6 @@
 ﻿import Link from "next/link";
 import { listProjects, listScans, getFindingsForScan } from "@/lib/store/store";
-import { getCurrentUserId } from "@/lib/auth";
+import { requirePageUserId } from "@/lib/auth";
 import { SeverityStrip } from "@/components/SeverityStrip";
 import { PageHeader } from "@/components/PageHeader";
 import { Hoi } from "@/components/mascot/Hoi";
@@ -34,7 +34,7 @@ function formatDate(value?: string) {
 }
 
 export default async function DashboardPage() {
-  const uid = await getCurrentUserId();
+  const uid = await requirePageUserId("/dashboard");
   const projects = await listProjects(uid);
 
   const rows = await Promise.all(

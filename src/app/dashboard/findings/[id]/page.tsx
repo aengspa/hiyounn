@@ -1,7 +1,7 @@
 ﻿import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { HoiSpeech } from "@/components/mascot/HoiSpeech";
-import { getCurrentUserId } from "@/lib/auth";
+import { requirePageUserId } from "@/lib/auth";
 import {
   getFinding,
   getFixForFinding,
@@ -45,7 +45,7 @@ const AI_NOTICE =
   "호이가 AI로 코드를 읽고 찾은 내용이에요. 놓치거나 잘못 짚을 수 있어서, 가능한 항목은 실제 확인 단계로 한 번 더 살펴봐요.";
 
 export default async function FindingPage({ params }: { params: { id: string } }) {
-  const uid = await getCurrentUserId();
+  const uid = await requirePageUserId(`/dashboard/findings/${params.id}`);
   let finding;
   try {
     finding = await getFinding(params.id, uid);

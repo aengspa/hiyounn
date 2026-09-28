@@ -14,8 +14,14 @@ import {
   SESSION_COOKIE,
   SESSION_MAX_AGE,
 } from "@/lib/auth-core";
+import { safeNextPath } from "@/lib/auth";
 
 export type AuthState = { error?: string } | undefined;
+
+/** 로그인·가입 후 돌아갈 곳. 대시보드 내부 경로만 허용한다(open redirect 방지). */
+function afterAuthPath(formData: FormData): string {
+  return safeNextPath(formData.get("next")) ?? "/dashboard";
+}
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -57,7 +63,7 @@ export async function signupAction(
     return { error: "가입 중 문제가 발생했습니다. 다시 시도해 주세요." };
   }
 
-  redirect("/dashboard");
+  redirect(afterAuthPath(formData));
 }
 
 export async function loginAction(
@@ -77,7 +83,7 @@ export async function loginAction(
   if (!verifyPassword(password, user.passwordHash)) return invalid;
 
   setSessionCookie(user.id);
-  redirect("/dashboard");
+  redirect(afterAuthPath(formData));
 }
 
 export async function logoutAction(): Promise<void> {

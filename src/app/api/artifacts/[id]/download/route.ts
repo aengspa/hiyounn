@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUserId } from "@/lib/auth";
+import { requireUserId } from "@/lib/auth";
 import { getFixArtifact, getFixArtifactBytes } from "@/lib/store/store";
 import { handleApiError } from "@/lib/api";
 
@@ -13,7 +13,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const uid = await getCurrentUserId();
+    const uid = await requireUserId();
     const artifact = await getFixArtifact(params.id, uid);
     if (!artifact) {
       return NextResponse.json({ error: "not_found" }, { status: 404 });

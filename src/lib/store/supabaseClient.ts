@@ -1,7 +1,7 @@
 /**
- * Minimal Supabase (PostgREST) client using fetch — no @supabase/supabase-js
- * dependency, matching this project's zero-runtime-dependency philosophy
- * (see src/lib/ai/llmClient.ts, which talks to LLM providers the same way).
+ * Minimal Supabase (PostgREST + Storage) client using fetch — no
+ * @supabase/supabase-js dependency, matching this project's
+ * zero-runtime-dependency philosophy (see src/lib/ai/llmClient.ts).
  *
  * SERVER ONLY. Uses the service-role key, which bypasses Row Level Security.
  * Never import this into client components. Ownership is enforced by the store
@@ -18,9 +18,12 @@ function required(name: string): string {
   return v;
 }
 
+function projectBase(): string {
+  return required("NEXT_PUBLIC_SUPABASE_URL").replace(/\/+$/, "");
+}
+
 function restBase(): string {
-  const url = required("NEXT_PUBLIC_SUPABASE_URL").replace(/\/+$/, "");
-  return `${url}/rest/v1`;
+  return `${projectBase()}/rest/v1`;
 }
 
 function serviceKey(): string {
@@ -33,6 +36,50 @@ export function isSupabaseConfigured(): boolean {
     process.env.NEXT_PUBLIC_SUPABASE_URL &&
       process.env.SUPABASE_SERVICE_ROLE_KEY
   );
+}
+
+/**
+ * A non-2xx answer from Supabase. `code` is the PostgREST / Postgres error code
+ * when the body carried one (e.g. PGRST204, 42P01, 23505). The message keeps
+ * the old "Supabase METHOD table STATUS: body" shape so existing checks work.
+ */
+export class SupabaseHttpError extends Error {
+  constructor(
+    readonly method: string,
+    readonly target: string,
+    readonly status: number,
+    readonly code: string | undefined,
+    body: string
+  ) {
+    super(`Supabase ${method} ${target} ${status}: ${body}`);
+    this.name = "SupabaseHttpError";
+  }
+}
+
+/** Codes meaning "the table/column this code expects does not exist yet". */
+const SCHEMA_ERROR_CODES = new Set(["PGRST204", "PGRST205", "42P01", "42703"]);
+
+export function isSchemaError(e: unknown): boolean {
+  if (e instanceof SupabaseHttpError) {
+    return Boolean(e.code && SCHEMA_ERROR_CODES.has(e.code));
+  }
+  return e instanceof Error && /PGRST20[45]|42P01|42703/.test(e.message);
+}
+
+export function isUniqueViolation(e: unknown): boolean {
+  if (e instanceof SupabaseHttpError) {
+    return e.status === 409 || e.code === "23505";
+  }
+  return e instanceof Error && /\b409\b|23505|duplicate key/.test(e.message);
+}
+
+function parseErrorCode(body: string): string | undefined {
+  try {
+    const parsed = JSON.parse(body) as { code?: unknown };
+    return typeof parsed.code === "string" ? parsed.code : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 interface QueryOptions {
@@ -70,7 +117,7 @@ async function request<T>(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`Supabase ${method} ${table} ${res.status}: ${text}`);
+    throw new SupabaseHttpError(method, table, res.status, parseErrorCode(text), text);
   }
 
   // DELETE / minimal responses may have no body.
@@ -140,4 +187,77 @@ export async function updateRows<T>(
     prefer: "return=representation",
     signal,
   });
+}
+
+/** DELETE rows matched by `query`. */
+export async function deleteRows(
+  table: string,
+  query: string,
+  signal?: AbortSignal
+): Promise<void> {
+  await request<unknown>("DELETE", table, { query, signal });
+}
+
+// ── Storage (private bucket) ──
+
+/** Object key segments are app-generated ids; encode each one anyway. */
+function objectPath(bucket: string, key: string): string {
+  const safe = key
+    .split("/")
+    .filter(Boolean)
+    .map((seg) => encodeURIComponent(seg))
+    .join("/");
+  return `${encodeURIComponent(bucket)}/${safe}`;
+}
+
+/** Upload bytes to a (private) bucket. Never overwrites an existing object. */
+export async function storageUpload(
+  bucket: string,
+  key: string,
+  bytes: Uint8Array,
+  contentType: string
+): Promise<void> {
+  const sk = serviceKey();
+  const res = await fetch(`${projectBase()}/storage/v1/object/${objectPath(bucket, key)}`, {
+    method: "POST",
+    headers: {
+      apikey: sk,
+      authorization: `Bearer ${sk}`,
+      "content-type": contentType,
+      "x-upsert": "false",
+    },
+    body: bytes,
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new SupabaseHttpError("POST", `storage:${bucket}`, res.status, parseErrorCode(text), text);
+  }
+}
+
+/** Download bytes from a private bucket; undefined when the object is missing. */
+export async function storageDownload(
+  bucket: string,
+  key: string
+): Promise<Uint8Array | undefined> {
+  const sk = serviceKey();
+  const res = await fetch(
+    `${projectBase()}/storage/v1/object/authenticated/${objectPath(bucket, key)}`,
+    {
+      method: "GET",
+      headers: { apikey: sk, authorization: `Bearer ${sk}` },
+      cache: "no-store",
+    }
+  );
+  if (res.status === 404 || res.status === 400) {
+    // Supabase Storage answers a missing object with 400/404 "not_found".
+    const text = await res.text().catch(() => "");
+    if (res.status === 404 || /not.?found/i.test(text)) return undefined;
+    throw new SupabaseHttpError("GET", `storage:${bucket}`, res.status, parseErrorCode(text), text);
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new SupabaseHttpError("GET", `storage:${bucket}`, res.status, parseErrorCode(text), text);
+  }
+  return new Uint8Array(await res.arrayBuffer());
 }

@@ -4,10 +4,11 @@ import type {
   SecurityFinding,
   FixAttempt,
   FixArtifact,
+  FixJob,
+  SourceVersion,
   VerificationResult,
   User,
 } from "@/lib/domain/types";
-import type { ScanMode, TestAccount } from "@/lib/domain/scanMode";
 import { Buffer } from "buffer";
 import { toTestStatus } from "@/lib/domain/types";
 import { id, now } from "@/lib/util";
@@ -19,24 +20,33 @@ import {
   buildFixArtifact,
   buildFixedFileMap,
 } from "@/lib/remediation/artifactBuilder";
+import { serializeFileMap } from "@/lib/demo/sourceFiles";
+import { makeSourceVersion } from "@/lib/source/sourceVersion";
 import {
   NotAuthorizedError,
   NotFoundError,
   EmailInUseError,
   VerificationUnavailableError,
 } from "./errors";
-import type { StoreBackend } from "./backend";
+import {
+  assertHasSourceFiles,
+  legacyFilesFromProject,
+  SourceMissingError,
+} from "./sourceHelpers";
+import type { CreateProjectInput, StoreBackend } from "./backend";
 
 /**
- * In-memory backend. Fast, dependency-free, and used for local dev / the demo.
+ * In-memory backend. Fast, dependency-free, and used for local dev / tests.
  *
  * WARNING: state lives in this process only. On Vercel each serverless
  * invocation may run in a different process, so data written by one request is
  * NOT visible to another. Use DATA_STORE=supabase in any deployed environment.
  * This backend persists across dev hot reloads via globalThis.
+ *
+ * There is no seeded demo user or demo project: every project belongs to a
+ * real logged-in user. The public demo uses a built-in fixture that is never
+ * stored here.
  */
-
-export const DEMO_USER: User = { id: "demo-user", email: "you@example.com" };
 
 interface Db {
   users: Map<string, User>;
@@ -45,12 +55,16 @@ interface Db {
   findings: Map<string, SecurityFinding>;
   fixes: Map<string, FixAttempt>;
   verifications: Map<string, VerificationResult>;
-  /** Whether the IDOR handler for a project has an applied fix. */
+  /** Whether the IDOR handler for a project has an applied fix (demo only). */
   handlerFixed: Map<string, boolean>;
-  /** Fix artifact metadata by artifact id. */
+  /** Legacy per-finding artifact metadata by artifact id. */
   artifacts: Map<string, FixArtifact>;
-  /** Fix artifact ZIP bytes (base64) by artifact id. */
+  /** Legacy per-finding artifact ZIP bytes (base64) by artifact id. */
   artifactBytes: Map<string, string>;
+  /** Immutable source versions by id. */
+  sourceVersions: Map<string, SourceVersion>;
+  /** Fix-all jobs by id. */
+  fixJobs: Map<string, FixJob>;
 }
 
 function freshDb(): Db {
@@ -64,11 +78,18 @@ function freshDb(): Db {
     handlerFixed: new Map(),
     artifacts: new Map(),
     artifactBytes: new Map(),
+    sourceVersions: new Map(),
+    fixJobs: new Map(),
   };
 }
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+/** Callers get copies so they can never mutate stored state by accident. */
+function clone<T>(v: T): T {
+  return structuredClone(v);
 }
 
 export class MemoryStore implements StoreBackend {
@@ -78,34 +99,16 @@ export class MemoryStore implements StoreBackend {
   constructor() {
     // Persist across hot reloads in dev via globalThis.
     const g = globalThis as unknown as { __vsa_db?: Db };
-    this.db = g.__vsa_db ?? freshDb();
+    const existing = g.__vsa_db;
+    // Older dev sessions may hold a Db without the newer maps.
+    this.db = existing ? { ...freshDb(), ...existing } : freshDb();
     g.__vsa_db = this.db;
-    this.ensureSeed();
   }
 
-  private ensureSeed() {
-    const db = this.db;
-    if (!db.users.has(DEMO_USER.id)) {
-      db.users.set(DEMO_USER.id, DEMO_USER);
-    }
-    const alreadySeeded = [...db.projects.values()].some(
-      (p) => p.ownerId === DEMO_USER.id
-    );
-    if (!alreadySeeded) {
-      const p: Project = {
-        id: id("proj"),
-        ownerId: DEMO_USER.id,
-        name: "Acme Notes (demo)",
-        repositoryUrl: "https://github.com/acme/acme-notes",
-        deploymentUrl: "https://acme-notes.example.com",
-        lastScannedCommit: undefined,
-        currentCommit: "b72c42d",
-        lastScanDate: undefined,
-        isDemo: true,
-        createdAt: now(),
-      };
-      db.projects.set(p.id, p);
-    }
+  /** Test helper: wipe all in-memory state. */
+  reset(): void {
+    const fresh = freshDb();
+    Object.assign(this.db, fresh);
   }
 
   // ── Ownership helpers ──
@@ -175,32 +178,71 @@ export class MemoryStore implements StoreBackend {
 
   async createProject(
     ownerId: string,
-    input: {
-      name: string;
-      repositoryUrl?: string;
-      deploymentUrl?: string;
-      sourceCode?: string;
-      deploymentAuthorized?: boolean;
-      scanMode?: ScanMode;
-      testAccounts?: TestAccount[];
-    }
+    input: CreateProjectInput
   ): Promise<Project> {
+    assertHasSourceFiles(input.files);
+    const projectId = id("proj");
+    const version = makeSourceVersion({
+      projectId,
+      ownerId,
+      kind: "original",
+      files: input.files,
+    });
     const p: Project = {
-      id: id("proj"),
+      id: projectId,
       ownerId,
       name: input.name.trim(),
       repositoryUrl: input.repositoryUrl?.trim() || undefined,
       deploymentUrl: input.deploymentUrl?.trim() || undefined,
-      sourceCode: input.sourceCode?.trim() || undefined,
+      // Legacy single-finding flow still reads this blob.
+      sourceCode: serializeFileMap(version.files),
+      sourceZipName: input.sourceKind === "zip" ? input.sourceZipName : undefined,
       deploymentAuthorized: input.deploymentAuthorized ?? false,
       scanMode: input.scanMode,
       testAccounts: input.testAccounts?.length ? input.testAccounts : undefined,
       isDemo: false,
-      currentCommit: "b72c42d",
+      currentSourceVersionId: version.id,
       createdAt: now(),
     };
+    this.db.sourceVersions.set(version.id, version);
     this.db.projects.set(p.id, p);
     return p;
+  }
+
+  // ── Source versions ──
+  async getSourceVersion(versionId: string, ownerId: string): Promise<SourceVersion> {
+    const v = this.db.sourceVersions.get(versionId);
+    if (!v) throw new NotFoundError();
+    if (v.ownerId !== ownerId) throw new NotAuthorizedError();
+    this.assertProjectOwner(v.projectId, ownerId);
+    return clone(v);
+  }
+
+  async saveSourceVersion(version: SourceVersion): Promise<void> {
+    this.assertProjectOwner(version.projectId, version.ownerId);
+    if (this.db.sourceVersions.has(version.id)) {
+      throw new Error("source versions are immutable");
+    }
+    this.db.sourceVersions.set(version.id, clone(version));
+  }
+
+  async getCurrentSourceVersion(
+    projectId: string,
+    ownerId: string
+  ): Promise<SourceVersion | undefined> {
+    const project = this.assertProjectOwner(projectId, ownerId);
+    if (project.isDemo) return undefined;
+    if (project.currentSourceVersionId) {
+      return this.getSourceVersion(project.currentSourceVersionId, ownerId);
+    }
+    // Legacy project: create the original version from the stored blob once.
+    const files = legacyFilesFromProject(project);
+    if (!files) return undefined;
+    const version = makeSourceVersion({ projectId, ownerId, kind: "original", files });
+    this.db.sourceVersions.set(version.id, version);
+    project.currentSourceVersionId = version.id;
+    this.db.projects.set(project.id, project);
+    return clone(version);
   }
 
   // ── Scans ──
@@ -234,17 +276,21 @@ export class MemoryStore implements StoreBackend {
 
   async runScan(projectId: string, ownerId: string): Promise<Scan> {
     const project = this.assertProjectOwner(projectId, ownerId);
-    const commit = project.currentCommit ?? "b72c42d";
+    const version = await this.getCurrentSourceVersion(projectId, ownerId);
+    if (!project.isDemo && !version) throw new SourceMissingError();
 
-    const context = contextForProject(project);
+    const startedAt = now();
+    const context = contextForProject(project, { files: version?.files });
     const { findings, scope, plan } = await this.orchestrator.run(context);
 
     const scan: Scan = {
       id: id("scan"),
       projectId: project.id,
       status: "completed",
-      commitSha: commit,
-      startedAt: now(),
+      sourceVersionId: version?.id,
+      sourceContentHash: version?.contentHash,
+      commitSha: project.currentCommit || undefined,
+      startedAt,
       completedAt: now(),
       findingIds: [],
       scope,
@@ -266,7 +312,7 @@ export class MemoryStore implements StoreBackend {
     this.db.scans.set(scan.id, scan);
     this.db.handlerFixed.set(project.id, false);
 
-    project.lastScannedCommit = commit;
+    project.lastScannedCommit = project.currentCommit || undefined;
     project.lastScanDate = scan.completedAt;
     this.db.projects.set(project.id, project);
 
@@ -275,11 +321,54 @@ export class MemoryStore implements StoreBackend {
 
   async scanPlan(projectId: string, ownerId: string): Promise<unknown> {
     const project = this.assertProjectOwner(projectId, ownerId);
-    const context = contextForProject(project);
+    const version = await this.getCurrentSourceVersion(projectId, ownerId);
+    const context = contextForProject(project, { files: version?.files });
     return this.orchestrator.plan(context);
   }
 
-  // ── Fixes & verification ──
+  // ── Fix-all jobs ──
+  async insertFixJob(job: FixJob): Promise<{ job: FixJob; created: boolean }> {
+    const existing = await this.findFixJobByKey(job.ownerId, job.idempotencyKey);
+    if (existing) return { job: existing, created: false };
+    const scan = this.assertScanOwner(job.scanId, job.ownerId);
+    if (scan.projectId !== job.projectId) throw new NotAuthorizedError();
+    this.db.fixJobs.set(job.id, clone(job));
+    return { job: clone(job), created: true };
+  }
+
+  async updateFixJob(job: FixJob): Promise<void> {
+    const stored = this.db.fixJobs.get(job.id);
+    if (!stored) throw new NotFoundError();
+    if (stored.ownerId !== job.ownerId) throw new NotAuthorizedError();
+    this.db.fixJobs.set(job.id, clone(job));
+  }
+
+  async getFixJob(jobId: string, ownerId: string): Promise<FixJob> {
+    const job = this.db.fixJobs.get(jobId);
+    if (!job) throw new NotFoundError();
+    if (job.ownerId !== ownerId) throw new NotAuthorizedError();
+    return clone(job);
+  }
+
+  async findFixJobByKey(
+    ownerId: string,
+    idempotencyKey: string
+  ): Promise<FixJob | undefined> {
+    const job = [...this.db.fixJobs.values()].find(
+      (j) => j.ownerId === ownerId && j.idempotencyKey === idempotencyKey
+    );
+    return job ? clone(job) : undefined;
+  }
+
+  async listFixJobsForScan(scanId: string, ownerId: string): Promise<FixJob[]> {
+    this.assertScanOwner(scanId, ownerId);
+    return [...this.db.fixJobs.values()]
+      .filter((j) => j.scanId === scanId && j.ownerId === ownerId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map(clone);
+  }
+
+  // ── Fixes & verification (legacy single-item flow) ──
   async generateFixForFinding(
     findingId: string,
     ownerId: string
@@ -380,7 +469,7 @@ export class MemoryStore implements StoreBackend {
     return this.db.verifications.get(findingId);
   }
 
-  // ── Fix artifacts ──
+  // ── Legacy per-finding artifacts ──
   async buildFixArtifact(
     findingId: string,
     ownerId: string

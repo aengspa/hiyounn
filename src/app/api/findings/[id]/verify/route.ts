@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getCurrentUserId } from "@/lib/auth";
+import { requireUserId } from "@/lib/auth";
 import { verifyFinding } from "@/lib/store/store";
 import { ok, handleApiError } from "@/lib/api";
 
@@ -13,7 +13,7 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const uid = await getCurrentUserId();
+    const uid = await requireUserId();
     const { finding, result } = await verifyFinding(params.id, uid);
     return ok({ finding, result });
   } catch (err) {

@@ -1,10 +1,16 @@
 import type { ScanStep } from "@/lib/domain/types";
 
 let counter = 0;
-/** Deterministic-ish id generator for the in-memory store. */
+/**
+ * Id generator. The random suffix keeps ids unique across serverless
+ * instances (each has its own counter), which matters for Postgres keys.
+ */
 export function id(prefix = "id"): string {
   counter += 1;
-  return `${prefix}_${Date.now().toString(36)}_${counter}`;
+  const rnd = new Uint8Array(4);
+  globalThis.crypto.getRandomValues(rnd);
+  const suffix = Array.from(rnd, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${prefix}_${Date.now().toString(36)}_${counter}${suffix}`;
 }
 
 export function now(): string {

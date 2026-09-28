@@ -191,6 +191,11 @@ export interface FixDiff {
    */
   beforeText?: string;
   afterText?: string;
+  /**
+   * "create"일 때만 새 파일을 만든다(afterText가 파일 전체 내용). 없으면
+   * 기존 파일의 beforeText를 afterText로 바꾸는 수정으로 본다.
+   */
+  mode?: "replace" | "create";
 }
 
 export interface FixAttempt {
@@ -324,6 +329,11 @@ export interface Scan {
   id: string;
   projectId: string;
   status: ScanStatus;
+  /** 검사한 불변 소스 버전. 실제 Git 커밋이 아니다. */
+  sourceVersionId?: string;
+  /** 검사한 소스 버전의 내용 해시(SHA-256). */
+  sourceContentHash?: string;
+  /** 실제 Git 커밋을 알 때만 채운다. 가짜 해시를 넣지 않는다. */
   commitSha?: string;
   startedAt: string;
   completedAt?: string;
@@ -383,7 +393,111 @@ export interface Project {
    * never mixed into user results.
    */
   isDemo?: boolean;
+  /**
+   * 지금 점검 대상인 불변 소스 버전. 처음에는 업로드 원본이고, 사용자가
+   * 수정본을 다시 등록하면 새 버전으로 바뀐다. 원본 버전은 지우지 않는다.
+   */
+  currentSourceVersionId?: string;
   createdAt: string;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Source versions (immutable)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * 한 번 저장하면 바뀌지 않는 소스 스냅샷. 원본·수정본·재등록본을 서로
+ * 섞지 않기 위해 내용 해시와 함께 따로 보관한다.
+ */
+export interface SourceVersion {
+  id: string;
+  projectId: string;
+  ownerId: string;
+  kind: "original" | "fixed" | "reupload";
+  /** 수정본이면 어떤 버전에서 만들어졌는지. */
+  parentVersionId?: string;
+  /** 수정본이면 어떤 전체 수정 작업이 만들었는지. */
+  fixJobId?: string;
+  /** 상대 경로 → 파일 내용. */
+  files: Record<string, string>;
+  fileCount: number;
+  totalBytes: number;
+  /** 정렬한 (경로, 내용) 목록의 SHA-256. */
+  contentHash: string;
+  createdAt: string;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Fix-all jobs
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * 항목별 수정 결과.
+ *  - applied: 수정이 작업 복사본에 실제로 적용됨 (아직 해결 확인은 아님)
+ *  - apply_failed: 수정안은 있었지만 원본과 맞지 않거나 충돌해 적용하지 못함
+ *  - unsupported: 자동 수정 방법이 없음 (배포 설정, 외부 작업 등)
+ *  - skipped: 한도·시간 초과 등으로 이번 작업에서 다루지 못함
+ */
+export type FixItemOutcome = "applied" | "apply_failed" | "unsupported" | "skipped";
+
+export interface FixJobItem {
+  findingId: string;
+  title: string;
+  severity: Severity;
+  ruleId?: string;
+  outcome: FixItemOutcome;
+  /** 내부 사유 코드 (예: before_not_found, conflict, unsafe_path). */
+  reasonCode?: string;
+  /** 사용자에게 보여 줄 짧은 이유. */
+  reason?: string;
+  fixSource?: "deterministic" | "llm";
+  /** 이 항목 때문에 바뀐 파일. */
+  files: string[];
+  summary?: string;
+  plainExplanation?: string;
+  /** LLM 수정안을 요청했다면 그 요청의 추적 ID. */
+  llmCorrelationId?: string;
+}
+
+export type FixJobStatus = "running" | "completed" | "partial" | "failed";
+
+/** 다운로드할 수정 파일 묶음. 바뀐 파일만 원래 상대 경로로 담는다. */
+export interface FixJobArtifact {
+  id: string;
+  fileName: string;
+  size: number;
+  /** ZIP 바이트의 SHA-256. 다운로드 파일과 비교할 수 있다. */
+  sha256: string;
+  changedFiles: string[];
+  /** 저장소 안 위치. 사용자 입력으로 만들지 않는다. */
+  storageKey: string;
+  createdAt: string;
+}
+
+export interface FixJob {
+  id: string;
+  projectId: string;
+  ownerId: string;
+  scanId: string;
+  /** 수정의 기준이 된 소스 버전(= 스캔한 버전). */
+  baseVersionId: string;
+  baseContentHash: string;
+  /** 수정이 적용된 새 소스 버전. 적용된 항목이 없으면 없다. */
+  resultVersionId?: string;
+  resultContentHash?: string;
+  /** 같은 요청의 중복 실행을 막는 키. */
+  idempotencyKey: string;
+  status: FixJobStatus;
+  items: FixJobItem[];
+  changedFiles: string[];
+  artifact?: FixJobArtifact;
+  /** 한도 때문에 이번 작업에서 뺀 항목 수. */
+  skippedForLimit: number;
+  errorCode?: string;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
 }
 
 export interface User {

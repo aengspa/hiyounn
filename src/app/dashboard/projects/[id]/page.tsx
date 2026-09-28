@@ -10,7 +10,7 @@ import {
   SectionHeader,
   buttonClassName,
 } from "@/components/ui";
-import { getCurrentUserId } from "@/lib/auth";
+import { requirePageUserId } from "@/lib/auth";
 import {
   getProject,
   listScans,
@@ -29,7 +29,7 @@ export default async function ProjectPage({
 }: {
   params: { id: string };
 }) {
-  const uid = await getCurrentUserId();
+  const uid = await requirePageUserId(`/dashboard/projects/${params.id}`);
   let project;
   try {
     project = await getProject(params.id, uid);

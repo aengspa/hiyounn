@@ -107,6 +107,13 @@ create table if not exists public.verifications (
   created_at  timestamptz not null default now()
 );
 
+-- ── source versions / fix-all jobs / artifacts ────────────────
+-- Defined in supabase/migrations/20260923000000_fix_all_jobs.sql (idempotent).
+-- Run that file after this one on a fresh database:
+--   projects.current_source_version_id, scans.source_version_id,
+--   scans.source_content_hash, source_versions, fix_jobs, fix_artifacts
+--   (legacy), and the private Storage bucket "fix-artifacts".
+
 -- ─────────────────────────────────────────────────────────────
 -- Row Level Security — deny-by-default.
 --
