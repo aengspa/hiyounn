@@ -22,15 +22,85 @@ Every finding carries a `simulated` flag, surfaced in the UI as a badge.
 
 | Scanner | Status | Notes |
 |---|---|---|
-| Secret scanner | **Real** | Regex detection, secrets masked in evidence. Gitleaks-ready. |
-| Authorization / IDOR | **Real** | Static detection + live attack reproduction + full verify/regression loop. |
+| Secret scanner | **Real** | Regex + provider patterns (Stripe, OpenAI, AWS, GitHub, Slack, Google, private keys). Secrets masked in evidence. |
+| Static rules (XSS, injection, traversal, IDOR, ASVS 5.0 signals) | **Real** | Regex/signal SAST, re-checked per finding after a fix. |
+| Dependency CVEs | **Real** | OSV.dev lookup (offline fallback is marked `simulated`). |
+| AI code analysis | **Real** (needs `LLM_*`) | Per-file chunks, riskiest first, with a project map. Finds logic/authz bugs rules miss and reviews rule findings. |
 | Security headers & CORS | **Real** | Read-only HTTP GET against the deployment URL; static fallback. ZAP-ready. |
-| Dependency CVEs | Simulated | Canned advisories from `package.json`. `npm audit` / OSV-ready. |
 | Supabase RLS | Simulated | Simulated policy state. Supabase Management API-ready. |
-| AI remediation | Deterministic | Rule-based patches today; LLM pluggable behind the same interface. |
 
-The flagship end-to-end demo is **IDOR** — it runs the complete loop with real,
-deterministic evidence.
+## The loop: rules are the baseline, AI is a detector and a second opinion
+
+**Scan.** Rule scanners run first. With an LLM configured, the AI reviews the
+code in chunks (riskiest files first, parallel calls) and (a) adds issues the
+rules miss, (b) gives an opinion on each rule finding (`confirmed` /
+`likely_false_positive`). It never deletes a rule finding. Same issue from both
+→ one finding. Files the AI could not review are listed with the reason, and
+the results page says so under the headline.
+
+**Fix all.** Secrets and dependency upgrades are fixed **by rule** (secret →
+`process.env.NAME`; dependency → highest fixed version in the same major).
+Secrets are never sent to the AI. Other findings get an AI patch; secret values
+are masked in everything sent to the AI. Findings the AI flagged as likely false
+positives are not auto-edited. The original upload is never modified; the fix is
+a new source version and a changed-files ZIP.
+
+### AI-based SAST features
+
+| Feature | What it does | Where |
+|---|---|---|
+| Exploit tests | For each fixed code finding the AI writes an exploit test against a harness; it runs on the original (must reproduce) and on the fix (must be blocked) in `node --permission` with network/process/file modules stubbed. An exploit blocked on the fix settles rule-vs-AI disagreements; one that still works overrides "fixed". | `src/lib/exploit/` |
+| Route permission table | The AI extracts login/admin/ownership facts per route (each row checked against the real declaration line); rules turn the gaps into findings. | `src/lib/scanners/authzMatrix.ts` |
+| Semgrep baseline | Semgrep runs as a rule scanner (merged with the regex rules, AI-triaged, per-finding re-verify). Needs `SEMGREP_BIN` or `semgrep` on PATH. | `src/lib/scanners/semgrepScanner.ts` |
+| AI-proposed rules | From AI-only findings the AI proposes a one-line regex; the server checks it matches the original line, is not noisy, and runs within a time limit (`vm` timeout). A person approves it on the results page; approved rules then run as baseline rules. | `src/lib/rules/customRules.ts` |
+| Incremental re-upload | "코드 새로 올리기" on the project page adds a new source version; the next scan re-runs rules on everything but sends only changed files to the AI and carries over earlier AI results for unchanged files. | `src/lib/scan/scanPipeline.ts` |
+
+Every finding shows its exact source line (secrets masked); fix-all shows a
+per-file and per-finding diff; re-verify shows the rule comment, the AI comment,
+the exploit-test result and the evidence code for each item. Rule findings the
+AI flags as likely false positives get a second, evidence-backed AI ruling; a
+"not vulnerable" ruling moves them to a separate group and out of fix-all.
+
+### End-to-end benchmark
+
+`scripts/e2e/` holds two benchmark apps (`fixtures/`), a browser driver
+generator, and a mock OpenAI-compatible gateway for plumbing tests without a real
+model:
+
+```bash
+node scripts/e2e/mock-llm-gateway.mjs &          # :4010, requires the api-key header
+LLM_BASE_URL=http://localhost:4010/v1 LLM_AUTH_HEADER=api-key LLM_API_KEY=mock-gateway-key \
+  LLM_MODEL=mock npm run build && npm run start
+node scripts/e2e/make-browser-driver.mjs         # writes .local/e2e-driver.js
+# then, in a logged-in browser tab, run .local/e2e-driver.js and read window.__e2e
+```
+
+### Sample app to try the loop
+
+`samples/memo-board/` is a small Express + `node:sqlite` memo board with real,
+exploitable weaknesses (SQL injection, IDOR, reflected and DOM XSS, SSRF, a
+missing admin check, a predictable session token and cookie without flags,
+plaintext default passwords, an MD5 signature over a hardcoded secret). It runs
+on its own (`cd samples/memo-board && npm install && npm start`, Node 22.13+).
+
+The product ships only its **source**: "메모 보드 (샘플) 추가하기" on the
+new-project page (`POST /api/projects/sample`) creates an ordinary project, so
+every scan, fix and re-verify runs for real. Nothing is precomputed. The same
+files are downloadable as `/samples/memo-board-sample.zip`. After editing the
+folder, run `npm run samples` to regenerate `src/lib/samples/memo-board.generated.ts`
+and both ZIPs; a test fails if they drift.
+
+**Supabase:** apply `supabase/migrations/20260929000000_custom_rules.sql` for AI-proposed rules.
+
+**Settings fixes introduce:** fixes that make code read a new env var (e.g.
+`JWT_SECRET`, `PREVIEW_ALLOWED_HOSTS`) fail closed until it is set; the fix
+result and ZIP list them. Recommended setup: [docs/security/fix-configuration.md](docs/security/fix-configuration.md).
+
+**Re-verify.** The rule re-check is the baseline and follows each finding's own
+line (not "any match in the file"). Dependencies are re-queried on OSV. The AI
+reviews the same fixed code independently. Agree → decided. Disagree →
+`판단이 엇갈려요` (a person decides). AI-only findings are decided by the AI and
+labelled as such. Nothing here runs the app, so "fixed" means fixed in source.
 
 ---
 
@@ -131,7 +201,8 @@ exposed.
 | `DATA_STORE` | Always (defaults to `memory`) | `memory` for local dev; `supabase` for any deployment. |
 | `NEXT_PUBLIC_SUPABASE_URL` | `DATA_STORE=supabase` | Supabase project URL. |
 | `SUPABASE_SERVICE_ROLE_KEY` | `DATA_STORE=supabase` | Server-only. Used by the store layer; bypasses RLS. |
-| `LLM_PROVIDER` / `LLM_API_KEY` | Optional | Enable AI scan/fix summaries. Defaults to deterministic behavior. |
+| `LLM_PROVIDER` / `LLM_API_KEY` / `LLM_MODEL` | Optional | Enables AI code analysis, AI fixes and AI re-review. Without it the product runs on rules only. Models that accept only the default temperature (e.g. GPT-5 family) are detected automatically. |
+| `LIMIT_AI_SCAN_*`, `LIMIT_FIX_ALL_CONCURRENCY` | Optional | AI scan chunk size, chunk count, concurrency, per-call timeout and total budget. See `src/lib/config/limits.ts`. |
 
 ## Deploying (Vercel)
 

@@ -3,10 +3,18 @@ import {
   NotAuthorizedError,
   NotFoundError,
   VerificationUnavailableError,
-} from "@/lib/store/store";
+  UnauthenticatedError,
+  AppError,
+} from "@/lib/store/errors";
 
 /** Map store errors to HTTP responses without leaking internals. */
 export function handleApiError(err: unknown): NextResponse {
+  if (err instanceof UnauthenticatedError) {
+    return NextResponse.json(
+      { error: "unauthenticated", message: "로그인이 필요해요.", loginPath: "/login" },
+      { status: 401 }
+    );
+  }
   if (err instanceof NotAuthorizedError) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
@@ -22,7 +30,14 @@ export function handleApiError(err: unknown): NextResponse {
       { status: 422 }
     );
   }
+  if (err instanceof AppError) {
+    return NextResponse.json(
+      { error: err.code, message: err.userMessage, ...(err.extra ?? {}) },
+      { status: err.status }
+    );
+  }
   // Do not echo repo contents / secrets into logs or responses.
+  console.error(`[api] unhandled ${err instanceof Error ? err.name : typeof err}`);
   return NextResponse.json({ error: "internal_error" }, { status: 500 });
 }
 

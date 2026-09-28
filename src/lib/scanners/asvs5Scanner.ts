@@ -11,6 +11,7 @@ import {
   ASVS_VERSION,
   type AsvsStaticSignal,
 } from "@/lib/rules/asvs5Catalog";
+import { stillPresentAfterFix } from "@/lib/scanners/findingPresence";
 import { id, now } from "@/lib/util";
 
 const ANALYZABLE_FILE =
@@ -66,7 +67,9 @@ function lineAt(content: string, index: number): number {
 function findSignalMatches(
   file: string,
   content: string,
-  signal: AsvsStaticSignal
+  signal: AsvsStaticSignal,
+  /** 재검증처럼 모든 일치가 필요할 때 true. 스캔은 대표 1건만 쓴다. */
+  all = false
 ): Match[] {
   if (signal.filePattern && !test(signal.filePattern, file)) return [];
   if (signal.requiresContent && !test(signal.requiresContent, content)) return [];
@@ -99,7 +102,8 @@ function findSignalMatches(
     }
 
     matches.push({ line, lineText });
-    break; // 동일 파일·동일 규칙은 대표 근거 1건만 보고해 소음을 제한한다.
+    if (!all) break; // 동일 파일·동일 규칙은 대표 근거 1건만 보고해 소음을 제한한다.
+    if (match[0].length === 0) regex.lastIndex++;
   }
 
   return matches;
@@ -182,8 +186,18 @@ export class Asvs5Scanner implements SecurityScanner {
     const signal = ASVS5_STATIC_SIGNALS.find((item) => item.key === signalKey);
     const file = finding.location?.file;
     const source = file ? context.files[file] : undefined;
+    // 이 항목이 가리킨 줄을 따라간다(같은 파일의 다른 일치에 끌려가지 않음).
     const vulnerable = Boolean(
-      signal && file && source !== undefined && findSignalMatches(file, source, signal).length
+      signal &&
+        file &&
+        source !== undefined &&
+        stillPresentAfterFix({
+          hits: findSignalMatches(file, source, signal, true).map((m) => ({ line: m.line, text: m.lineText })),
+          originalLineText: finding.evidence.find((e) => e.kind === "source_code")?.content,
+          originalLine: finding.location?.line,
+          baselineContent: context.baselineFiles?.[file],
+          fixedLineCount: source.split("\n").length,
+        })
     );
     const securityPass = Boolean(signal && source !== undefined && !vulnerable);
 

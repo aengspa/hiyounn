@@ -1,10 +1,16 @@
 import type { ScanStep } from "@/lib/domain/types";
 
 let counter = 0;
-/** Deterministic-ish id generator for the in-memory store. */
+/**
+ * Id generator. The random suffix keeps ids unique across serverless
+ * instances (each has its own counter), which matters for Postgres keys.
+ */
 export function id(prefix = "id"): string {
   counter += 1;
-  return `${prefix}_${Date.now().toString(36)}_${counter}`;
+  const rnd = new Uint8Array(4);
+  globalThis.crypto.getRandomValues(rnd);
+  const suffix = Array.from(rnd, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${prefix}_${Date.now().toString(36)}_${counter}${suffix}`;
 }
 
 export function now(): string {
@@ -37,4 +43,25 @@ export const SCAN_STEP_ORDER: ScanStep[] = [
 export function maskSecret(value: string): string {
   if (value.length <= 8) return "•".repeat(value.length);
   return value.slice(0, 4) + "•".repeat(value.length - 8) + value.slice(-4);
+}
+
+/**
+ * Run `worker` over `items` with at most `limit` in flight. Results keep the
+ * input order. A rejected worker rejects the whole run (callers catch per item).
+ */
+export async function runPool<T, R>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const lanes = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await worker(items[i], i);
+    }
+  });
+  await Promise.all(lanes);
+  return results;
 }

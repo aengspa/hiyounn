@@ -10,7 +10,8 @@
     "lint": "next lint",
     "verify:rules": "tsx scripts/verify-rules.mts",
     "verify:definitions": "tsx scripts/verify-definition-tools.mts",
-    "test": "vitest --run"
+    "test": "vitest --run",
+    "samples": "tsx scripts/samples/build-samples.mts"
   },
   "dependencies": {
     "next": "14.2.35",

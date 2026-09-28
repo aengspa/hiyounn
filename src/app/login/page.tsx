@@ -5,12 +5,17 @@ import { HoiSpeech } from "@/components/mascot/HoiSpeech";
 import { AuthForm } from "@/components/AuthForm";
 import { Card } from "@/components/ui";
 import { loginAction } from "@/lib/authActions";
-import { isAuthenticated } from "@/lib/auth";
+import { isAuthenticated, safeNextPath } from "@/lib/auth";
 
 export const metadata = { title: "로그인" };
 
-export default async function LoginPage() {
-  if (await isAuthenticated()) redirect("/dashboard");
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams?: { next?: string };
+}) {
+  const next = safeNextPath(searchParams?.next) ?? undefined;
+  if (await isAuthenticated()) redirect(next ?? "/dashboard");
 
   return (
     <>
@@ -25,7 +30,7 @@ export default async function LoginPage() {
             호이와 점검하던 프로젝트로 돌아가요.
           </p>
           <Card variant="raised" className="mt-7 p-5 sm:p-8">
-            <AuthForm mode="login" action={loginAction} />
+            <AuthForm mode="login" action={loginAction} next={next} />
           </Card>
           <Link
             href="/"

@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getCurrentUserId } from "@/lib/auth";
+import { requireUserId } from "@/lib/auth";
 import { createProject } from "@/lib/store/store";
 import { ok, handleApiError } from "@/lib/api";
 import {
@@ -9,23 +9,21 @@ import {
   validateScanModeInput,
   SCAN_MODE_ERROR_MESSAGE,
 } from "@/lib/domain/scanMode";
-import { unzipToFileMap, UnzipError } from "@/lib/net/unzip";
-import { isScannableFile, serializeFileMap } from "@/lib/demo/sourceFiles";
-
-/** Hard cap on the uploaded archive itself (compressed). */
-const MAX_ZIP_BYTES = 8 * 1024 * 1024; // 8 MB
+import { unzipToFileMap, UnzipError, type UnzipSkipped } from "@/lib/net/unzip";
+import { isScannableFile } from "@/lib/demo/sourceFiles";
+import { LIMITS } from "@/lib/config/limits";
 
 /**
  * Create a project from an uploaded ZIP of source files.
  *
  * The server extracts source/manifest files (skipping binaries, node_modules,
- * build output), stores them as the project's source (in the shared
- * `// file:`-delimited format), and the scan then analyzes ONLY these files —
- * never the bundled demo fixture.
+ * build output) and stores them as the project's immutable original source
+ * version. Nothing inside the archive is executed. The scan then analyzes
+ * ONLY these files — never the bundled demo fixture.
  */
 export async function POST(req: NextRequest) {
   try {
-    const uid = await getCurrentUserId();
+    const uid = await requireUserId();
 
     const form = await req.formData().catch(() => null);
     if (!form) return ok({ error: "업로드 형식이 올바르지 않습니다." }, 400);
@@ -35,28 +33,45 @@ export async function POST(req: NextRequest) {
 
     const file = form.get("file");
     if (!(file instanceof File)) {
-      return ok({ error: "ZIP 파일을 첨부해 주세요." }, 400);
-    }
-    if (file.size > MAX_ZIP_BYTES) {
       return ok(
-        { error: `ZIP 파일이 너무 큽니다 (최대 ${MAX_ZIP_BYTES / 1024 / 1024}MB).` },
+        {
+          error: "source_required",
+          message: "점검할 코드가 필요해요. ZIP 파일을 올리거나 코드를 붙여 넣어 주세요.",
+        },
         400
+      );
+    }
+    if (file.size > LIMITS.uploadZipBytes) {
+      const mb = Math.floor(LIMITS.uploadZipBytes / 1024 / 1024);
+      return ok(
+        {
+          error: "file_too_large",
+          message: `ZIP 파일은 ${mb}MB 이하로 올려 주세요.`,
+          limit: LIMITS.uploadZipBytes,
+        },
+        413
       );
     }
 
     const repositoryUrl = validateUrl(form.get("repositoryUrl"));
     const deploymentUrl = validateUrl(form.get("deploymentUrl"));
+    if (form.get("repositoryUrl") && repositoryUrl === null) {
+      return ok({ error: "저장소 주소가 올바른 URL이 아닙니다." }, 400);
+    }
     if (form.get("deploymentUrl") && deploymentUrl === null) {
       return ok({ error: "배포 주소가 올바른 URL이 아닙니다." }, 400);
     }
 
     const buf = Buffer.from(await file.arrayBuffer());
 
+    const skipped: UnzipSkipped[] = [];
     let extracted: Record<string, string>;
     try {
-      extracted = unzipToFileMap(buf);
+      extracted = unzipToFileMap(buf, undefined, skipped);
     } catch (e) {
-      if (e instanceof UnzipError) return ok({ error: e.message }, 400);
+      if (e instanceof UnzipError) {
+        return ok({ error: "invalid_zip", message: e.message }, 400);
+      }
       throw e;
     }
 
@@ -68,7 +83,10 @@ export async function POST(req: NextRequest) {
     const count = Object.keys(scannable).length;
     if (count === 0) {
       return ok(
-        { error: "압축 파일에서 검사할 수 있는 소스 파일을 찾지 못했습니다." },
+        {
+          error: "source_required",
+          message: "압축 파일에서 검사할 수 있는 소스 파일을 찾지 못했어요.",
+        },
         400
       );
     }
@@ -102,16 +120,35 @@ export async function POST(req: NextRequest) {
       name,
       repositoryUrl: repositoryUrl ?? undefined,
       deploymentUrl: deploymentUrl ?? undefined,
-      sourceCode: serializeFileMap(scannable),
+      files: scannable,
+      sourceKind: "zip",
+      sourceZipName: safeZipName(file.name),
       deploymentAuthorized,
       scanMode: scanMode ?? undefined,
       testAccounts: scanMode === "isolated_active" ? testAccounts : undefined,
     });
 
-    return ok({ project: redactProject(project), fileCount: count }, 201);
+    // 한도·형식 때문에 읽지 않은 파일은 숨기지 않고 알려 준다.
+    const skippedTooLarge = skipped.filter((s) => s.reason === "too_large").length;
+    return ok(
+      {
+        project: redactProject(project),
+        fileCount: count,
+        skippedFileCount: skipped.length,
+        skippedTooLarge,
+      },
+      201
+    );
   } catch (err) {
     return handleApiError(err);
   }
+}
+
+/** Display-only file name: base name, no control chars, bounded length. */
+function safeZipName(raw: string): string | undefined {
+  const base = raw.split(/[\\/]/).pop() ?? "";
+  const cleaned = base.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 120);
+  return cleaned || undefined;
 }
 
 function validateUrl(value: unknown): string | null | undefined {

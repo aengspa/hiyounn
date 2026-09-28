@@ -20,15 +20,15 @@ export function PageHeader({
   children,
 }: Props) {
   return (
-    <header className="sticky top-0 z-10 border-b border-line bg-[#F8F7F2]/90 backdrop-blur-lg">
+    <header className="border-b border-line bg-[#F8F7F2]">
       <div className="mx-auto max-w-6xl px-4 py-3 sm:px-6 sm:py-4">
         {backHref && (
           <Link
             href={backHref}
             className="mb-1 inline-flex min-h-11 items-center rounded-xl pr-3 text-sm font-bold text-brand-700 hover:text-brand-900 hover:underline"
-            aria-label={`${backLabel ?? "뒤로"} 이동`}
+            aria-label="이전 화면으로 이동"
           >
-            <span aria-hidden="true">←</span>&nbsp;{backLabel ?? "뒤로"}
+            <span aria-hidden="true">←</span>&nbsp;{backLabel ?? "이전"}
           </Link>
         )}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">

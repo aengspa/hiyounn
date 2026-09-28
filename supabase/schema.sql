@@ -107,6 +107,13 @@ create table if not exists public.verifications (
   created_at  timestamptz not null default now()
 );
 
+-- ── source versions / fix-all jobs / artifacts ────────────────
+-- Defined in supabase/migrations/20260923000000_fix_all_jobs.sql (idempotent).
+-- Run that file after this one on a fresh database:
+--   projects.current_source_version_id, scans.source_version_id,
+--   scans.source_content_hash, source_versions, fix_jobs, fix_artifacts
+--   (legacy), and the private Storage bucket "fix-artifacts".
+
 -- ─────────────────────────────────────────────────────────────
 -- Row Level Security — deny-by-default.
 --
@@ -122,3 +129,18 @@ alter table public.scans         enable row level security;
 alter table public.findings      enable row level security;
 alter table public.fix_attempts  enable row level security;
 alter table public.verifications enable row level security;
+
+-- ── custom_rules (AI-proposed rules, approved by a person) ─────
+-- See migrations/20260929000000_custom_rules.sql.
+create table if not exists public.custom_rules (
+  id          text primary key,
+  owner_id    text not null references public.app_users (id) on delete cascade,
+  project_id  text not null references public.projects (id) on delete cascade,
+  status      text not null check (status in ('proposed', 'approved', 'rejected')),
+  data        jsonb not null,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create index if not exists custom_rules_owner_idx   on public.custom_rules (owner_id);
+create index if not exists custom_rules_project_idx on public.custom_rules (project_id);
+alter table public.custom_rules enable row level security;

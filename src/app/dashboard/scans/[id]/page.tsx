@@ -1,45 +1,37 @@
-﻿import Link from "next/link";
-import { notFound } from "next/navigation";
+﻿import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { HoiScene } from "@/components/mascot/HoiScene";
-import { HoiSpeech } from "@/components/mascot/HoiSpeech";
-import { getCurrentUserId } from "@/lib/auth";
+import { requirePageUserId } from "@/lib/auth";
 import {
   getScan,
+  getProject,
   getFindingsForScan,
+  getSourceVersion,
+  listCustomRules,
+  listFixJobsForScan,
   NotFoundError,
   NotAuthorizedError,
 } from "@/lib/store/store";
-import {
-  AiTag,
-  Badge,
-  Card,
-  MetricCard,
-  SectionHeader,
-  SeverityBadge,
-  SimulatedTag,
-  StatusBadge,
-  TechnicalDetails,
-  buttonClassName,
-  categoryLabel,
-  tierLabel,
-} from "@/components/ui";
-import type { ScanPlan, ScanScope, Severity } from "@/lib/domain/types";
-import { ScanReportPanel } from "@/components/ScanReportPanel";
-import {
-  LIMIT_NOTICE,
-  SEV_LABEL,
-  primaryActionForScan,
-  sortBySeverity,
-  summarizeResult,
-} from "@/lib/ui/presentation";
+import { Card, TechnicalDetails, categoryLabel, tierLabel } from "@/components/ui";
+import type { AiScanCoverage, RouteAuthzEntry, ScanPlan, ScanScope } from "@/lib/domain/types";
+import { sortBySeverity } from "@/lib/ui/presentation";
+import { FixAllPanel, type FindingView } from "@/components/FixAllPanel";
+import { RuleProposals } from "@/components/RuleProposals";
+import { toPublicJob } from "@/lib/fixjobs/publicJob";
+import { isStale } from "@/lib/fixjobs/fixAllService";
+import { LIMITS } from "@/lib/config/limits";
+import { codeContextFor, secretValues } from "@/lib/ui/codeContext";
 
 export const dynamic = "force-dynamic";
 
-const SEVERITY_KEYS: readonly Severity[] = ["critical", "high", "medium", "low"];
-
+/**
+ * 점검 보고서.
+ *   제목 → "확인할 부분 N개를 찾았어요" → 맨 위 "전체 수정하기" → 항목 목록.
+ *   항목의 "더보기"는 설명만 펼친다(항목별 단계 UI 없음).
+ *   수정 후에는 요약·바뀐 파일·실패 항목·다운로드·재검증을 보여 준다.
+ */
 export default async function ScanResultsPage({ params }: { params: { id: string } }) {
-  const uid = await getCurrentUserId();
+  const uid = await requirePageUserId(`/dashboard/scans/${params.id}`);
   let scan;
   try {
     scan = await getScan(params.id, uid);
@@ -47,203 +39,100 @@ export default async function ScanResultsPage({ params }: { params: { id: string
     if (e instanceof NotFoundError || e instanceof NotAuthorizedError) notFound();
     throw e;
   }
+  const project = await getProject(scan.projectId, uid);
+  const findings = sortBySeverity(await getFindingsForScan(scan.id, uid));
+  const jobs = await listFixJobsForScan(scan.id, uid);
+  // 가장 최근 작업. 오래 멈춘 실행 중 작업은 화면에서도 실패로 보여 준다.
+  const latest = jobs[0];
+  const initialJob = latest
+    ? toPublicJob(
+        isStale(latest, Date.now(), LIMITS.staleJobMs)
+          ? { ...latest, status: "failed", errorCode: "timeout", errorMessage: "수정 작업이 제한 시간 안에 끝나지 않았어요. 다시 시도해 주세요." }
+          : latest
+      )
+    : undefined;
 
-  const findings = sortBySeverity(await getFindingsForScan(params.id, uid));
-  const counts: Record<Severity, number> = { critical: 0, high: 0, medium: 0, low: 0 };
-  let verified = 0;
-  let fixedVerified = 0;
-  for (const finding of findings) {
-    counts[finding.severity] += 1;
-    if (finding.status === "verified" || finding.status === "resolved") verified += 1;
-    if (finding.status === "resolved") fixedVerified += 1;
-  }
+  // 점검한 그 버전의 코드로 문제가 된 줄을 보여 준다(비밀값은 가림).
+  const scanned = scan.sourceVersionId ? await getSourceVersion(scan.sourceVersionId, uid).catch(() => undefined) : undefined;
+  const secrets = scanned ? secretValues(scanned.files) : [];
 
-  const summary = summarizeResult(findings);
-  const primaryAction = primaryActionForScan(findings);
-  const firstFixable = findings.find((finding) => finding.status !== "resolved");
+  const views: FindingView[] = findings.map((f) => ({
+    id: f.id,
+    title: f.title,
+    severity: f.severity,
+    humanReadableImpact: f.humanReadableImpact,
+    whyItMatters: f.whyItMatters,
+    remediation: f.remediation,
+    location: f.location,
+    isAi: Boolean(f.verificationKey?.startsWith("ai:") || f.category === "AI Detected"),
+    aiReview: f.aiReview,
+    code: scanned ? codeContextFor(f, scanned.files, secrets) : undefined,
+    corroboratedBy: f.corroboratedBy,
+    carriedOver: Boolean(f.carriedOverFromScanId),
+  }));
+  const proposals = (await listCustomRules(uid, scan.projectId).catch(() => [])).filter((r) => r.sourceScanId === scan.id);
+  const falsePositiveCount = views.filter((v) => v.aiReview?.adjudication?.verdict === "not_vulnerable").length;
+  const activeCount = views.length - falsePositiveCount;
+
   const projectHref = `/dashboard/projects/${scan.projectId}`;
+  const scannedAt = new Date(scan.completedAt ?? scan.startedAt).toLocaleString("ko-KR");
 
   return (
     <>
-      <PageHeader
-        title="호이의 점검 결과"
-        subtitle="쉬운 요약부터 확인하고, 필요할 때 점검 근거와 기술 정보를 펼쳐보세요."
-        backHref={projectHref}
-        backLabel="프로젝트"
-      />
-      <div className="mx-auto max-w-5xl px-4 py-7 sm:px-6 sm:py-10">
-        {/* 2. 호이의 한 줄 요약: 제목 바로 아래, 모든 기술 정보보다 앞 (요구사항 8.1~8.3, 12.5) */}
-        <section aria-labelledby="hoi-summary-title">
-          <h2 id="hoi-summary-title" className="sr-only">호이의 한 줄 요약</h2>
-          <HoiSpeech
-            mood={summary.mood}
-            size="md"
-            footer={summary.showLimitNotice ? LIMIT_NOTICE : undefined}
-          >
-            {summary.message}
-          </HoiSpeech>
-        </section>
-
-        {/* 3. 가장 먼저 할 일: 화면의 유일한 Primary 버튼 (요구사항 8.7) */}
-        <section className="mt-7" aria-labelledby="first-action-title">
-          <Card variant={counts.critical > 0 ? "danger" : "raised"} className="p-5 sm:p-6">
-            <p className="text-sm font-bold text-brand-800">가장 먼저 할 일</p>
-            <div className="mt-1 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 id="first-action-title" className="text-xl font-bold text-ink">
-                  {primaryAction.kind === "open-finding"
-                    ? "가장 급한 미해결 항목부터 살펴봐요"
-                    : "코드가 바뀌면 다시 점검해 주세요"}
-                </h2>
-                <p className="mt-1 text-sm leading-relaxed text-ink">
-                  {primaryAction.kind === "open-finding"
-                    ? "내용을 읽는 것만으로 코드는 바뀌지 않아요. 해결 단계마다 직접 승인할 수 있어요."
-                    : "지금 남은 미해결 항목은 없어요. 아래 점검 범위와 한계도 함께 확인해 주세요."}
-                </p>
-              </div>
-              {primaryAction.kind === "open-finding" ? (
-                <Link
-                  href={`/dashboard/findings/${primaryAction.findingId}`}
-                  className={buttonClassName({ variant: "primary", className: "w-full sm:w-auto" })}
-                >
-                  가장 급한 항목 보기
-                </Link>
-              ) : (
-                <Link
-                  href={projectHref}
-                  className={buttonClassName({ variant: "primary", className: "w-full sm:w-auto" })}
-                >
-                  다시 점검하러 가기
-                </Link>
-              )}
-            </div>
-          </Card>
-        </section>
-
-        {/* 4. 심각도 요약: 백엔드가 기록한 실제 개수만 표시 (요구사항 8.11, 12.3) */}
-        <section className="pt-10" aria-labelledby="severity-title">
-          <SectionHeader
-            eyebrow="우선순위"
-            title={<span id="severity-title">심각도 요약</span>}
-            description="숫자는 이번 점검에서 실제로 기록된 발견과 검증 상태를 기준으로 해요."
-          />
-          <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-6">
-            {SEVERITY_KEYS.map((severity) => (
-              <SeverityMetric key={severity} label={SEV_LABEL[severity]} value={counts[severity]} severity={severity} />
-            ))}
-            <MetricCard label="문제 재현·확인" value={verified} tone="warning" className="col-span-1" />
-            <MetricCard label="고친 뒤 확인 완료" value={fixedVerified} tone="success" className="col-span-1" />
-          </div>
-        </section>
-
-        {/* 5. 해결 가이드 (내부 버튼은 모두 secondary) */}
-        {scan.report ? (
-          <ScanReportPanel report={scan.report} firstFixableFindingId={firstFixable?.id} />
-        ) : (
-          <section id="solution" className="scroll-mt-32 pt-10" aria-labelledby="solution-title">
-            <SectionHeader
-              eyebrow="해결"
-              title={<span id="solution-title">{firstFixable ? "급한 항목부터 해결해요" : "지금은 범위를 확인해요"}</span>}
-              description="자동 요약 보고서는 없지만, 기록된 발견과 근거는 그대로 확인할 수 있어요."
-            />
-            {firstFixable && (
-              <Link
-                href={`/dashboard/findings/${firstFixable.id}?fix=1`}
-                className={buttonClassName({ variant: "secondary", className: "mt-5 w-full sm:w-auto" })}
-              >
-                첫 문제 해결 시작
-              </Link>
-            )}
-          </section>
-        )}
-
-        {/* 6. 발견 목록: critical → high → medium → low (요구사항 8.2, 8.9) */}
-        <section id="findings" className="scroll-mt-32 pt-12" aria-labelledby="findings-title">
-          <SectionHeader
-            eyebrow="확인한 내용"
-            title={<span id="findings-title">발견 목록 ({findings.length}건)</span>}
-            description="쉬운 영향 설명을 먼저 읽고, 상세 화면에서 코드 위치와 근거를 확인해요."
-          />
-          {findings.length === 0 ? (
-            <HoiScene
-              mood="rest"
-              size="md"
-              className="mt-5"
-              title="이번 범위에서 찾은 항목은 없어요"
-              description="확인하지 못한 항목이나 자동 점검이 놓친 문제가 있을 수 있어요. 아래 범위와 한계를 확인하고 코드가 바뀌면 다시 점검해 주세요."
-            />
-          ) : (
-            <ol className="mt-5 space-y-4">
-              {findings.map((finding, index) => {
-                const isAi = finding.verificationKey?.startsWith("ai:") || finding.category === "AI Detected";
-                return (
-                  <li key={finding.id}>
-                    <Link
-                      href={`/dashboard/findings/${finding.id}`}
-                      className="group block rounded-3xl border border-line bg-surface p-5 shadow-warm transition hover:border-brand-300 motion-reduce:transition-none sm:p-6"
-                    >
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge tone="primary">우선순위 {index + 1}</Badge>
-                            <SeverityBadge severity={finding.severity} />
-                            <StatusBadge status={finding.status} />
-                            {finding.simulated && <SimulatedTag />}
-                            {isAi && <AiTag />}
-                          </div>
-                          <h3 className="mt-3 break-words text-lg font-bold text-ink">{finding.title}</h3>
-                          <p className="mt-2 break-keep leading-relaxed text-ink-subtle">{finding.humanReadableImpact}</p>
-                          {finding.location && (
-                            <p className="mt-3 break-all font-mono text-xs text-ink-muted">
-                              {finding.location.file}:{finding.location.line}
-                            </p>
-                          )}
-                        </div>
-                        <span className="inline-flex min-h-11 shrink-0 items-center font-bold text-brand-800 group-hover:underline">
-                          해결 가이드 보기 <span aria-hidden="true">&nbsp;→</span>
-                        </span>
-                      </div>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ol>
+      <PageHeader title={`${project.name} 점검 결과`} backHref={projectHref} backLabel="이전" />
+      <div className="mx-auto max-w-4xl px-4 py-7 sm:px-6 sm:py-10">
+        <section aria-labelledby="report-title">
+          <p className="text-sm text-ink-muted">{scannedAt} 점검</p>
+          <h2 id="report-title" className="mt-1 text-2xl font-bold text-ink">
+            {activeCount > 0
+              ? `확인할 부분 ${activeCount}개를 찾았어요`
+              : "이번 범위에서 확인할 부분을 찾지 못했어요"}
+          </h2>
+          {falsePositiveCount > 0 && (
+            <p className="mt-1 text-sm text-ink-muted">
+              규칙 결과 중 {falsePositiveCount}개는 AI가 코드 근거를 확인해 오탐으로 판정해서 아래에 따로 모았어요.
+            </p>
+          )}
+          {scan.scope.aiCoverage && <AiCoverageNotice coverage={scan.scope.aiCoverage} />}
+          {scan.scope.semgrep && <SemgrepNotice semgrep={scan.scope.semgrep} />}
+          {scan.scope.incremental && (
+            <p className="mt-1 text-sm text-ink-muted">
+              새로 올린 코드에서 바뀐 파일 {scan.scope.incremental.changedFiles.length}개만 AI가 새로 봤어요. 바뀌지 않은 파일{" "}
+              {scan.scope.incremental.unchangedFiles}개는 규칙으로 다시 점검했고, 이전 AI 결과 {scan.scope.incremental.carriedOver}건은
+              “이전 점검에서 이어옴”으로 표시했어요.
+            </p>
           )}
         </section>
 
-        {/* 7. 점검 범위와 한계 */}
-        <section id="coverage" className="scroll-mt-32 pt-12" aria-labelledby="coverage-title">
-          <SectionHeader
-            eyebrow="결과를 읽기 전에"
-            title={<span id="coverage-title">점검 범위와 한계</span>}
-            description="점검한 것과 확인하지 못한 것을 구분해야 결과를 정확히 이해할 수 있어요."
+        {findings.length === 0 ? (
+          <HoiScene
+            mood="rest"
+            size="md"
+            className="mt-6"
+            title="찾은 항목이 없어요"
+            description="자동 점검이 모든 문제를 찾지는 못해요. 아래 점검 범위와 한계를 확인하고, 코드가 바뀌면 다시 점검해 주세요."
           />
-          <ScanScopePanel scope={scan.scope} />
-        </section>
+        ) : (
+          <FixAllPanel
+            scanId={scan.id}
+            findings={views}
+            initialJob={initialJob}
+            canFix={Boolean(scan.sourceVersionId)}
+          />
+        )}
 
-        {/* 8. 기술 정보 (처음에는 접힘, 요구사항 8.5, 8.6) */}
-        <section className="pt-10" aria-labelledby="expert-title">
-          <SectionHeader
-            eyebrow="필요할 때만"
-            title={<span id="expert-title">전문가 정보</span>}
-            description="실행 정책, 규칙, 도구, 커버리지 갭의 원문을 보존해요."
-          />
-          <TechnicalDetails summary="기술 정보 보기" className="mt-5">
-            {scan.plan ? <PlanPanel plan={scan.plan} /> : (
-              <p className="text-sm text-ink-subtle">이 점검에는 저장된 규칙 실행 계획이 없어요.</p>
-            )}
+        {scan.scope.authzMatrix && scan.scope.authzMatrix.length > 0 && <AuthzTable rows={scan.scope.authzMatrix} />}
+        {proposals.length > 0 && <RuleProposals rules={proposals} />}
+
+        <section className="mt-12" aria-labelledby="coverage-title">
+          <h2 id="coverage-title" className="sr-only">점검 범위와 한계</h2>
+          <TechnicalDetails summary="점검 범위와 한계 보기">
+            <ScanScopePanel scope={scan.scope} />
+            {scan.plan ? <PlanPanel plan={scan.plan} /> : null}
             <dl className="mt-5 grid gap-3 border-t border-line pt-5 text-sm sm:grid-cols-2">
-              <ScopeRow label="스캔 상태" value={scan.status} />
-              <ScopeRow label="스캔 ID" value={scan.id} mono />
-              <ScopeRow label="시작 시각" value={new Date(scan.startedAt).toLocaleString("ko-KR")} />
-              <ScopeRow label="완료 시각" value={scan.completedAt ? new Date(scan.completedAt).toLocaleString("ko-KR") : "기록 없음"} />
+              <ScopeRow label="점검 ID" value={scan.id} mono />
+              <ScopeRow label="점검한 코드 확인값(SHA-256)" value={scan.sourceContentHash ?? "기록 없음"} mono />
             </dl>
-            <div className="mt-5 border-t border-line pt-5 text-sm">
-              <h3 className="font-bold text-ink">자동 보고서 요약</h3>
-              <p className="mt-1 whitespace-pre-line leading-relaxed text-ink">
-                {scan.report?.summary ?? "이 점검에는 저장된 자동 보고서 요약이 없어요."}
-              </p>
-            </div>
           </TechnicalDetails>
         </section>
       </div>
@@ -251,14 +140,132 @@ export default async function ScanResultsPage({ params }: { params: { id: string
   );
 }
 
-function SeverityMetric({ label, value, severity }: { label: string; value: number; severity: Severity }) {
-  const tone = severity === "critical" ? "danger" : severity === "high" || severity === "medium" ? "warning" : "info";
-  return <MetricCard label={label} value={value} tone={tone} />;
+const CELL: Record<string, { text: string; tone: string }> = {
+  required: { text: "확인함", tone: "text-success" },
+  checked: { text: "확인함", tone: "text-success" },
+  none: { text: "없음", tone: "font-bold text-danger" },
+  missing: { text: "없음", tone: "font-bold text-danger" },
+  "n/a": { text: "—", tone: "text-ink-muted" },
+  public: { text: "공개(의도)", tone: "text-ink-subtle" },
+  unknown: { text: "모름", tone: "text-warning" },
+};
+
+/**
+ * 라우트별 권한 확인 표. 사실은 AI가 코드에서 뽑았고(선언 줄로 검증),
+ * 빨간 칸의 문제 판단은 규칙이 했다.
+ */
+function AuthzTable({ rows }: { rows: RouteAuthzEntry[] }) {
+  const gaps = rows.filter((r) => (r.findingIds ?? []).length > 0).length;
+  return (
+    <section className="mt-10" aria-labelledby="authz-title">
+      <details open={gaps > 0} className="rounded-3xl border border-line bg-surface p-4 sm:p-5">
+        <summary id="authz-title" className="cursor-pointer text-base font-bold text-ink">
+          라우트 권한 확인 표 ({rows.length}개 라우트{gaps > 0 ? `, 빈틈 ${gaps}곳` : ""})
+        </summary>
+        <p className="mt-2 text-sm text-ink-subtle">
+          AI가 코드에서 라우트마다 로그인·관리자·소유자 확인이 있는지 뽑고(각 행은 실제 선언 줄로 확인했어요), 빨간 칸은 규칙이 빈틈으로 판단한 곳이에요.
+        </p>
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <thead className="text-xs text-ink-muted">
+              <tr className="border-b border-line">
+                <th className="py-2 pr-3 font-bold">라우트</th>
+                <th className="py-2 pr-3 font-bold">로그인</th>
+                <th className="py-2 pr-3 font-bold">관리자</th>
+                <th className="py-2 pr-3 font-bold">소유자 확인</th>
+                <th className="py-2 font-bold">위치</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i} className="border-b border-line align-top last:border-0">
+                  <td className="py-2 pr-3 font-mono text-xs text-ink">
+                    <span className="font-bold">{r.method}</span> {r.path}
+                    {r.notes && <span className="mt-0.5 block font-sans text-ink-muted">{r.notes}</span>}
+                  </td>
+                  {[r.auth, r.admin, r.ownership].map((v, j) => (
+                    <td key={j} className={`py-2 pr-3 ${CELL[v]?.tone ?? ""}`}>
+                      {CELL[v]?.text ?? v}
+                    </td>
+                  ))}
+                  <td className="py-2 font-mono text-xs text-ink-muted">
+                    {r.file}:{r.line}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+  );
+}
+
+function SemgrepNotice({ semgrep }: { semgrep: NonNullable<ScanScope["semgrep"]> }) {
+  const text =
+    semgrep.status === "ran"
+      ? `Semgrep 규칙 검사도 함께 돌렸어요(${semgrep.findings}건${semgrep.config ? `, ${semgrep.config}` : ""}). 같은 문제는 규칙 결과와 합쳤어요.`
+      : semgrep.status === "not_installed"
+        ? "Semgrep이 설치돼 있지 않아 Semgrep 규칙 검사는 건너뛰었어요."
+        : semgrep.status === "failed"
+          ? `Semgrep 규칙 검사를 끝내지 못했어요${semgrep.detail ? ` (${semgrep.detail})` : ""}.`
+          : "Semgrep 규칙 검사를 건너뛰었어요.";
+  return <p className={`mt-1 text-sm ${semgrep.status === "failed" ? "text-warning" : "text-ink-muted"}`}>{text}</p>;
+}
+
+const OMIT_REASON: Record<AiScanCoverage["omitted"][number]["reason"], string> = {
+  too_large: "너무 긴 파일",
+  over_budget: "한 번에 볼 수 있는 양을 넘은 파일",
+  time_budget: "시간이 모자라 보지 못한 파일",
+  call_failed: "AI 응답을 받지 못한 파일",
+  ai_unavailable: "AI 설정 문제로 보지 못한 파일",
+};
+
+/**
+ * AI 분석이 실제로 어디까지 봤는지 제목 바로 아래에 알린다. AI가 일부만 봤는데
+ * 발견 수만 보이면, 적게 찾은 결과가 "문제가 적다"로 읽히기 때문이다.
+ */
+function AiCoverageNotice({ coverage }: { coverage: AiScanCoverage }) {
+  if (coverage.status === "off") {
+    return (
+      <p className="mt-2 text-sm text-ink-muted">
+        AI 분석이 꺼져 있어 규칙 기반 점검만 했어요. 권한 확인 누락 같은 로직 문제는 규칙으로 잘 잡히지 않아요.
+      </p>
+    );
+  }
+  if (coverage.status === "complete") {
+    return (
+      <p className="mt-2 text-sm text-ink-muted">
+        규칙 기반 점검과 함께 AI가 코드 파일 {coverage.filesTotal}개를 모두 살펴봤어요.
+        {coverage.mergedWithRules > 0 && ` 같은 문제를 가리킨 규칙·AI 결과 ${coverage.mergedWithRules}건은 하나로 합쳤어요.`}
+      </p>
+    );
+  }
+  const counts = new Map<string, number>();
+  for (const o of coverage.omitted) counts.set(o.reason, (counts.get(o.reason) ?? 0) + 1);
+  const reasons = [...counts.entries()]
+    .map(([reason, n]) => `${OMIT_REASON[reason as keyof typeof OMIT_REASON] ?? reason} ${n}개`)
+    .join(", ");
+  const retryable = coverage.omitted.some((o) => o.reason === "time_budget" || o.reason === "call_failed");
+  return (
+    <Card variant={coverage.status === "failed" ? "danger" : "warm"} className="mt-4 p-4 text-sm leading-relaxed">
+      <p className="font-bold text-ink">
+        {coverage.status === "failed"
+          ? "AI 분석을 하지 못해 규칙 기반 결과만 보여 드려요"
+          : `AI는 코드 파일 ${coverage.filesTotal}개 중 ${coverage.filesReviewed}개만 살펴봤어요`}
+      </p>
+      {reasons && <p className="mt-1 text-ink-subtle">보지 못한 이유: {reasons}.</p>}
+      <p className="mt-1 text-ink-subtle">
+        AI가 보지 못한 파일의 문제는 이 목록에 없을 수 있어요.
+        {retryable && " 다시 점검하면 이어서 확인할 수 있어요."}
+      </p>
+    </Card>
+  );
 }
 
 function ScanScopePanel({ scope }: { scope: ScanScope }) {
   return (
-    <Card variant="warm" className="mt-5 p-5 sm:p-6">
+    <Card variant="warm" className="p-5">
       <div className="grid gap-6 md:grid-cols-2">
         <div>
           <h3 className="font-bold text-ink">확인한 항목</h3>
@@ -278,13 +285,11 @@ function ScanScopePanel({ scope }: { scope: ScanScope }) {
         </div>
       </div>
       <p className="mt-6 rounded-2xl border border-[#f0d9a6] bg-warning-soft p-4 text-sm leading-relaxed text-warning">
-        자동 점검은 모든 문제를 찾지 못해요. 이 결과는 아래 커밋·시점·연결된 대상과 실행한 항목에만 해당하며, 발견이 없어도 모든 위험을 찾았다는 뜻은 아니에요.
+        자동 점검은 모든 문제를 찾지 못해요. 이 결과는 점검한 시점의 코드와 실행한 항목에만 해당하며, 발견이 없어도 모든 위험을 찾았다는 뜻은 아니에요.
       </p>
       <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
         <ScopeRow label="점검 시각" value={new Date(scope.scanDate).toLocaleString("ko-KR")} />
-        <ScopeRow label="저장소" value={scope.repository ?? "연결 안 됨"} />
         <ScopeRow label="배포 주소" value={scope.deploymentUrl ?? "연결 안 됨"} />
-        <ScopeRow label="점검 커밋" value={scope.testedCommit ?? "기록 없음"} mono />
         <ScopeRow label="스캐너 버전" value={scope.scannerVersion} mono />
         <ScopeRow label="룰셋 버전" value={scope.rulesetVersion} mono />
       </dl>
@@ -303,49 +308,37 @@ function ScopeRow({ label, value, mono = false }: { label: string; value: string
 
 function PlanPanel({ plan }: { plan: ScanPlan }) {
   return (
-    <div>
-      <dl className="grid gap-3 text-sm sm:grid-cols-2">
-        <ScopeRow label="정책 버전" value={plan.policyVersion} mono />
-        <ScopeRow label="규칙 레지스트리 다이제스트" value={plan.ruleRegistryDigest} mono />
-        <ScopeRow label="계획 ID" value={plan.planId} mono />
-        <ScopeRow label="스키마 버전" value={plan.schemaVersion} mono />
-        <ScopeRow label="프로젝트 ID" value={plan.projectId} mono />
-        <ScopeRow label="소스 커밋" value={plan.sourceCommitSha ?? "기록 없음"} mono />
-      </dl>
-
-      <h3 className="mt-6 font-bold text-ink">실행한 검사 ({plan.selectedChecks.length}개)</h3>
+    <div className="mt-6">
+      <h3 className="font-bold text-ink">실행한 검사 ({plan.selectedChecks.length}개)</h3>
       {plan.selectedChecks.length === 0 ? (
         <p className="mt-2 text-sm text-ink-subtle">실행 가능한 검사가 없었어요.</p>
       ) : (
         <div className="mt-3 overflow-x-auto rounded-2xl border border-line">
-          <table className="min-w-[760px] w-full text-left text-sm">
-            <thead className="bg-surface-warm text-xs text-ink-muted"><tr><th className="p-3">규칙</th><th className="p-3">버전</th><th className="p-3">구성요소</th><th className="p-3">검사</th><th className="p-3">도구</th><th className="p-3">등급</th><th className="p-3">전제조건</th></tr></thead>
+          <table className="w-full min-w-[560px] text-left text-sm">
+            <thead className="bg-surface-warm text-xs text-ink-muted">
+              <tr><th className="p-3">규칙</th><th className="p-3">검사</th><th className="p-3">도구</th><th className="p-3">등급</th></tr>
+            </thead>
             <tbody className="divide-y divide-line">
               {plan.selectedChecks.map((check) => (
                 <tr key={`${check.ruleId}-${check.checkId}`}>
                   <td className="p-3 font-bold text-ink">{check.ruleId}</td>
-                  <td className="p-3 font-mono text-xs">{check.ruleVersion}</td>
-                  <td className="p-3 font-mono text-xs">{check.componentId}</td>
                   <td className="p-3 font-mono text-xs">{check.checkId}</td>
                   <td className="p-3 font-mono text-xs">{check.toolId}</td>
                   <td className="p-3">{tierLabel(check.tier)}</td>
-                  <td className="p-3">{check.prerequisiteStatus}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-
       <h3 className="mt-6 font-bold text-ink">확인하지 못한 검사 ({plan.coverageGaps.length}개)</h3>
       {plan.coverageGaps.length === 0 ? (
-        <p className="mt-2 text-sm text-ink-subtle">별도로 기록된 커버리지 갭이 없어요. 그래도 모든 위험을 찾았다는 뜻은 아니에요.</p>
+        <p className="mt-2 text-sm text-ink-subtle">별도로 기록된 항목이 없어요. 그래도 모든 위험을 찾았다는 뜻은 아니에요.</p>
       ) : (
         <ul className="mt-3 space-y-2 text-sm text-ink-subtle">
           {plan.coverageGaps.map((gap, index) => (
             <li key={`${gap.ruleId}-${gap.checkId}-${index}`} className="rounded-2xl bg-warning-soft p-3">
-              <span className="font-bold text-ink">{gap.ruleId}</span>{" "}
-              <span className="break-all font-mono text-xs">({gap.checkId})</span> · {gap.reason}
+              <span className="font-bold text-ink">{gap.ruleId}</span> · {gap.reason}
             </li>
           ))}
         </ul>

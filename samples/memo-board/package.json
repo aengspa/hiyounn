@@ -1,0 +1,10 @@
+{
+  "name": "memo-board",
+  "version": "1.0.0",
+  "private": true,
+  "description": "보안 점검 연습용으로 일부러 취약하게 만든 메모 앱",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=22.13" },
+  "dependencies": { "express": "4.17.1" }
+}

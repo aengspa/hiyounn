@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getCurrentUserId } from "@/lib/auth";
+import { requireUserId } from "@/lib/auth";
 import {
   getFinding,
   getFixForFinding,
@@ -12,7 +12,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const uid = await getCurrentUserId();
+    const uid = await requireUserId();
     const finding = await getFinding(params.id, uid);
     const fix = await getFixForFinding(params.id, uid);
     const verification = await getVerification(params.id, uid);

@@ -17,9 +17,24 @@ const DEFAULT_MODEL = {
   gemini: "gemini-1.5-flash",
 };
 
+// Same resolution rules as src/lib/ai/llmConfig.ts:
+//   key   = LLM_API_KEY, or OPENAI_API_KEY (openai only) as a compat fallback
+//   model = LLM_MODEL, or OPENAI_MODEL (openai only), or the provider default
 function getProvider() {
   const p = (process.env.LLM_PROVIDER || "openai").toLowerCase();
   return p === "anthropic" || p === "gemini" ? p : "openai";
+}
+
+function getApiKey(provider) {
+  if (process.env.LLM_API_KEY) return process.env.LLM_API_KEY;
+  if (provider === "openai" && process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY;
+  return undefined;
+}
+
+function getModel(provider) {
+  if (process.env.LLM_MODEL) return process.env.LLM_MODEL;
+  if (provider === "openai" && process.env.OPENAI_MODEL) return process.env.OPENAI_MODEL;
+  return DEFAULT_MODEL[provider];
 }
 
 module.exports = async function handler(req, res) {
@@ -38,7 +53,7 @@ module.exports = async function handler(req, res) {
     return res.status(405).json({ error: "Method Not Allowed" });
   }
 
-  const apiKey = process.env.LLM_API_KEY;
+  const apiKey = getApiKey(getProvider());
   if (!apiKey) {
     // Never leak whether/what the key is — just report it's not configured.
     return res.status(500).json({ error: "LLM is not configured on the server." });
@@ -62,7 +77,7 @@ module.exports = async function handler(req, res) {
   }
 
   const provider = getProvider();
-  const model = process.env.LLM_MODEL || DEFAULT_MODEL[provider];
+  const model = getModel(provider);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);

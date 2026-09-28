@@ -7,6 +7,7 @@
  * - 모든 문구는 절대 보장 표현을 쓰지 않는다(요구사항 12.4).
  */
 import type { FindingStatus, Severity, TestStatus } from "@/lib/domain/types";
+import { DEFAULT_LIMITS } from "@/lib/config/limits";
 
 // ─────────────────────────────────────────────────────────────
 // 호이 Mood
@@ -348,8 +349,13 @@ export const QUICK_CHECK_ERROR_COPY: Record<
 // 새 프로젝트 (요구사항 7.9, 7.10, 7.11)
 // ─────────────────────────────────────────────────────────────
 
-/** 8MB = 8,388,608바이트. 이 값을 넘으면(초과) 막는다. */
-export const MAX_ZIP_BYTES = 8 * 1024 * 1024;
+/**
+ * 8MB = 8,388,608바이트. 이 값을 넘으면(초과) 막는다.
+ * 서버 한도(src/lib/config/limits.ts)와 같은 기본값을 쓴다.
+ */
+export const MAX_ZIP_BYTES = DEFAULT_LIMITS.uploadZipBytes;
+/** 붙여넣은 코드 최대 길이. 넘으면 잘라내지 않고 막는다. */
+export const MAX_PASTED_SOURCE_CHARS = DEFAULT_LIMITS.pastedSourceChars;
 
 /** 이름 공백 검사 → ZIP 크기 검사 순서. `zipSize`가 `null`이면 ZIP 없음. */
 export function validateProjectDraft(draft: {

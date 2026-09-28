@@ -602,6 +602,10 @@ export const ASVS5_STATIC_SIGNALS: AsvsStaticSignal[] = [
     remediation: "목적지 scheme·host·port를 허용 목록으로 제한하고 DNS 재바인딩과 사설 IP를 차단하세요.",
     pattern: /(?:fetch|axios\.(?:get|post|request)|requests?\.(?:get|post)|http\.(?:get|request))\s*\([^\n]*(?:req\.|request\.|params|query|body|input|url)/i,
     safeWindowPattern: /(?:allowlist|allowedHosts|safeFetch|isPrivate|isBlocked|new URL|validateUrl)/i,
+    // 서버 설정(process.env.X)이나 상수 문자열로만 만든 주소는 사용자 입력이 아니다.
+    // (예: fetch(process.env.MAIL_API_URL, ...) 의 "URL"을 입력으로 오인하지 않게)
+    excludeLinePattern:
+      /(?:fetch|axios\.(?:get|post|request)|requests?\.(?:get|post)|http\.(?:get|request))\s*\(\s*(?:process\.env\.[A-Za-z0-9_]+|["'`][^"'`$]*["'`])\s*[,)]/,
     windowBefore: 5,
   }),
   signal(37, {

@@ -171,6 +171,36 @@ export interface SecurityFinding {
   /** 문서 어휘 상태. 미지정 시 status에서 유도. */
   testStatus?: TestStatus;
 
+  /**
+   * 같은 문제를 다시 알아보기 위한 식별값(예: 비밀값의 잘린 SHA-256).
+   * 원래 값을 되살릴 수 없는 값만 넣는다.
+   */
+  fingerprint?: string;
+
+  /**
+   * 규칙 기반 발견에 대한 AI의 의견. 규칙 결과는 기준(baseline)이라 AI가
+   * 지우지 않고, 의견만 곁에 붙인다.
+   */
+  aiReview?: {
+    verdict: "confirmed" | "likely_false_positive" | "unsure";
+    reason?: string;
+    /**
+     * 오탐 의견이 붙은 규칙 항목을 AI가 근거 코드와 함께 다시 판정한 결과.
+     * not_vulnerable이면 "오탐으로 판정"으로 보여 주고 자동 수정 대상에서 뺀다.
+     */
+    adjudication?: {
+      verdict: "not_vulnerable" | "vulnerable" | "unsure";
+      reason: string;
+      evidence: { file: string; snippet: string; explanation: string }[];
+    };
+  };
+
+  /** 같은 문제를 함께 찾은 다른 검사기(예: "semgrep", "ai"). */
+  corroboratedBy?: string[];
+
+  /** 재업로드 증분 점검에서 바뀌지 않은 파일의 이전 AI 결과를 이어 온 경우. */
+  carriedOverFromScanId?: string;
+
   createdAt: string;
   updatedAt: string;
 }
@@ -191,6 +221,11 @@ export interface FixDiff {
    */
   beforeText?: string;
   afterText?: string;
+  /**
+   * "create"일 때만 새 파일을 만든다(afterText가 파일 전체 내용). 없으면
+   * 기존 파일의 beforeText를 afterText로 바꾸는 수정으로 본다.
+   */
+  mode?: "replace" | "create";
 }
 
 export interface FixAttempt {
@@ -305,6 +340,81 @@ export interface ScanScope {
   rulesetVersion: string;
   testedCategories: string[];
   untestedCategories: string[];
+  /** AI 코드 분석이 실제로 어디까지 봤는지. 없으면 기록 이전 점검. */
+  aiCoverage?: AiScanCoverage;
+  /** AI가 뽑고 규칙이 판단한 라우트별 권한 확인 표. */
+  authzMatrix?: RouteAuthzEntry[];
+  /** Semgrep 실행 결과 요약. */
+  semgrep?: { status: "ran" | "not_installed" | "failed" | "skipped"; findings: number; config?: string; detail?: string };
+  /** 재업로드 증분 점검 정보. */
+  incremental?: { previousScanId: string; changedFiles: string[]; unchangedFiles: number; carriedOver: number };
+}
+
+/** 라우트 하나의 권한 확인 사실(AI가 코드에서 뽑고 서버가 근거를 검증). */
+export interface RouteAuthzEntry {
+  method: string;
+  path: string;
+  file: string;
+  line: number;
+  snippet: string;
+  /** 로그인 확인. public = 로그인 없이 쓰도록 만든 라우트(로그인·가입·비밀번호 재설정 요청·서명 검증 웹훅 등). */
+  auth: "required" | "none" | "public" | "unknown";
+  /** 관리자 확인(관리자 기능이 아니면 n/a). */
+  admin: "required" | "none" | "n/a" | "unknown";
+  /** 특정 객체(id)를 다룰 때 소유자 확인(객체를 다루지 않으면 n/a). */
+  ownership: "checked" | "missing" | "n/a" | "unknown";
+  /** 데이터를 바꾸는 라우트인지. */
+  mutates: boolean;
+  notes?: string;
+  /** 규칙이 이 행에서 찾은 문제(finding id). */
+  findingIds?: string[];
+}
+
+/**
+ * AI가 제안하고 사람이 승인한 규칙. 승인되면 이후 점검에서 규칙(baseline)으로 쓴다.
+ */
+export interface CustomRule {
+  id: string;
+  ownerId: string;
+  projectId: string;
+  status: "proposed" | "approved" | "rejected";
+  title: string;
+  cwe?: string;
+  severity: Severity;
+  /** JavaScript 정규식 본문(한 줄 단위로 검사). */
+  pattern: string;
+  flags: string;
+  /** 같은 줄에 이 패턴이 있으면 안전한 것으로 본다(선택). */
+  safePattern?: string;
+  rationale: string;
+  remediation?: string;
+  /** 제안의 근거가 된 AI 발견. */
+  sourceFindingId?: string;
+  sourceScanId?: string;
+  /** 제안할 때 이 규칙이 프로젝트에서 잡은 줄(미리보기). */
+  preview: { file: string; line: number; text: string }[];
+  createdAt: string;
+  decidedAt?: string;
+}
+
+/**
+ * AI 코드 분석 범위.
+ *  - off: AI 설정이 없어 규칙 기반 점검만 함
+ *  - complete: 분석 대상 파일을 모두 봄
+ *  - partial: 일부 파일만 봄(한도·시간·호출 실패)
+ *  - failed: 한 파일도 분석하지 못함
+ */
+export interface AiScanCoverage {
+  status: "off" | "complete" | "partial" | "failed";
+  /** AI 분석 대상이 된 코드 파일 수. */
+  filesTotal: number;
+  /** 실제로 AI가 분석한 파일 수. */
+  filesReviewed: number;
+  /** 보내지 못했거나 분석이 끝나지 않은 파일과 이유. */
+  omitted: { path: string; reason: "too_large" | "over_budget" | "time_budget" | "call_failed" | "ai_unavailable" }[];
+  calls: number;
+  /** 규칙 결과와 합쳐진 AI 발견 수. */
+  mergedWithRules: number;
 }
 
 export type ScanStatus = "queued" | "running" | "completed" | "failed";
@@ -324,6 +434,11 @@ export interface Scan {
   id: string;
   projectId: string;
   status: ScanStatus;
+  /** 검사한 불변 소스 버전. 실제 Git 커밋이 아니다. */
+  sourceVersionId?: string;
+  /** 검사한 소스 버전의 내용 해시(SHA-256). */
+  sourceContentHash?: string;
+  /** 실제 Git 커밋을 알 때만 채운다. 가짜 해시를 넣지 않는다. */
   commitSha?: string;
   startedAt: string;
   completedAt?: string;
@@ -383,7 +498,203 @@ export interface Project {
    * never mixed into user results.
    */
   isDemo?: boolean;
+  /**
+   * 지금 점검 대상인 불변 소스 버전. 처음에는 업로드 원본이고, 사용자가
+   * 수정본을 다시 등록하면 새 버전으로 바뀐다. 원본 버전은 지우지 않는다.
+   */
+  currentSourceVersionId?: string;
   createdAt: string;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Source versions (immutable)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * 한 번 저장하면 바뀌지 않는 소스 스냅샷. 원본·수정본·재등록본을 서로
+ * 섞지 않기 위해 내용 해시와 함께 따로 보관한다.
+ */
+export interface SourceVersion {
+  id: string;
+  projectId: string;
+  ownerId: string;
+  kind: "original" | "fixed" | "reupload";
+  /** 수정본이면 어떤 버전에서 만들어졌는지. */
+  parentVersionId?: string;
+  /** 수정본이면 어떤 전체 수정 작업이 만들었는지. */
+  fixJobId?: string;
+  /** 상대 경로 → 파일 내용. */
+  files: Record<string, string>;
+  fileCount: number;
+  totalBytes: number;
+  /** 정렬한 (경로, 내용) 목록의 SHA-256. */
+  contentHash: string;
+  createdAt: string;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Fix-all jobs
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * 항목별 수정 결과.
+ *  - applied: 수정이 작업 복사본에 실제로 적용됨 (아직 해결 확인은 아님)
+ *  - apply_failed: 수정안은 있었지만 원본과 맞지 않거나 충돌해 적용하지 못함
+ *  - unsupported: 자동 수정 방법이 없음 (배포 설정, 외부 작업 등)
+ *  - skipped: 한도·시간 초과 등으로 이번 작업에서 다루지 못함
+ */
+export type FixItemOutcome = "applied" | "apply_failed" | "unsupported" | "skipped";
+
+export interface FixJobItem {
+  findingId: string;
+  title: string;
+  severity: Severity;
+  ruleId?: string;
+  outcome: FixItemOutcome;
+  /** 내부 사유 코드 (예: before_not_found, conflict, unsafe_path). */
+  reasonCode?: string;
+  /** 사용자에게 보여 줄 짧은 이유. */
+  reason?: string;
+  fixSource?: "deterministic" | "llm";
+  /** 이 항목 때문에 바뀐 파일. */
+  files: string[];
+  summary?: string;
+  plainExplanation?: string;
+  /** LLM 수정안을 요청했다면 그 요청의 추적 ID. */
+  llmCorrelationId?: string;
+  /** 이 항목 때문에 바뀐 코드(비밀값은 가림). diff 화면에 쓴다. */
+  edits?: { file: string; before: string; after: string; /** 수정 전 파일에서 before가 시작하는 줄. */ line?: number }[];
+}
+
+export type FixJobStatus = "running" | "completed" | "partial" | "failed";
+
+/** 다운로드할 수정 파일 묶음. 바뀐 파일만 원래 상대 경로로 담는다. */
+export interface FixJobArtifact {
+  id: string;
+  fileName: string;
+  size: number;
+  /** ZIP 바이트의 SHA-256. 다운로드 파일과 비교할 수 있다. */
+  sha256: string;
+  changedFiles: string[];
+  /** 저장소 안 위치. 사용자 입력으로 만들지 않는다. */
+  storageKey: string;
+  createdAt: string;
+}
+
+export interface FixJob {
+  id: string;
+  projectId: string;
+  ownerId: string;
+  scanId: string;
+  /** 수정의 기준이 된 소스 버전(= 스캔한 버전). */
+  baseVersionId: string;
+  baseContentHash: string;
+  /** 수정이 적용된 새 소스 버전. 적용된 항목이 없으면 없다. */
+  resultVersionId?: string;
+  resultContentHash?: string;
+  /** 같은 요청의 중복 실행을 막는 키. */
+  idempotencyKey: string;
+  status: FixJobStatus;
+  items: FixJobItem[];
+  changedFiles: string[];
+  artifact?: FixJobArtifact;
+  /** 한도 때문에 이번 작업에서 뺀 항목 수. */
+  skippedForLimit: number;
+  /** 수정본에 대한 가장 최근 재검증. */
+  verification?: FixJobVerification;
+  /** 수정본이 새로 요구하는 환경변수(반영 전에 설정해야 함). */
+  requiredEnv?: import("@/lib/remediation/requiredEnv").RequiredEnv[];
+  errorCode?: string;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Re-verification of a fix job's result version
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * 수정본 소스에서 원래 항목이 어떻게 보이는지.
+ *  - fixed_in_source: 수정본 코드에서 문제가 사라졌다는 근거가 있음
+ *    (코드 기준 판단이며, 배포된 사이트에서 실행해 본 결과는 아님)
+ *  - still_present: 수정본 코드에 문제가 남아 있다는 근거가 있음
+ *  - inconclusive: 근거가 부족하거나 확인하지 못함
+ */
+export type ReverifyVerdict = "fixed_in_source" | "still_present" | "inconclusive" | "false_positive";
+
+/**
+ * 공격 재현 테스트(AI가 작성, 격리된 프로세스에서 실행).
+ *  - blocked: 원본에서는 공격이 성공했고 수정본에서는 막힘(실행으로 확인)
+ *  - still_exploitable: 수정본에서도 공격이 성공
+ *  - not_reproduced: 원본에서도 공격이 재현되지 않아 테스트를 믿을 수 없음
+ *  - error / not_run: 실행하지 못함(결론 없음)
+ */
+export interface ExploitCheck {
+  status: "blocked" | "still_exploitable" | "not_reproduced" | "error" | "not_run";
+  detail: string;
+  /** 사람이 확인할 수 있게 테스트 코드를 남긴다(비밀값은 가림). */
+  testCode?: string;
+  before?: { attackSucceeded: boolean | null; note: string };
+  after?: { attackSucceeded: boolean | null; note: string };
+}
+
+export interface ReverifyEvidence {
+  file: string;
+  /** 수정본 파일에 그대로 있는 코드(서버가 존재를 확인함). */
+  snippet: string;
+  explanation: string;
+}
+
+export interface ReverifyItem {
+  findingId: string;
+  title: string;
+  severity: Severity;
+  verdict: ReverifyVerdict;
+  /**
+   * 누가 판단했는지. rule = 규칙 재검사, llm = AI 코드 재검토,
+   * rule+llm = 규칙과 AI가 같은 결론.
+   */
+  method?: "rule" | "llm" | "rule+llm" | "exploit";
+  /** 공격 재현 테스트가 원본에서 성공하고 수정본에서 막힌 것을 실행으로 확인했는지. */
+  executed?: boolean;
+  summary?: string;
+  evidence: ReverifyEvidence[];
+  /** inconclusive 등의 내부 사유 코드. disputed = 규칙과 AI 결론이 다름. */
+  reasonCode?: string;
+  /** 규칙 재검사 결론(있을 때). 최종 verdict와 따로 남긴다. */
+  ruleVerdict?: ReverifyVerdict;
+  /** AI 재검토 결론(근거가 서버 검증을 통과했을 때만). */
+  aiVerdict?: ReverifyVerdict;
+  aiSummary?: string;
+  /** 규칙 재검사 설명(사람이 읽는 한국어). */
+  ruleSummary?: string;
+  /** 공격 재현 테스트 결과. */
+  exploit?: ExploitCheck;
+}
+
+export interface ReverifyFileNote {
+  path: string;
+  reason: "over_budget" | "too_large";
+}
+
+export interface FixJobVerification {
+  id: string;
+  status: "running" | "completed" | "failed";
+  /** AI 재검토 상태. not_available = 키 없음, not_needed = 규칙으로 모두 판단. */
+  aiStatus: "completed" | "failed" | "not_available" | "not_needed" | "pending";
+  resultVersionId: string;
+  resultContentHash: string;
+  /** AI에 보낸 파일과 보내지 못한 파일(조용히 자르지 않음). */
+  sentFiles: string[];
+  omittedFiles: ReverifyFileNote[];
+  items: ReverifyItem[];
+  llmCorrelationId?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  startedAt: string;
+  completedAt?: string;
 }
 
 export interface User {

@@ -29,10 +29,14 @@ function SubmitButton({ label }: { label: string }) {
 export function AuthForm({
   mode,
   action,
+  next,
 }: {
   mode: Mode;
   action: (prev: AuthState, formData: FormData) => Promise<AuthState>;
+  /** 로그인 후 돌아갈 대시보드 경로. 서버에서 다시 검증한다. */
+  next?: string;
 }) {
+  const nextQuery = next ? `?next=${encodeURIComponent(next)}` : "";
   const [state, formAction] = useFormState<AuthState, FormData>(action, undefined);
   const formRef = useRef<HTMLFormElement>(null);
   const isSignup = mode === "signup";
@@ -47,6 +51,7 @@ export function AuthForm({
 
   return (
     <form ref={formRef} action={formAction} className="space-y-5" aria-describedby={errorId}>
+      {next && <input type="hidden" name="next" value={next} />}
       {state?.error && (
         <div
           id={errorId}
@@ -115,14 +120,14 @@ export function AuthForm({
         {isSignup ? (
           <>
             이미 계정이 있나요?{" "}
-            <Link href="/login" className="inline-flex min-h-11 items-center font-bold text-brand-800 underline-offset-4 hover:underline">
+            <Link href={`/login${nextQuery}`} className="inline-flex min-h-11 items-center font-bold text-brand-800 underline-offset-4 hover:underline">
               로그인하기
             </Link>
           </>
         ) : (
           <>
             아직 계정이 없나요?{" "}
-            <Link href="/signup" className="inline-flex min-h-11 items-center font-bold text-brand-800 underline-offset-4 hover:underline">
+            <Link href={`/signup${nextQuery}`} className="inline-flex min-h-11 items-center font-bold text-brand-800 underline-offset-4 hover:underline">
               계정 만들기
             </Link>
           </>

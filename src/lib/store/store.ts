@@ -1,16 +1,18 @@
 ﻿import type {
+  CustomRule,
   Project,
   Scan,
   SecurityFinding,
   FixAttempt,
   FixArtifact,
+  FixJob,
+  SourceVersion,
   VerificationResult,
   User,
 } from "@/lib/domain/types";
-import type { ScanMode, TestAccount } from "@/lib/domain/scanMode";
 import type { Buffer } from "buffer";
-import type { StoreBackend } from "./backend";
-import { MemoryStore, DEMO_USER } from "./memoryStore";
+import type { CreateProjectInput, StoreBackend } from "./backend";
+import { MemoryStore } from "./memoryStore";
 import { SupabaseStore } from "./supabaseStore";
 
 /**
@@ -20,7 +22,7 @@ import { SupabaseStore } from "./supabaseStore";
  * the app's store. Every API route and server component imports from here, so
  * switching backends is a single environment variable — no caller changes.
  *
- *   DATA_STORE=memory    (default) in-process Map. Dev / demo only; on Vercel
+ *   DATA_STORE=memory    (default) in-process Map. Dev / tests only; on Vercel
  *                        state is NOT shared across serverless invocations.
  *   DATA_STORE=supabase  Postgres via the service-role key. Use in any
  *                        deployed environment so data survives across requests.
@@ -33,11 +35,19 @@ export {
   NotFoundError,
   EmailInUseError,
   VerificationUnavailableError,
+  UnauthenticatedError,
+  AppError,
+  SchemaMigrationRequiredError,
 } from "./errors";
-export { DEMO_USER };
+export type { CreateProjectInput } from "./backend";
 
-function selectBackend(): StoreBackend {
-  const mode = (process.env.DATA_STORE ?? "memory").toLowerCase();
+export function storeMode(): "memory" | "supabase" {
+  return (process.env.DATA_STORE ?? "memory").toLowerCase() === "supabase"
+    ? "supabase"
+    : "memory";
+}
+
+function selectBackend(mode: "memory" | "supabase"): StoreBackend {
   if (mode === "supabase") return new SupabaseStore();
   return new MemoryStore();
 }
@@ -48,64 +58,75 @@ function selectBackend(): StoreBackend {
  * backend on the next request. The MemoryStore keeps its own persistence in
  * globalThis.__vsa_db; SupabaseStore is stateless, so recreating it is cheap.
  */
-const g = globalThis as unknown as {
-  __vsa_store?: { mode: string; backend: StoreBackend };
-};
-const mode = (process.env.DATA_STORE ?? "memory").toLowerCase();
-if (!g.__vsa_store || g.__vsa_store.mode !== mode) {
-  g.__vsa_store = { mode, backend: selectBackend() };
+function backend(): StoreBackend {
+  const g = globalThis as unknown as {
+    __vsa_store?: { mode: string; backend: StoreBackend };
+  };
+  const mode = storeMode();
+  if (!g.__vsa_store || g.__vsa_store.mode !== mode) {
+    g.__vsa_store = { mode, backend: selectBackend(mode) };
+  }
+  return g.__vsa_store.backend;
 }
-const backend: StoreBackend = g.__vsa_store.backend;
 
 // ── Users ──
 export function findUserByEmail(email: string): Promise<User | undefined> {
-  return backend.findUserByEmail(email);
+  return backend().findUserByEmail(email);
 }
 export function getUserById(userId: string): Promise<User | undefined> {
-  return backend.getUserById(userId);
+  return backend().getUserById(userId);
 }
 export function createUser(input: {
   email: string;
   passwordHash: string;
   name?: string;
 }): Promise<User> {
-  return backend.createUser(input);
+  return backend().createUser(input);
 }
 
 // ── Projects ──
 export function listProjects(ownerId: string): Promise<Project[]> {
-  return backend.listProjects(ownerId);
+  return backend().listProjects(ownerId);
 }
 export function getProject(projectId: string, ownerId: string): Promise<Project> {
-  return backend.getProject(projectId, ownerId);
+  return backend().getProject(projectId, ownerId);
 }
 export function createProject(
   ownerId: string,
-  input: {
-    name: string;
-    repositoryUrl?: string;
-    deploymentUrl?: string;
-    sourceCode?: string;
-    deploymentAuthorized?: boolean;
-    scanMode?: ScanMode;
-    testAccounts?: TestAccount[];
-  }
+  input: CreateProjectInput
 ): Promise<Project> {
-  return backend.createProject(ownerId, input);
+  return backend().createProject(ownerId, input);
+}
+
+// ── Source versions ──
+export function getSourceVersion(
+  versionId: string,
+  ownerId: string
+): Promise<SourceVersion> {
+  return backend().getSourceVersion(versionId, ownerId);
+}
+export function saveSourceVersion(version: SourceVersion): Promise<void> {
+  return backend().saveSourceVersion(version);
+}
+export function getCurrentSourceVersion(
+  projectId: string,
+  ownerId: string
+): Promise<SourceVersion | undefined> {
+  return backend().getCurrentSourceVersion(projectId, ownerId);
 }
 
 // ── Scans ──
 export function listScans(projectId: string, ownerId: string): Promise<Scan[]> {
-  return backend.listScans(projectId, ownerId);
+  return backend().listScans(projectId, ownerId);
 }
 export function getScan(scanId: string, ownerId: string): Promise<Scan> {
-  return backend.getScan(scanId, ownerId);
+  return backend().getScan(scanId, ownerId);
 }
 export function runScan(projectId: string, ownerId: string): Promise<Scan> {
-  return backend.runScan(projectId, ownerId);
+  return backend().runScan(projectId, ownerId);
 }
 export function scanPlan(projectId: string, ownerId: string): Promise<unknown> {
-  return backend.scanPlan(projectId, ownerId);
+  return backend().scanPlan(projectId, ownerId);
 }
 
 // ── Findings ──
@@ -113,69 +134,115 @@ export function getFinding(
   findingId: string,
   ownerId: string
 ): Promise<SecurityFinding> {
-  return backend.getFinding(findingId, ownerId);
+  return backend().getFinding(findingId, ownerId);
 }
 export function getFindingsForScan(
   scanId: string,
   ownerId: string
 ): Promise<SecurityFinding[]> {
-  return backend.getFindingsForScan(scanId, ownerId);
+  return backend().getFindingsForScan(scanId, ownerId);
 }
 
-// ── Fixes & verification ──
+// ── Fix-all jobs ──
+export function insertFixJob(
+  job: FixJob
+): Promise<{ job: FixJob; created: boolean }> {
+  return backend().insertFixJob(job);
+}
+export function updateFixJob(job: FixJob): Promise<void> {
+  return backend().updateFixJob(job);
+}
+export function getFixJob(jobId: string, ownerId: string): Promise<FixJob> {
+  return backend().getFixJob(jobId, ownerId);
+}
+export function findFixJobByKey(
+  ownerId: string,
+  idempotencyKey: string
+): Promise<FixJob | undefined> {
+  return backend().findFixJobByKey(ownerId, idempotencyKey);
+}
+export function listFixJobsForScan(
+  scanId: string,
+  ownerId: string
+): Promise<FixJob[]> {
+  return backend().listFixJobsForScan(scanId, ownerId);
+}
+
+// ── Fixes & verification (legacy single-item flow) ──
 export function generateFixForFinding(
   findingId: string,
   ownerId: string
 ): Promise<FixAttempt> {
-  return backend.generateFixForFinding(findingId, ownerId);
+  return backend().generateFixForFinding(findingId, ownerId);
 }
 export function getFixForFinding(
   findingId: string,
   ownerId: string
 ): Promise<FixAttempt | undefined> {
-  return backend.getFixForFinding(findingId, ownerId);
+  return backend().getFixForFinding(findingId, ownerId);
 }
 export function applyFix(
   findingId: string,
   ownerId: string
 ): Promise<SecurityFinding> {
-  return backend.applyFix(findingId, ownerId);
+  return backend().applyFix(findingId, ownerId);
 }
 export function verifyFinding(
   findingId: string,
   ownerId: string
 ): Promise<{ finding: SecurityFinding; result: VerificationResult }> {
-  return backend.verifyFinding(findingId, ownerId);
+  return backend().verifyFinding(findingId, ownerId);
 }
 export function getVerification(
   findingId: string,
   ownerId: string
 ): Promise<VerificationResult | undefined> {
-  return backend.getVerification(findingId, ownerId);
+  return backend().getVerification(findingId, ownerId);
 }
 
-// ── Fix artifacts ──
+// ── AI-proposed rules ──
+export function listCustomRules(ownerId: string, projectId?: string): Promise<CustomRule[]> {
+  return backend().listCustomRules(ownerId, projectId);
+}
+export function getCustomRule(ruleId: string, ownerId: string): Promise<CustomRule> {
+  return backend().getCustomRule(ruleId, ownerId);
+}
+export function saveCustomRule(rule: CustomRule): Promise<void> {
+  return backend().saveCustomRule(rule);
+}
+
+// ── Re-upload ──
+export function addSourceVersion(
+  projectId: string,
+  ownerId: string,
+  files: Record<string, string>,
+  meta?: { sourceKind: "zip" | "paste"; zipName?: string }
+): Promise<SourceVersion> {
+  return backend().addSourceVersion(projectId, ownerId, files, meta);
+}
+
+// ── Legacy per-finding artifacts ──
 export function buildFixArtifact(
   findingId: string,
   ownerId: string
 ): Promise<FixArtifact> {
-  return backend.buildFixArtifact(findingId, ownerId);
+  return backend().buildFixArtifact(findingId, ownerId);
 }
 export function getFixArtifact(
   artifactId: string,
   ownerId: string
 ): Promise<FixArtifact | undefined> {
-  return backend.getFixArtifact(artifactId, ownerId);
+  return backend().getFixArtifact(artifactId, ownerId);
 }
 export function getFixArtifactBytes(
   artifactId: string,
   ownerId: string
 ): Promise<Buffer | undefined> {
-  return backend.getFixArtifactBytes(artifactId, ownerId);
+  return backend().getFixArtifactBytes(artifactId, ownerId);
 }
 export function listFixArtifacts(
   findingId: string,
   ownerId: string
 ): Promise<FixArtifact[]> {
-  return backend.listFixArtifacts(findingId, ownerId);
+  return backend().listFixArtifacts(findingId, ownerId);
 }

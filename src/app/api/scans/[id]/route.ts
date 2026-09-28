@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getCurrentUserId } from "@/lib/auth";
+import { requireUserId } from "@/lib/auth";
 import { getScan, getFindingsForScan } from "@/lib/store/store";
 import { ok, handleApiError } from "@/lib/api";
 
@@ -8,7 +8,7 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const uid = await getCurrentUserId();
+    const uid = await requireUserId();
     const scan = await getScan(params.id, uid);
     const findings = await getFindingsForScan(params.id, uid);
     return ok({ scan, findings });

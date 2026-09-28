@@ -5,12 +5,17 @@ import { HoiSpeech } from "@/components/mascot/HoiSpeech";
 import { AuthForm } from "@/components/AuthForm";
 import { Card } from "@/components/ui";
 import { signupAction } from "@/lib/authActions";
-import { isAuthenticated } from "@/lib/auth";
+import { isAuthenticated, safeNextPath } from "@/lib/auth";
 
 export const metadata = { title: "회원가입" };
 
-export default async function SignupPage() {
-  if (await isAuthenticated()) redirect("/dashboard");
+export default async function SignupPage({
+  searchParams,
+}: {
+  searchParams?: { next?: string };
+}) {
+  const next = safeNextPath(searchParams?.next) ?? undefined;
+  if (await isAuthenticated()) redirect(next ?? "/dashboard");
 
   return (
     <>
@@ -25,7 +30,7 @@ export default async function SignupPage() {
             계정을 만들고 프로젝트의 약한 곳부터 하나씩 살펴봐요.
           </p>
           <Card variant="raised" className="mt-7 p-5 sm:p-8">
-            <AuthForm mode="signup" action={signupAction} />
+            <AuthForm mode="signup" action={signupAction} next={next} />
           </Card>
           <Link
             href="/"

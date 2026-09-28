@@ -1,48 +1,80 @@
 import type {
+  CustomRule,
   Project,
   Scan,
   SecurityFinding,
   FixAttempt,
   FixArtifact,
+  FixJob,
+  SourceVersion,
   VerificationResult,
   User,
 } from "@/lib/domain/types";
-import { parseScanMode, type ScanMode, type TestAccount } from "@/lib/domain/scanMode";
+import { parseScanMode, type TestAccount } from "@/lib/domain/scanMode";
 import { toTestStatus } from "@/lib/domain/types";
 import { id, now } from "@/lib/util";
 import { Buffer } from "buffer";
 import { contextForProject } from "@/lib/scanners/contextFor";
+import { runScanPipeline } from "@/lib/scan/scanPipeline";
 import { SecurityOrchestrator } from "@/lib/scanners/orchestrator";
 import { generateScanReport } from "@/lib/reporting/reportGenerator";
 import { generateFixSmart } from "@/lib/remediation/fixGenerator";
 import { buildFixArtifact } from "@/lib/remediation/artifactBuilder";
+import { serializeFileMap } from "@/lib/demo/sourceFiles";
+import { makeSourceVersion } from "@/lib/source/sourceVersion";
 import {
   NotAuthorizedError,
   NotFoundError,
   EmailInUseError,
   VerificationUnavailableError,
+  SchemaMigrationRequiredError,
 } from "./errors";
-import type { StoreBackend } from "./backend";
+import {
+  assertHasSourceFiles,
+  legacyFilesFromProject,
+  SourceMissingError,
+} from "./sourceHelpers";
+import type { CreateProjectInput, StoreBackend } from "./backend";
 import {
   selectRows,
   selectOne,
   insertRows,
   upsertRows,
   updateRows,
+  deleteRows,
+  isSchemaError,
+  isUniqueViolation,
 } from "./supabaseClient";
 
 /**
  * Supabase-backed store. Same interface + same ownership semantics as the
- * in-memory backend, but every project / scan / finding is persisted to
- * Postgres so state is shared across all Vercel serverless invocations.
+ * in-memory backend, but every project / scan / finding / source version /
+ * fix job is persisted to Postgres so state is shared across all Vercel
+ * serverless invocations.
  *
  * Ownership is enforced here (the app's IDOR defense); the DB has RLS enabled
  * deny-by-default as a second line of defense (the server uses the service
  * role key which bypasses RLS).
+ *
+ * Missing tables/columns raise SchemaMigrationRequiredError (HTTP 503). We no
+ * longer retry without the new columns, because that made unsaved data look
+ * saved.
  */
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+const q = encodeURIComponent;
+
+/** Run a DB call; a missing table/column becomes SchemaMigrationRequiredError. */
+async function guarded<T>(what: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (isSchemaError(e)) throw new SchemaMigrationRequiredError(what);
+    throw e;
+  }
 }
 
 // ── Row shapes (snake_case as stored) ──
@@ -69,6 +101,7 @@ interface ProjectRow {
   deployment_authorized?: boolean | null;
   scan_mode?: string | null;
   test_accounts?: TestAccount[] | null;
+  current_source_version_id?: string | null;
   created_at: string;
 }
 interface ScanRow {
@@ -76,6 +109,8 @@ interface ScanRow {
   project_id: string;
   status: Scan["status"];
   commit_sha: string | null;
+  source_version_id?: string | null;
+  source_content_hash?: string | null;
   started_at: string;
   completed_at: string | null;
   finding_ids: string[];
@@ -113,8 +148,32 @@ interface FixArtifactRow {
   zip_base64: string | null;
   created_at: string;
 }
+interface SourceVersionRow {
+  id: string;
+  project_id: string;
+  owner_id: string;
+  kind: SourceVersion["kind"];
+  parent_version_id: string | null;
+  fix_job_id: string | null;
+  files: Record<string, string>;
+  file_count: number;
+  total_bytes: number;
+  content_hash: string;
+  created_at: string;
+}
+interface FixJobRow {
+  id: string;
+  project_id: string;
+  owner_id: string;
+  scan_id: string;
+  idempotency_key: string;
+  status: FixJob["status"];
+  data: FixJob;
+  created_at: string;
+  updated_at: string;
+}
 
-// ── Row → domain mappers ──
+// ── Row ↔ domain mappers ──
 function toUser(r: UserRow): User {
   return {
     id: r.id,
@@ -140,6 +199,7 @@ function toProject(r: ProjectRow): Project {
     deploymentAuthorized: r.deployment_authorized ?? undefined,
     scanMode: parseScanMode(r.scan_mode) ?? undefined,
     testAccounts: r.test_accounts ?? undefined,
+    currentSourceVersionId: r.current_source_version_id ?? undefined,
     createdAt: r.created_at,
   };
 }
@@ -149,12 +209,57 @@ function toScan(r: ScanRow): Scan {
     projectId: r.project_id,
     status: r.status,
     commitSha: r.commit_sha ?? undefined,
+    sourceVersionId: r.source_version_id ?? undefined,
+    sourceContentHash: r.source_content_hash ?? undefined,
     startedAt: r.started_at,
     completedAt: r.completed_at ?? undefined,
     findingIds: r.finding_ids ?? [],
     scope: r.scope,
     plan: r.plan ?? undefined,
     report: r.report ?? undefined,
+  };
+}
+function toSourceVersion(r: SourceVersionRow): SourceVersion {
+  return {
+    id: r.id,
+    projectId: r.project_id,
+    ownerId: r.owner_id,
+    kind: r.kind,
+    parentVersionId: r.parent_version_id ?? undefined,
+    fixJobId: r.fix_job_id ?? undefined,
+    files: r.files ?? {},
+    fileCount: r.file_count,
+    totalBytes: r.total_bytes,
+    contentHash: r.content_hash,
+    createdAt: r.created_at,
+  };
+}
+function fromSourceVersion(v: SourceVersion): SourceVersionRow {
+  return {
+    id: v.id,
+    project_id: v.projectId,
+    owner_id: v.ownerId,
+    kind: v.kind,
+    parent_version_id: v.parentVersionId ?? null,
+    fix_job_id: v.fixJobId ?? null,
+    files: v.files,
+    file_count: v.fileCount,
+    total_bytes: v.totalBytes,
+    content_hash: v.contentHash,
+    created_at: v.createdAt,
+  };
+}
+function fromFixJob(j: FixJob): FixJobRow {
+  return {
+    id: j.id,
+    project_id: j.projectId,
+    owner_id: j.ownerId,
+    scan_id: j.scanId,
+    idempotency_key: j.idempotencyKey,
+    status: j.status,
+    data: j,
+    created_at: j.createdAt,
+    updated_at: j.updatedAt,
   };
 }
 
@@ -168,7 +273,7 @@ export class SupabaseStore implements StoreBackend {
   ): Promise<Project> {
     const row = await selectOne<ProjectRow>(
       "projects",
-      `id=eq.${encodeURIComponent(projectId)}&select=*`
+      `id=eq.${q(projectId)}&select=*`
     );
     if (!row) throw new NotFoundError();
     if (row.owner_id !== ownerId) throw new NotAuthorizedError();
@@ -178,7 +283,7 @@ export class SupabaseStore implements StoreBackend {
   private async requireScan(scanId: string, ownerId: string): Promise<Scan> {
     const row = await selectOne<ScanRow>(
       "scans",
-      `id=eq.${encodeURIComponent(scanId)}&select=*`
+      `id=eq.${q(scanId)}&select=*`
     );
     if (!row) throw new NotFoundError();
     await this.requireProject(row.project_id, ownerId); // walks up
@@ -191,7 +296,7 @@ export class SupabaseStore implements StoreBackend {
   ): Promise<SecurityFinding> {
     const row = await selectOne<FindingRow>(
       "findings",
-      `id=eq.${encodeURIComponent(findingId)}&select=*`
+      `id=eq.${q(findingId)}&select=*`
     );
     if (!row) throw new NotFoundError();
     await this.requireScan(row.scan_id, ownerId);
@@ -201,7 +306,7 @@ export class SupabaseStore implements StoreBackend {
   private async handlerFixed(projectId: string): Promise<boolean> {
     const row = await selectOne<{ handler_fixed: boolean }>(
       "projects",
-      `id=eq.${encodeURIComponent(projectId)}&select=handler_fixed`
+      `id=eq.${q(projectId)}&select=handler_fixed`
     );
     return row?.handler_fixed ?? false;
   }
@@ -210,7 +315,7 @@ export class SupabaseStore implements StoreBackend {
   async findUserByEmail(email: string): Promise<User | undefined> {
     const row = await selectOne<UserRow>(
       "app_users",
-      `email=eq.${encodeURIComponent(normalizeEmail(email))}&select=*`
+      `email=eq.${q(normalizeEmail(email))}&select=*`
     );
     return row ? toUser(row) : undefined;
   }
@@ -218,7 +323,7 @@ export class SupabaseStore implements StoreBackend {
   async getUserById(userId: string): Promise<User | undefined> {
     const row = await selectOne<UserRow>(
       "app_users",
-      `id=eq.${encodeURIComponent(userId)}&select=*`
+      `id=eq.${q(userId)}&select=*`
     );
     return row ? toUser(row) : undefined;
   }
@@ -241,12 +346,9 @@ export class SupabaseStore implements StoreBackend {
       return toUser(inserted);
     } catch (e) {
       // The email column is UNIQUE; a race between the check above and the
-      // insert surfaces as a 409 unique-violation. Map it to the same typed
-      // error the memory backend throws so signupAction shows the right message.
-      const msg = e instanceof Error ? e.message : "";
-      if (msg.includes("409") || msg.includes("duplicate key")) {
-        throw new EmailInUseError();
-      }
+      // insert surfaces as a unique-violation. Map it to the same typed error
+      // the memory backend throws so signupAction shows the right message.
+      if (isUniqueViolation(e)) throw new EmailInUseError();
       throw e;
     }
   }
@@ -255,7 +357,7 @@ export class SupabaseStore implements StoreBackend {
   async listProjects(ownerId: string): Promise<Project[]> {
     const rows = await selectRows<ProjectRow>(
       "projects",
-      `owner_id=eq.${encodeURIComponent(ownerId)}&select=*&order=created_at.desc`
+      `owner_id=eq.${q(ownerId)}&select=*&order=created_at.desc`
     );
     return rows.map(toProject);
   }
@@ -266,57 +368,96 @@ export class SupabaseStore implements StoreBackend {
 
   async createProject(
     ownerId: string,
-    input: {
-      name: string;
-      repositoryUrl?: string;
-      deploymentUrl?: string;
-      sourceCode?: string;
-      deploymentAuthorized?: boolean;
-      scanMode?: ScanMode;
-      testAccounts?: TestAccount[];
-    }
+    input: CreateProjectInput
   ): Promise<Project> {
-    // Base row uses only columns present in the original schema. The newer
-    // columns (is_demo, deployment_authorized) are added opportunistically and
-    // dropped on a "column not found" error, so the app works whether or not
-    // the DB has been migrated. is_demo is always false in Supabase (the demo
-    // project is memory-only), so losing it changes nothing.
-    const base: Partial<ProjectRow> = {
-      id: id("proj"),
+    assertHasSourceFiles(input.files);
+    const projectId = id("proj");
+    const version = makeSourceVersion({
+      projectId,
+      ownerId,
+      kind: "original",
+      files: input.files,
+    });
+    const row: Partial<ProjectRow> = {
+      id: projectId,
       owner_id: ownerId,
       name: input.name.trim(),
       repository_url: input.repositoryUrl?.trim() || null,
       deployment_url: input.deploymentUrl?.trim() || null,
-      source_code: input.sourceCode?.trim() || null,
-      current_commit: "b72c42d",
+      // Legacy single-finding flow still reads this blob.
+      source_code: serializeFileMap(version.files),
+      source_zip_name: input.sourceKind === "zip" ? input.sourceZipName ?? null : null,
+      current_commit: null,
       handler_fixed: false,
-      created_at: now(),
-    };
-    const withNew: Partial<ProjectRow> = {
-      ...base,
       is_demo: false,
       deployment_authorized: input.deploymentAuthorized ?? false,
       scan_mode: input.scanMode ?? null,
       test_accounts: input.testAccounts?.length ? input.testAccounts : null,
+      current_source_version_id: null,
+      created_at: now(),
     };
 
-    let inserted: ProjectRow;
+    // No cross-table transaction over PostgREST. Insert the project, then its
+    // original version, then point the project at it. If the version insert
+    // fails, remove the half-created project so it never shows up code-less.
+    const [inserted] = await guarded("projects", () =>
+      insertRows<ProjectRow>("projects", row)
+    );
     try {
-      [inserted] = await insertRows<ProjectRow>("projects", withNew);
+      await guarded("source_versions", () =>
+        insertRows("source_versions", fromSourceVersion(version))
+      );
+      await guarded("projects.current_source_version_id", () =>
+        updateRows("projects", `id=eq.${q(projectId)}`, {
+          current_source_version_id: version.id,
+        })
+      );
     } catch (e) {
-      // PGRST204 = column not found in schema cache (DB not migrated yet).
-      if (e instanceof Error && e.message.includes("PGRST204")) {
-        [inserted] = await insertRows<ProjectRow>("projects", base);
-        // Preserve the requested authorization in the returned object even
-        // though it couldn't be persisted (until the DB is migrated).
-        inserted.deployment_authorized = input.deploymentAuthorized ?? false;
-        inserted.scan_mode = input.scanMode ?? null;
-        inserted.test_accounts = input.testAccounts?.length ? input.testAccounts : null;
-      } else {
-        throw e;
-      }
+      await deleteRows("projects", `id=eq.${q(projectId)}`).catch(() => {});
+      throw e;
     }
-    return toProject(inserted);
+    return toProject({ ...inserted, current_source_version_id: version.id });
+  }
+
+  // ── Source versions ──
+  async getSourceVersion(versionId: string, ownerId: string): Promise<SourceVersion> {
+    const row = await guarded("source_versions", () =>
+      selectOne<SourceVersionRow>("source_versions", `id=eq.${q(versionId)}&select=*`)
+    );
+    if (!row) throw new NotFoundError();
+    if (row.owner_id !== ownerId) throw new NotAuthorizedError();
+    await this.requireProject(row.project_id, ownerId);
+    return toSourceVersion(row);
+  }
+
+  async saveSourceVersion(version: SourceVersion): Promise<void> {
+    await this.requireProject(version.projectId, version.ownerId);
+    // Plain insert: a duplicate id fails (versions are immutable).
+    await guarded("source_versions", () =>
+      insertRows("source_versions", fromSourceVersion(version))
+    );
+  }
+
+  async getCurrentSourceVersion(
+    projectId: string,
+    ownerId: string
+  ): Promise<SourceVersion | undefined> {
+    const project = await this.requireProject(projectId, ownerId);
+    if (project.isDemo) return undefined;
+    if (project.currentSourceVersionId) {
+      return this.getSourceVersion(project.currentSourceVersionId, ownerId);
+    }
+    // Legacy project: create the original version from the stored blob once.
+    const files = legacyFilesFromProject(project);
+    if (!files) return undefined;
+    const version = makeSourceVersion({ projectId, ownerId, kind: "original", files });
+    await this.saveSourceVersion(version);
+    await guarded("projects.current_source_version_id", () =>
+      updateRows("projects", `id=eq.${q(projectId)}`, {
+        current_source_version_id: version.id,
+      })
+    );
+    return version;
   }
 
   // ── Scans ──
@@ -324,9 +465,7 @@ export class SupabaseStore implements StoreBackend {
     await this.requireProject(projectId, ownerId);
     const rows = await selectRows<ScanRow>(
       "scans",
-      `project_id=eq.${encodeURIComponent(
-        projectId
-      )}&select=*&order=started_at.desc`
+      `project_id=eq.${q(projectId)}&select=*&order=started_at.desc`
     );
     return rows.map(toScan);
   }
@@ -349,26 +488,33 @@ export class SupabaseStore implements StoreBackend {
     await this.requireScan(scanId, ownerId);
     const rows = await selectRows<FindingRow>(
       "findings",
-      `scan_id=eq.${encodeURIComponent(
-        scanId
-      )}&select=*&order=created_at.asc`
+      `scan_id=eq.${q(scanId)}&select=*&order=created_at.asc`
     );
     return rows.map((r) => r.data);
   }
 
   async runScan(projectId: string, ownerId: string): Promise<Scan> {
     const project = await this.requireProject(projectId, ownerId);
-    const commit = project.currentCommit ?? "b72c42d";
+    const version = await this.getCurrentSourceVersion(projectId, ownerId);
+    if (!project.isDemo && !version) throw new SourceMissingError();
 
-    const context = contextForProject(project);
-    const { findings, scope, plan } = await this.orchestrator.run(context);
+    const startedAt = now();
+    const { findings, scope, plan, proposals } = await runScanPipeline({
+      backend: this,
+      project,
+      version,
+      ownerId,
+      orchestrator: this.orchestrator,
+    });
 
     const scan: Scan = {
       id: id("scan"),
       projectId: project.id,
       status: "completed",
-      commitSha: commit,
-      startedAt: now(),
+      sourceVersionId: version?.id,
+      sourceContentHash: version?.contentHash,
+      commitSha: project.currentCommit || undefined,
+      startedAt,
       completedAt: now(),
       findingIds: [],
       scope,
@@ -398,18 +544,22 @@ export class SupabaseStore implements StoreBackend {
     // A concurrent reader therefore sees either no scan, a "running" scan
     // (findings still landing), or a "completed" scan whose findings are
     // guaranteed present — never a "completed" scan with missing findings.
-    await insertRows("scans", {
-      id: scan.id,
-      project_id: scan.projectId,
-      status: "running",
-      commit_sha: scan.commitSha ?? null,
-      started_at: scan.startedAt,
-      completed_at: null,
-      finding_ids: [],
-      scope: scan.scope,
-      plan: scan.plan ?? null,
-      report: scan.report ?? null,
-    });
+    await guarded("scans.source_version_id", () =>
+      insertRows("scans", {
+        id: scan.id,
+        project_id: scan.projectId,
+        status: "running",
+        commit_sha: scan.commitSha ?? null,
+        source_version_id: scan.sourceVersionId ?? null,
+        source_content_hash: scan.sourceContentHash ?? null,
+        started_at: scan.startedAt,
+        completed_at: null,
+        finding_ids: [],
+        scope: scan.scope,
+        plan: scan.plan ?? null,
+        report: scan.report ?? null,
+      })
+    );
 
     if (findings.length > 0) {
       await insertRows(
@@ -426,33 +576,153 @@ export class SupabaseStore implements StoreBackend {
       );
     }
 
-    await updateRows("scans", `id=eq.${encodeURIComponent(scan.id)}`, {
+    await updateRows("scans", `id=eq.${q(scan.id)}`, {
       status: scan.status,
       completed_at: scan.completedAt ?? null,
       finding_ids: scan.findingIds,
     });
 
+    // AI가 제안한 규칙은 "제안" 상태로 저장한다(사람이 승인해야 돈다).
+    for (const rule of proposals) {
+      rule.sourceScanId = scan.id;
+      await this.saveCustomRule(rule).catch(() => {});
+    }
+
     // reset applied-fix state + update project scan metadata
-    await updateRows(
-      "projects",
-      `id=eq.${encodeURIComponent(project.id)}`,
-      {
-        handler_fixed: false,
-        last_scanned_commit: commit,
-        last_scan_date: scan.completedAt,
-      }
-    );
+    await updateRows("projects", `id=eq.${q(project.id)}`, {
+      handler_fixed: false,
+      last_scanned_commit: project.currentCommit || null,
+      last_scan_date: scan.completedAt,
+    });
 
     return scan;
   }
 
   async scanPlan(projectId: string, ownerId: string): Promise<unknown> {
     const project = await this.requireProject(projectId, ownerId);
-    const context = contextForProject(project);
+    const version = await this.getCurrentSourceVersion(projectId, ownerId);
+    const context = contextForProject(project, { files: version?.files });
     return this.orchestrator.plan(context);
   }
 
-  // ── Fixes & verification ──
+  // ── AI-proposed rules ──
+  async listCustomRules(ownerId: string, projectId?: string): Promise<CustomRule[]> {
+    const filter = `owner_id=eq.${q(ownerId)}${projectId ? `&project_id=eq.${q(projectId)}` : ""}&select=data&order=created_at.desc`;
+    const rows = await guarded("custom_rules", () => selectRows<{ data: CustomRule }>("custom_rules", filter));
+    return rows.map((r) => r.data);
+  }
+
+  async getCustomRule(ruleId: string, ownerId: string): Promise<CustomRule> {
+    const row = await guarded("custom_rules", () =>
+      selectOne<{ owner_id: string; data: CustomRule }>("custom_rules", `id=eq.${q(ruleId)}&select=owner_id,data`)
+    );
+    if (!row) throw new NotFoundError();
+    if (row.owner_id !== ownerId) throw new NotAuthorizedError();
+    return row.data;
+  }
+
+  async saveCustomRule(rule: CustomRule): Promise<void> {
+    await this.requireProject(rule.projectId, rule.ownerId);
+    const existing = await guarded("custom_rules", () =>
+      selectOne<{ owner_id: string }>("custom_rules", `id=eq.${q(rule.id)}&select=owner_id`)
+    );
+    if (existing && existing.owner_id !== rule.ownerId) throw new NotAuthorizedError();
+    await guarded("custom_rules", () =>
+      upsertRows("custom_rules", {
+        id: rule.id,
+        owner_id: rule.ownerId,
+        project_id: rule.projectId,
+        status: rule.status,
+        data: rule,
+        created_at: rule.createdAt,
+        updated_at: now(),
+      })
+    );
+  }
+
+  // ── Re-upload ──
+  async addSourceVersion(
+    projectId: string,
+    ownerId: string,
+    files: Record<string, string>,
+    meta?: { sourceKind: "zip" | "paste"; zipName?: string }
+  ): Promise<SourceVersion> {
+    const project = await this.requireProject(projectId, ownerId);
+    assertHasSourceFiles(files);
+    const version = makeSourceVersion({ projectId, ownerId, kind: "reupload", files, parentVersionId: project.currentSourceVersionId });
+    await this.saveSourceVersion(version);
+    await guarded("projects.current_source_version_id", () =>
+      updateRows("projects", `id=eq.${q(projectId)}`, {
+        current_source_version_id: version.id,
+        source_code: serializeFileMap(version.files),
+        source_zip_name: meta?.sourceKind === "zip" ? meta.zipName ?? null : null,
+      })
+    );
+    return version;
+  }
+
+  // ── Fix-all jobs ──
+  async insertFixJob(job: FixJob): Promise<{ job: FixJob; created: boolean }> {
+    const scan = await this.requireScan(job.scanId, job.ownerId);
+    if (scan.projectId !== job.projectId) throw new NotAuthorizedError();
+    try {
+      await guarded("fix_jobs", () => insertRows("fix_jobs", fromFixJob(job)));
+      return { job, created: true };
+    } catch (e) {
+      // unique(owner_id, idempotency_key): someone already started this job.
+      if (isUniqueViolation(e)) {
+        const existing = await this.findFixJobByKey(job.ownerId, job.idempotencyKey);
+        if (existing) return { job: existing, created: false };
+      }
+      throw e;
+    }
+  }
+
+  async updateFixJob(job: FixJob): Promise<void> {
+    const rows = await guarded("fix_jobs", () =>
+      updateRows<FixJobRow>(
+        "fix_jobs",
+        `id=eq.${q(job.id)}&owner_id=eq.${q(job.ownerId)}`,
+        { status: job.status, data: job, updated_at: job.updatedAt }
+      )
+    );
+    if (!rows || rows.length === 0) throw new NotFoundError();
+  }
+
+  async getFixJob(jobId: string, ownerId: string): Promise<FixJob> {
+    const row = await guarded("fix_jobs", () =>
+      selectOne<FixJobRow>("fix_jobs", `id=eq.${q(jobId)}&select=*`)
+    );
+    if (!row) throw new NotFoundError();
+    if (row.owner_id !== ownerId) throw new NotAuthorizedError();
+    return row.data;
+  }
+
+  async findFixJobByKey(
+    ownerId: string,
+    idempotencyKey: string
+  ): Promise<FixJob | undefined> {
+    const row = await guarded("fix_jobs", () =>
+      selectOne<FixJobRow>(
+        "fix_jobs",
+        `owner_id=eq.${q(ownerId)}&idempotency_key=eq.${q(idempotencyKey)}&select=*`
+      )
+    );
+    return row?.data;
+  }
+
+  async listFixJobsForScan(scanId: string, ownerId: string): Promise<FixJob[]> {
+    await this.requireScan(scanId, ownerId);
+    const rows = await guarded("fix_jobs", () =>
+      selectRows<FixJobRow>(
+        "fix_jobs",
+        `scan_id=eq.${q(scanId)}&owner_id=eq.${q(ownerId)}&select=*&order=created_at.desc`
+      )
+    );
+    return rows.map((r) => r.data);
+  }
+
+  // ── Fixes & verification (legacy single-item flow) ──
   async generateFixForFinding(
     findingId: string,
     ownerId: string
@@ -476,9 +746,7 @@ export class SupabaseStore implements StoreBackend {
     await this.requireFinding(findingId, ownerId);
     const rows = await selectRows<FixRow>(
       "fix_attempts",
-      `finding_id=eq.${encodeURIComponent(
-        findingId
-      )}&select=*&order=created_at.desc&limit=1`
+      `finding_id=eq.${q(findingId)}&select=*&order=created_at.desc&limit=1`
     );
     return rows[0]?.data;
   }
@@ -505,14 +773,12 @@ export class SupabaseStore implements StoreBackend {
     if ((finding.verificationKey ?? "").startsWith("idor:")) {
       const scanRow = await selectOne<ScanRow>(
         "scans",
-        `id=eq.${encodeURIComponent(finding.scanId)}&select=project_id`
+        `id=eq.${q(finding.scanId)}&select=project_id`
       );
       if (scanRow) {
-        await updateRows(
-          "projects",
-          `id=eq.${encodeURIComponent(scanRow.project_id)}`,
-          { handler_fixed: true }
-        );
+        await updateRows("projects", `id=eq.${q(scanRow.project_id)}`, {
+          handler_fixed: true,
+        });
       }
     }
 
@@ -536,7 +802,7 @@ export class SupabaseStore implements StoreBackend {
 
     const scanRow = await selectOne<ScanRow>(
       "scans",
-      `id=eq.${encodeURIComponent(finding.scanId)}&select=project_id`
+      `id=eq.${q(finding.scanId)}&select=project_id`
     );
     const project = await this.requireProject(scanRow!.project_id, ownerId);
     const context = contextForProject(project, {
@@ -575,13 +841,14 @@ export class SupabaseStore implements StoreBackend {
     await this.requireFinding(findingId, ownerId);
     const row = await selectOne<VerificationRow>(
       "verifications",
-      `finding_id=eq.${encodeURIComponent(findingId)}&select=*`
+      `finding_id=eq.${q(findingId)}&select=*`
     );
     return row?.data;
   }
 
-  // ── Fix artifacts ──
-  // Persisted in the `fix_artifacts` table: metadata + base64 ZIP bytes.
+  // ── Legacy per-finding artifacts ──
+  // Persisted in the legacy `fix_artifacts` table (metadata + base64 ZIP).
+  // Replaced by fix-all jobs + private Storage; kept until the old UI is gone.
   async buildFixArtifact(
     findingId: string,
     ownerId: string
@@ -593,14 +860,16 @@ export class SupabaseStore implements StoreBackend {
     const fixes = (
       await selectRows<FixRow>(
         "fix_attempts",
-        `finding_id=eq.${encodeURIComponent(findingId)}&select=*&order=created_at.asc`
+        `finding_id=eq.${q(findingId)}&select=*&order=created_at.asc`
       )
     ).map((r) => r.data);
     if (fixes.length === 0) throw new NotFoundError();
 
-    const existing = await selectRows<{ id: string }>(
-      "fix_artifacts",
-      `finding_id=eq.${encodeURIComponent(findingId)}&select=id`
+    const existing = await guarded("fix_artifacts", () =>
+      selectRows<{ id: string }>(
+        "fix_artifacts",
+        `finding_id=eq.${q(findingId)}&select=id`
+      )
     );
     const version = existing.length + 1;
 
@@ -622,17 +891,19 @@ export class SupabaseStore implements StoreBackend {
       createdAt: now(),
     };
 
-    await insertRows("fix_artifacts", [
-      {
-        id: artifact.id,
-        finding_id: findingId,
-        project_id: project.id,
-        owner_id: ownerId,
-        data: artifact,
-        zip_base64: built.zip.toString("base64"),
-        created_at: artifact.createdAt,
-      },
-    ]);
+    await guarded("fix_artifacts", () =>
+      insertRows("fix_artifacts", [
+        {
+          id: artifact.id,
+          finding_id: findingId,
+          project_id: project.id,
+          owner_id: ownerId,
+          data: artifact,
+          zip_base64: built.zip.toString("base64"),
+          created_at: artifact.createdAt,
+        },
+      ])
+    );
     return artifact;
   }
 
@@ -640,9 +911,8 @@ export class SupabaseStore implements StoreBackend {
     artifactId: string,
     ownerId: string
   ): Promise<FixArtifact | undefined> {
-    const row = await selectOne<FixArtifactRow>(
-      "fix_artifacts",
-      `id=eq.${encodeURIComponent(artifactId)}&select=*`
+    const row = await guarded("fix_artifacts", () =>
+      selectOne<FixArtifactRow>("fix_artifacts", `id=eq.${q(artifactId)}&select=*`)
     );
     if (!row) return undefined;
     if (row.owner_id !== ownerId) throw new NotAuthorizedError();
@@ -653,9 +923,8 @@ export class SupabaseStore implements StoreBackend {
     artifactId: string,
     ownerId: string
   ): Promise<Buffer | undefined> {
-    const row = await selectOne<FixArtifactRow>(
-      "fix_artifacts",
-      `id=eq.${encodeURIComponent(artifactId)}&select=*`
+    const row = await guarded("fix_artifacts", () =>
+      selectOne<FixArtifactRow>("fix_artifacts", `id=eq.${q(artifactId)}&select=*`)
     );
     if (!row) return undefined;
     if (row.owner_id !== ownerId) throw new NotAuthorizedError();
@@ -668,23 +937,21 @@ export class SupabaseStore implements StoreBackend {
     ownerId: string
   ): Promise<FixArtifact[]> {
     await this.requireFinding(findingId, ownerId);
-    const rows = await selectRows<FixArtifactRow>(
-      "fix_artifacts",
-      `finding_id=eq.${encodeURIComponent(findingId)}&select=*&order=created_at.desc`
+    const rows = await guarded("fix_artifacts", () =>
+      selectRows<FixArtifactRow>(
+        "fix_artifacts",
+        `finding_id=eq.${q(findingId)}&select=*&order=created_at.desc`
+      )
     );
     return rows.map((r) => r.data);
   }
 
   private async persistFinding(finding: SecurityFinding): Promise<void> {
-    await updateRows(
-      "findings",
-      `id=eq.${encodeURIComponent(finding.id)}`,
-      {
-        severity: finding.severity,
-        status: finding.status,
-        data: finding,
-        updated_at: finding.updatedAt,
-      }
-    );
+    await updateRows("findings", `id=eq.${q(finding.id)}`, {
+      severity: finding.severity,
+      status: finding.status,
+      data: finding,
+      updated_at: finding.updatedAt,
+    });
   }
 }

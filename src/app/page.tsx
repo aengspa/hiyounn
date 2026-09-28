@@ -49,16 +49,10 @@ export default async function LandingPage() {
               어려운 건 제가 쉽게 설명해 드릴게요!
             </HoiSpeech>
 
-            <div className="mt-5 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <div className="mt-5 flex justify-center">
               <Link
-                href="/dashboard/quick-check"
+                href="/dashboard"
                 className={buttonClassName({ variant: "primary", size: "lg", className: "w-full sm:w-auto" })}
-              >
-                코드만 빠르게 확인하기
-              </Link>
-              <Link
-                href="/dashboard/new"
-                className={buttonClassName({ variant: "secondary", size: "md", className: "w-full sm:w-auto" })}
               >
                 내 프로젝트 점검하기
               </Link>
