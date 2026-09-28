@@ -21,7 +21,7 @@ export function ScanReportPanel({
   return (
     <section id="solution" className="scroll-mt-32 pt-10" aria-labelledby="solution-title">
       <div className="flex flex-wrap items-center gap-2">
-        <p className="text-sm font-semibold text-brand-700">호이의 해결 가이드</p>
+        <p className="text-sm font-bold text-brand-800">호이의 해결 가이드</p>
         <Badge tone={report.source === "llm" ? "info" : "neutral"}>
           {report.source === "llm" ? "AI가 정리했어요" : "규칙으로 정리했어요"}
         </Badge>
@@ -56,10 +56,11 @@ export function ScanReportPanel({
               <p className="mt-1 text-sm leading-relaxed text-ink-subtle">
                 {canFix
                   ? "상세 근거를 읽은 뒤 수정안을 만들지 직접 승인할 수 있어요."
-                  : "이 결과만으로 서비스 전체의 안전을 보장하지는 않아요. 점검 범위와 한계를 함께 확인해 주세요."}
+                  : "이 결과가 서비스 전체의 모든 위험을 찾았다는 뜻은 아니에요. 점검 범위와 한계를 함께 확인해 주세요."}
               </p>
             </div>
-            <Button onClick={() => setAsked(true)} disabled={!canFix} className="w-full sm:w-auto">
+            {/* 화면의 Primary는 페이지의 "가장 먼저 할 일" 1개뿐이라 여기서는 secondary (요구사항 8.7) */}
+            <Button variant="secondary" onClick={() => setAsked(true)} disabled={!canFix} className="w-full sm:w-auto">
               {canFix ? "첫 문제 해결 시작" : "해결할 항목 없음"}
             </Button>
           </div>
@@ -71,12 +72,13 @@ export function ScanReportPanel({
             </p>
             <div className="mt-4 flex flex-col gap-2 sm:flex-row">
               <Button
+                variant="secondary"
                 onClick={() => router.push(`/dashboard/findings/${firstFixableFindingId}?fix=1`)}
                 className="w-full sm:w-auto"
               >
                 확인하고 이동
               </Button>
-              <Button variant="secondary" onClick={() => setAsked(false)} className="w-full sm:w-auto">
+              <Button variant="ghost" onClick={() => setAsked(false)} className="w-full sm:w-auto">
                 더 둘러보기
               </Button>
             </div>

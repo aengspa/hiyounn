@@ -15,9 +15,12 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // body의 `isolate`: body를 쌓임 맥락으로 만들어 z-index:-1 배경 장식(.hoi-page-decor)이
+  // globals.css의 불투명한 body 배경 뒤로 숨지 않고 그 위(본문 아래)에 보이게 한다.
   return (
     <html lang="ko">
-      <body>
+      <body className="isolate">
+        <div className="hoi-page-decor" aria-hidden="true" />
         <a href="#main-content" className="skip-link">
           본문으로 바로가기
         </a>

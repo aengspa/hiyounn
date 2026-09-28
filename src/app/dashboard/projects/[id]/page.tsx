@@ -178,7 +178,7 @@ export default async function ProjectPage({
             <EmptyState
               className="mt-5"
               title="아직 찾은 내용이 없어요"
-              description="아직 점검하지 않았다는 뜻이며, 안전을 보장하는 결과는 아니에요. 위의 ‘보안 점검 시작’으로 확인해 주세요."
+              description="아직 점검하지 않았다는 뜻이며, 위험이 없다는 결과는 아니에요. 위의 ‘보안 점검 시작’으로 확인해 주세요."
             />
           )}
         </section>

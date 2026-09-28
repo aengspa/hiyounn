@@ -25,7 +25,7 @@ export function HoiScene({
 
   return (
     <section
-      className={`hoi-decoration flex flex-col items-center gap-5 rounded-xl border border-line bg-surface-warm px-5 py-9 text-center shadow-warm sm:px-8 ${className}`}
+      className={`hoi-decoration flex flex-col items-center gap-5 rounded-3xl border border-line bg-surface-warm px-5 py-9 text-center shadow-warm sm:px-8 ${className}`}
     >
       <Hoi mood={mood} size={size} />
       <div className="min-w-0 max-w-xl">

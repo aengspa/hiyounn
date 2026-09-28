@@ -24,11 +24,19 @@ import {
   categoryLabel,
   tierLabel,
 } from "@/components/ui";
-import { SEVERITY_ORDER } from "@/lib/domain/types";
 import type { ScanPlan, ScanScope, Severity } from "@/lib/domain/types";
 import { ScanReportPanel } from "@/components/ScanReportPanel";
+import {
+  LIMIT_NOTICE,
+  SEV_LABEL,
+  primaryActionForScan,
+  sortBySeverity,
+  summarizeResult,
+} from "@/lib/ui/presentation";
 
 export const dynamic = "force-dynamic";
+
+const SEVERITY_KEYS: readonly Severity[] = ["critical", "high", "medium", "low"];
 
 export default async function ScanResultsPage({ params }: { params: { id: string } }) {
   const uid = await getCurrentUserId();
@@ -40,9 +48,7 @@ export default async function ScanResultsPage({ params }: { params: { id: string
     throw e;
   }
 
-  const findings = (await getFindingsForScan(params.id, uid)).sort(
-    (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity],
-  );
+  const findings = sortBySeverity(await getFindingsForScan(params.id, uid));
   const counts: Record<Severity, number> = { critical: 0, high: 0, medium: 0, low: 0 };
   let verified = 0;
   let fixedVerified = 0;
@@ -52,55 +58,69 @@ export default async function ScanResultsPage({ params }: { params: { id: string
     if (finding.status === "resolved") fixedVerified += 1;
   }
 
+  const summary = summarizeResult(findings);
+  const primaryAction = primaryActionForScan(findings);
   const firstFixable = findings.find((finding) => finding.status !== "resolved");
-  const summary = scan.report?.summary ?? (
-    findings.length === 0
-      ? "이번 점검 범위에서는 발견된 항목이 없어요. 확인하지 못한 범위도 함께 살펴봐 주세요."
-      : counts.critical > 0
-        ? `매우 급하게 확인할 문제가 ${counts.critical}건 있어요. 가장 먼저 한 건부터 같이 해결해요.`
-        : `확인할 내용이 ${findings.length}건 있어요. 우선순위대로 하나씩 살펴보면 돼요.`
-  );
+  const projectHref = `/dashboard/projects/${scan.projectId}`;
 
   return (
     <>
       <PageHeader
-        title="호이의 보안 점검 보고서"
-        subtitle="쉬운 요약부터 확인하고, 필요할 때 점검 근거와 전문가 정보를 펼쳐보세요."
-        backHref={`/dashboard/projects/${scan.projectId}`}
+        title="호이의 점검 결과"
+        subtitle="쉬운 요약부터 확인하고, 필요할 때 점검 근거와 기술 정보를 펼쳐보세요."
+        backHref={projectHref}
         backLabel="프로젝트"
       />
       <div className="mx-auto max-w-5xl px-4 py-7 sm:px-6 sm:py-10">
+        {/* 2. 호이의 한 줄 요약: 제목 바로 아래, 모든 기술 정보보다 앞 (요구사항 8.1~8.3, 12.5) */}
         <section aria-labelledby="hoi-summary-title">
-          <h2 id="hoi-summary-title" className="sr-only">호이의 한 줄 총평</h2>
-          <HoiSpeech mood={counts.critical > 0 ? "concerned" : findings.length ? "thinking" : "rest"} size="md">
-            {summary}
+          <h2 id="hoi-summary-title" className="sr-only">호이의 한 줄 요약</h2>
+          <HoiSpeech
+            mood={summary.mood}
+            size="md"
+            footer={summary.showLimitNotice ? LIMIT_NOTICE : undefined}
+          >
+            {summary.message}
           </HoiSpeech>
         </section>
 
+        {/* 3. 가장 먼저 할 일: 화면의 유일한 Primary 버튼 (요구사항 8.7) */}
         <section className="mt-7" aria-labelledby="first-action-title">
           <Card variant={counts.critical > 0 ? "danger" : "raised"} className="p-5 sm:p-6">
-            <p className="text-sm font-semibold text-brand-700">가장 먼저 할 일</p>
+            <p className="text-sm font-bold text-brand-800">가장 먼저 할 일</p>
             <div className="mt-1 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 id="first-action-title" className="text-xl font-bold text-ink">
-                  {firstFixable ? "첫 번째 미해결 항목의 영향부터 확인해요" : "점검 범위와 확인하지 못한 항목을 살펴봐요"}
+                  {primaryAction.kind === "open-finding"
+                    ? "가장 급한 미해결 항목부터 살펴봐요"
+                    : "코드가 바뀌면 다시 점검해 주세요"}
                 </h2>
-                <p className="mt-1 text-sm leading-relaxed text-ink-subtle">
-                  {firstFixable
+                <p className="mt-1 text-sm leading-relaxed text-ink">
+                  {primaryAction.kind === "open-finding"
                     ? "내용을 읽는 것만으로 코드는 바뀌지 않아요. 해결 단계마다 직접 승인할 수 있어요."
-                    : "발견 없음은 이번 범위에서 찾지 못했다는 뜻이며, 안전을 보장하지 않아요."}
+                    : "지금 남은 미해결 항목은 없어요. 아래 점검 범위와 한계도 함께 확인해 주세요."}
                 </p>
               </div>
-              <a
-                href={firstFixable ? "#solution" : "#coverage"}
-                className={buttonClassName({ className: "w-full sm:w-auto" })}
-              >
-                {firstFixable ? "해결 방법 보기" : "범위와 한계 보기"}
-              </a>
+              {primaryAction.kind === "open-finding" ? (
+                <Link
+                  href={`/dashboard/findings/${primaryAction.findingId}`}
+                  className={buttonClassName({ variant: "primary", className: "w-full sm:w-auto" })}
+                >
+                  가장 급한 항목 보기
+                </Link>
+              ) : (
+                <Link
+                  href={projectHref}
+                  className={buttonClassName({ variant: "primary", className: "w-full sm:w-auto" })}
+                >
+                  다시 점검하러 가기
+                </Link>
+              )}
             </div>
           </Card>
         </section>
 
+        {/* 4. 심각도 요약: 백엔드가 기록한 실제 개수만 표시 (요구사항 8.11, 12.3) */}
         <section className="pt-10" aria-labelledby="severity-title">
           <SectionHeader
             eyebrow="우선순위"
@@ -108,15 +128,15 @@ export default async function ScanResultsPage({ params }: { params: { id: string
             description="숫자는 이번 점검에서 실제로 기록된 발견과 검증 상태를 기준으로 해요."
           />
           <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-6">
-            <SeverityMetric label="매우 급함" value={counts.critical} severity="critical" />
-            <SeverityMetric label="우선 확인" value={counts.high} severity="high" />
-            <SeverityMetric label="살펴보기" value={counts.medium} severity="medium" />
-            <SeverityMetric label="여유 있게" value={counts.low} severity="low" />
+            {SEVERITY_KEYS.map((severity) => (
+              <SeverityMetric key={severity} label={SEV_LABEL[severity]} value={counts[severity]} severity={severity} />
+            ))}
             <MetricCard label="문제 재현·확인" value={verified} tone="warning" className="col-span-1" />
             <MetricCard label="고친 뒤 확인 완료" value={fixedVerified} tone="success" className="col-span-1" />
           </div>
         </section>
 
+        {/* 5. 해결 가이드 (내부 버튼은 모두 secondary) */}
         {scan.report ? (
           <ScanReportPanel report={scan.report} firstFixableFindingId={firstFixable?.id} />
         ) : (
@@ -129,7 +149,7 @@ export default async function ScanResultsPage({ params }: { params: { id: string
             {firstFixable && (
               <Link
                 href={`/dashboard/findings/${firstFixable.id}?fix=1`}
-                className={buttonClassName({ className: "mt-5 w-full sm:w-auto" })}
+                className={buttonClassName({ variant: "secondary", className: "mt-5 w-full sm:w-auto" })}
               >
                 첫 문제 해결 시작
               </Link>
@@ -137,6 +157,7 @@ export default async function ScanResultsPage({ params }: { params: { id: string
           </section>
         )}
 
+        {/* 6. 발견 목록: critical → high → medium → low (요구사항 8.2, 8.9) */}
         <section id="findings" className="scroll-mt-32 pt-12" aria-labelledby="findings-title">
           <SectionHeader
             eyebrow="확인한 내용"
@@ -152,40 +173,45 @@ export default async function ScanResultsPage({ params }: { params: { id: string
               description="확인하지 못한 항목이나 자동 점검이 놓친 문제가 있을 수 있어요. 아래 범위와 한계를 확인하고 코드가 바뀌면 다시 점검해 주세요."
             />
           ) : (
-            <div className="mt-5 space-y-4">
-              {findings.map((finding, index) => (
-                <Link
-                  key={finding.id}
-                  href={`/dashboard/findings/${finding.id}`}
-                  className="group block rounded-xl border border-line bg-white p-5 shadow-warm transition hover:border-brand-300 sm:p-6"
-                >
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge tone="primary">우선순위 {index + 1}</Badge>
-                        <SeverityBadge severity={finding.severity} />
-                        <StatusBadge status={finding.status} />
-                        {finding.simulated && <SimulatedTag />}
-                        {finding.verificationKey?.startsWith("ai:") && <AiTag />}
+            <ol className="mt-5 space-y-4">
+              {findings.map((finding, index) => {
+                const isAi = finding.verificationKey?.startsWith("ai:") || finding.category === "AI Detected";
+                return (
+                  <li key={finding.id}>
+                    <Link
+                      href={`/dashboard/findings/${finding.id}`}
+                      className="group block rounded-3xl border border-line bg-surface p-5 shadow-warm transition hover:border-brand-300 motion-reduce:transition-none sm:p-6"
+                    >
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge tone="primary">우선순위 {index + 1}</Badge>
+                            <SeverityBadge severity={finding.severity} />
+                            <StatusBadge status={finding.status} />
+                            {finding.simulated && <SimulatedTag />}
+                            {isAi && <AiTag />}
+                          </div>
+                          <h3 className="mt-3 break-words text-lg font-bold text-ink">{finding.title}</h3>
+                          <p className="mt-2 break-keep leading-relaxed text-ink-subtle">{finding.humanReadableImpact}</p>
+                          {finding.location && (
+                            <p className="mt-3 break-all font-mono text-xs text-ink-muted">
+                              {finding.location.file}:{finding.location.line}
+                            </p>
+                          )}
+                        </div>
+                        <span className="inline-flex min-h-11 shrink-0 items-center font-bold text-brand-800 group-hover:underline">
+                          해결 가이드 보기 <span aria-hidden="true">&nbsp;→</span>
+                        </span>
                       </div>
-                      <h3 className="mt-3 text-lg font-bold text-ink">{finding.title}</h3>
-                      <p className="mt-2 leading-relaxed text-ink-subtle">{finding.humanReadableImpact}</p>
-                      {finding.location && (
-                        <p className="mt-3 break-all font-mono text-xs text-ink-muted">
-                          {finding.location.file}:{finding.location.line}
-                        </p>
-                      )}
-                    </div>
-                    <span className="inline-flex min-h-11 shrink-0 items-center font-bold text-brand-700 group-hover:underline">
-                      해결 가이드 보기 →
-                    </span>
-                  </div>
-                </Link>
-              ))}
-            </div>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ol>
           )}
         </section>
 
+        {/* 7. 점검 범위와 한계 */}
         <section id="coverage" className="scroll-mt-32 pt-12" aria-labelledby="coverage-title">
           <SectionHeader
             eyebrow="결과를 읽기 전에"
@@ -195,13 +221,14 @@ export default async function ScanResultsPage({ params }: { params: { id: string
           <ScanScopePanel scope={scan.scope} />
         </section>
 
+        {/* 8. 기술 정보 (처음에는 접힘, 요구사항 8.5, 8.6) */}
         <section className="pt-10" aria-labelledby="expert-title">
           <SectionHeader
             eyebrow="필요할 때만"
             title={<span id="expert-title">전문가 정보</span>}
             description="실행 정책, 규칙, 도구, 커버리지 갭의 원문을 보존해요."
           />
-          <TechnicalDetails summary="실행 계획과 규칙 정보 펼쳐보기" className="mt-5">
+          <TechnicalDetails summary="기술 정보 보기" className="mt-5">
             {scan.plan ? <PlanPanel plan={scan.plan} /> : (
               <p className="text-sm text-ink-subtle">이 점검에는 저장된 규칙 실행 계획이 없어요.</p>
             )}
@@ -211,6 +238,12 @@ export default async function ScanResultsPage({ params }: { params: { id: string
               <ScopeRow label="시작 시각" value={new Date(scan.startedAt).toLocaleString("ko-KR")} />
               <ScopeRow label="완료 시각" value={scan.completedAt ? new Date(scan.completedAt).toLocaleString("ko-KR") : "기록 없음"} />
             </dl>
+            <div className="mt-5 border-t border-line pt-5 text-sm">
+              <h3 className="font-bold text-ink">자동 보고서 요약</h3>
+              <p className="mt-1 whitespace-pre-line leading-relaxed text-ink">
+                {scan.report?.summary ?? "이 점검에는 저장된 자동 보고서 요약이 없어요."}
+              </p>
+            </div>
           </TechnicalDetails>
         </section>
       </div>
@@ -228,7 +261,7 @@ function ScanScopePanel({ scope }: { scope: ScanScope }) {
     <Card variant="warm" className="mt-5 p-5 sm:p-6">
       <div className="grid gap-6 md:grid-cols-2">
         <div>
-          <h3 className="font-semibold text-ink">확인한 항목</h3>
+          <h3 className="font-bold text-ink">확인한 항목</h3>
           {scope.testedCategories.length > 0 ? (
             <ul className="mt-3 space-y-2 text-sm text-ink-subtle">
               {scope.testedCategories.map((category) => <li key={category}>✓ {categoryLabel(category)}</li>)}
@@ -236,7 +269,7 @@ function ScanScopePanel({ scope }: { scope: ScanScope }) {
           ) : <p className="mt-3 text-sm text-ink-muted">기록된 점검 항목이 없어요.</p>}
         </div>
         <div>
-          <h3 className="font-semibold text-ink">확인하지 못한 항목</h3>
+          <h3 className="font-bold text-ink">확인하지 못한 항목</h3>
           {scope.untestedCategories.length > 0 ? (
             <ul className="mt-3 space-y-2 text-sm text-ink-subtle">
               {scope.untestedCategories.map((category) => <li key={category}>— {categoryLabel(category)}</li>)}
@@ -244,8 +277,8 @@ function ScanScopePanel({ scope }: { scope: ScanScope }) {
           ) : <p className="mt-3 text-sm text-ink-muted">별도로 기록된 미점검 분류가 없어요.</p>}
         </div>
       </div>
-      <p className="mt-6 rounded-2xl border border-amber-200 bg-warning-soft p-4 text-sm leading-relaxed text-warning">
-        자동 점검은 모든 문제를 찾지 못해요. 이 결과는 아래 커밋·시점·연결된 대상과 실행한 항목에만 해당하며, 발견 없음도 안전 보장은 아니에요.
+      <p className="mt-6 rounded-2xl border border-[#f0d9a6] bg-warning-soft p-4 text-sm leading-relaxed text-warning">
+        자동 점검은 모든 문제를 찾지 못해요. 이 결과는 아래 커밋·시점·연결된 대상과 실행한 항목에만 해당하며, 발견이 없어도 모든 위험을 찾았다는 뜻은 아니에요.
       </p>
       <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
         <ScopeRow label="점검 시각" value={new Date(scope.scanDate).toLocaleString("ko-KR")} />
@@ -280,7 +313,7 @@ function PlanPanel({ plan }: { plan: ScanPlan }) {
         <ScopeRow label="소스 커밋" value={plan.sourceCommitSha ?? "기록 없음"} mono />
       </dl>
 
-      <h3 className="mt-6 font-semibold text-ink">실행한 검사 ({plan.selectedChecks.length}개)</h3>
+      <h3 className="mt-6 font-bold text-ink">실행한 검사 ({plan.selectedChecks.length}개)</h3>
       {plan.selectedChecks.length === 0 ? (
         <p className="mt-2 text-sm text-ink-subtle">실행 가능한 검사가 없었어요.</p>
       ) : (
@@ -304,9 +337,9 @@ function PlanPanel({ plan }: { plan: ScanPlan }) {
         </div>
       )}
 
-      <h3 className="mt-6 font-semibold text-ink">확인하지 못한 검사 ({plan.coverageGaps.length}개)</h3>
+      <h3 className="mt-6 font-bold text-ink">확인하지 못한 검사 ({plan.coverageGaps.length}개)</h3>
       {plan.coverageGaps.length === 0 ? (
-        <p className="mt-2 text-sm text-ink-subtle">별도로 기록된 커버리지 갭이 없어요. 그래도 전체 안전을 보장하지는 않아요.</p>
+        <p className="mt-2 text-sm text-ink-subtle">별도로 기록된 커버리지 갭이 없어요. 그래도 모든 위험을 찾았다는 뜻은 아니에요.</p>
       ) : (
         <ul className="mt-3 space-y-2 text-sm text-ink-subtle">
           {plan.coverageGaps.map((gap, index) => (

@@ -4,61 +4,64 @@ import { logoutAction } from "@/lib/authActions";
 import { Hoi } from "@/components/mascot/Hoi";
 import { buttonClassName } from "@/components/ui";
 
+// 따뜻한 hover: 연주황 배경 위에서는 대비를 위해 글자를 text-ink로 바꾼다.
 const navLink =
-  "hidden min-h-11 items-center rounded-xl px-3 text-sm font-medium text-ink-subtle hover:bg-primary-soft/60 hover:text-ink sm:inline-flex";
+  "inline-flex min-h-11 items-center rounded-2xl px-3 text-sm font-semibold text-ink-subtle hover:bg-primary-soft hover:text-ink";
 
 /**
- * 공개 헤더. 명세 3-1: 왼쪽 로고(작은 캐릭터), 가운데 같은 페이지 앵커 링크,
- * 오른쪽 로그인/내 프로젝트 + 스캔 시작하기. 모바일에서는 가운데 메뉴를 접는다.
+ * 공개 헤더(설계 5-1). 왼쪽 로고(작은 호이 + 이름), 가운데 랜딩 섹션 앵커,
+ * 오른쪽 로그인 여부에 따른 "내 프로젝트"/"로그인" secondary 링크.
+ * 랜딩의 Primary 버튼은 히어로 1개뿐이므로 여기에는 Primary를 두지 않는다.
+ * 640px 미만에서는 앵커와 로그아웃을 숨겨 320px에서도 가로 스크롤이 생기지 않게 한다.
  */
 export async function TopNav() {
   const user = await getCurrentUser();
 
   return (
-    <header className="sticky top-0 z-30 border-b border-line bg-white/95 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-30 border-b border-line bg-[#fffaf2]/90 backdrop-blur">
+      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-2 sm:px-6 lg:px-8">
         <Link
           href="/"
-          className="flex min-h-11 shrink-0 items-center gap-2 rounded-xl font-bold text-ink"
+          className="flex min-h-11 min-w-0 items-center gap-2 rounded-2xl font-bold text-ink"
           aria-label="호이 보안 코치 홈"
         >
-          <Hoi mood="welcome" size="sm" decorative className="h-7 w-7" />
-          <span className="whitespace-nowrap">호이 보안 코치</span>
+          <Hoi mood="welcome" size="sm" decorative />
+          <span className="truncate">호이 보안 코치</span>
         </Link>
 
-        <nav aria-label="주요 메뉴" className="flex items-center gap-1">
-          <a href="#features" className={navLink}>기능 소개</a>
-          <a href="#how-it-works" className={navLink}>사용 방법</a>
-          <a href="#sample-result" className={navLink}>결과 예시</a>
+        {/* 앵커는 로그인·회원가입 화면에서도 랜딩 섹션으로 가도록 "/" 기준으로 둔다. */}
+        <nav aria-label="주요 메뉴" className="hidden items-center gap-1 sm:flex">
+          <Link href="/#features" className={navLink}>기능 소개</Link>
+          <Link href="/#how-it-works" className={navLink}>사용 방법</Link>
         </nav>
 
-        <div className="flex min-h-11 shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           {user ? (
             <>
-              <Link
-                href="/dashboard"
-                className="hidden min-h-11 items-center rounded-xl px-3 text-sm font-medium text-ink-subtle hover:bg-surface-warm hover:text-ink sm:inline-flex"
-              >
-                내 프로젝트
-              </Link>
               <form action={logoutAction} className="hidden sm:block">
                 <button
                   type="submit"
-                  className="inline-flex min-h-11 items-center rounded-xl px-3 text-sm font-medium text-ink-subtle hover:bg-surface-warm hover:text-ink"
+                  className={navLink}
                   aria-label={`${user.name || user.email} 계정에서 로그아웃`}
                 >
                   로그아웃
                 </button>
               </form>
+              <Link
+                href="/dashboard"
+                className={buttonClassName({ variant: "secondary", size: "sm", className: "whitespace-nowrap" })}
+              >
+                내 프로젝트
+              </Link>
             </>
           ) : (
-            <Link href="/login" className="hidden min-h-11 items-center rounded-xl px-3 text-sm font-medium text-ink-subtle hover:bg-surface-warm hover:text-ink sm:inline-flex">
+            <Link
+              href="/login"
+              className={buttonClassName({ variant: "secondary", size: "sm", className: "whitespace-nowrap" })}
+            >
               로그인
             </Link>
           )}
-          <Link href="/dashboard/quick-check" className={buttonClassName({ size: "sm" })}>
-            스캔 시작하기 →
-          </Link>
         </div>
       </div>
     </header>

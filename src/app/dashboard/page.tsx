@@ -13,6 +13,7 @@ import {
   MetricCard,
   buttonClassName,
 } from "@/components/ui";
+import { computeDashboardMetrics } from "@/lib/ui/presentation";
 import type { SeverityCounts } from "@/lib/domain/types";
 
 export const dynamic = "force-dynamic";
@@ -45,17 +46,16 @@ export default async function DashboardPage() {
       let urgentOpen = 0;
       let openTotal = 0;
 
-      if (latest) {
-        const findings = await getFindingsForScan(latest.id, uid);
-        for (const finding of findings) {
-          counts[finding.severity] += 1;
-          if (finding.status === "resolved") {
-            resolved += 1;
-          } else {
-            openTotal += 1;
-            if (finding.severity === "critical" || finding.severity === "high") {
-              urgentOpen += 1;
-            }
+      // 최신 스캔이 없으면 발견도 없다(computeDashboardMetrics 입력 규약).
+      const findings = latest ? await getFindingsForScan(latest.id, uid) : [];
+      for (const finding of findings) {
+        counts[finding.severity] += 1;
+        if (finding.status === "resolved") {
+          resolved += 1;
+        } else {
+          openTotal += 1;
+          if (finding.severity === "critical" || finding.severity === "high") {
+            urgentOpen += 1;
           }
         }
       }
@@ -67,24 +67,37 @@ export default async function DashboardPage() {
       );
       const lastCheckedAt = project.lastScanDate ?? latest?.completedAt ?? latest?.startedAt;
 
-      return { project, latest, counts, resolved, urgentOpen, openTotal, drift, lastCheckedAt };
+      return {
+        project,
+        latest,
+        findings,
+        counts,
+        resolved,
+        urgentOpen,
+        openTotal,
+        drift,
+        lastCheckedAt,
+      };
     }),
   );
 
-  const resolvedTotal = rows.reduce((sum, row) => sum + row.resolved, 0);
-  const urgentTotal = rows.reduce((sum, row) => sum + row.urgentOpen, 0);
-  const waitingTotal = rows.filter((row) => !row.latest).length;
-  const recentCheckedAt = rows
-    .map((row) => row.lastCheckedAt)
-    .filter((value): value is string => Boolean(value))
-    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
+  // 저장된 프로젝트·스캔·발견 데이터만으로 지표를 계산한다(요구사항 9.6~9.8).
+  const { resolvedTotal, urgentTotal, waitingTotal, recentCheckedAt } = computeDashboardMetrics(
+    rows.map((row) => ({
+      hasLatestScan: Boolean(row.latest),
+      findings: row.findings,
+      lastCheckedAt: row.lastCheckedAt,
+    })),
+  );
+  const isEmpty = rows.length === 0;
 
   return (
     <>
       <PageHeader
         title="어떤 서비스를 튼튼하게 만들어 볼까요?"
         subtitle="프로젝트를 고르면 호이가 최근 점검 결과부터 알려드려요."
-        action={{ href: "/dashboard/new", label: "새 프로젝트 데려오기" }}
+        // 화면의 Primary는 하나만: 빈 상태에서는 EmptyState 버튼이 Primary를 맡는다.
+        action={isEmpty ? undefined : { href: "/dashboard/new", label: "새 프로젝트 데려오기" }}
       >
         <Link
           href="/dashboard/quick-check"
@@ -95,7 +108,7 @@ export default async function DashboardPage() {
       </PageHeader>
 
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-        {rows.length === 0 ? (
+        {isEmpty ? (
           <EmptyState
             title="아직 호이에게 소개한 프로젝트가 없어요"
             description="첫 프로젝트를 연결하면 약한 곳부터 차근차근 살펴드릴게요."
@@ -140,7 +153,7 @@ export default async function DashboardPage() {
                 />
                 <MetricCard
                   label="최근 점검"
-                  value={recentCheckedAt ? formatDate(recentCheckedAt) : "아직 없어요"}
+                  value={recentCheckedAt === null ? "아직 없어요" : formatDate(recentCheckedAt)}
                   hint="등록된 프로젝트 중 가장 최근 시점"
                   tone="info"
                   className="[&>div:nth-child(2)>div]:break-keep [&>div:nth-child(2)>div]:text-xl"
@@ -151,7 +164,7 @@ export default async function DashboardPage() {
             <section aria-labelledby="project-list-title">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-brand-700">내 프로젝트</p>
+                  <p className="text-sm font-bold text-brand-800">내 프로젝트</p>
                   <h2 id="project-list-title" className="text-2xl font-bold tracking-tight text-ink">
                     어디부터 살펴볼까요?
                   </h2>
@@ -209,7 +222,7 @@ export default async function DashboardPage() {
                       <div className="mt-auto pt-5">
                         <Link
                           href={`/dashboard/projects/${project.id}`}
-                          className={buttonClassName({ className: "w-full" })}
+                          className={buttonClassName({ variant: "secondary", className: "w-full" })}
                         >
                           {latest ? "최근 결과와 다음 단계 보기" : "첫 점검 준비하기"}
                         </Link>

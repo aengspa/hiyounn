@@ -13,18 +13,21 @@ import {
   AiTag,
   Badge,
   Card,
-  Evidence,
+  CodeEvidence,
+  SEV_EXPERT_LABEL,
   SeverityBadge,
   SimulatedTag,
   StatusBadge,
   TechnicalDetails,
   TestStatusBadge,
   categoryLabel,
+  severityLabel,
   tierLabel,
 } from "@/components/ui";
 import { FindingActions } from "@/components/FindingActions";
+import { summarizeFinding, UNKNOWN_STATUS_LABEL } from "@/lib/ui/presentation";
 import { toTestStatus } from "@/lib/domain/types";
-import type { EvidenceKind, SecurityEvidence } from "@/lib/domain/types";
+import type { EvidenceKind, SecurityEvidence, Severity } from "@/lib/domain/types";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +40,10 @@ const EVIDENCE_KIND_LABEL: Record<EvidenceKind, string> = {
   attack_reproduction: "문제 재현 결과",
 };
 
+/** AI 발견 고지 (요구사항 8.8). "기술 정보 보기" 바깥에 접히지 않은 채로 둔다. */
+const AI_NOTICE =
+  "호이가 AI로 코드를 읽고 찾은 내용이에요. 놓치거나 잘못 짚을 수 있어서, 가능한 항목은 실제 확인 단계로 한 번 더 살펴봐요.";
+
 export default async function FindingPage({ params }: { params: { id: string } }) {
   const uid = await getCurrentUserId();
   let finding;
@@ -46,12 +53,12 @@ export default async function FindingPage({ params }: { params: { id: string } }
     if (e instanceof NotFoundError || e instanceof NotAuthorizedError) notFound();
     throw e;
   }
-
   const fix = (await getFixForFinding(params.id, uid)) ?? null;
   const verification = (await getVerification(params.id, uid)) ?? null;
-  const isAi = finding.verificationKey?.startsWith("ai:") ?? false;
+  const isAi = (finding.verificationKey?.startsWith("ai:") ?? false) || finding.category === "AI Detected";
   const sourceEvidence = finding.evidence.find((evidence) => evidence.kind === "source_code");
   const currentStep = getCurrentStep(finding.status, Boolean(fix), Boolean(fix?.applied));
+  const summary = summarizeFinding(finding.status);
 
   return (
     <>
@@ -63,60 +70,70 @@ export default async function FindingPage({ params }: { params: { id: string } }
       />
       <div className="mx-auto max-w-4xl px-4 py-7 sm:px-6 sm:py-10">
         <section aria-labelledby="finding-title">
-          <div className="flex flex-wrap items-center gap-2">
+          <h2 id="finding-title" className="break-words text-3xl font-bold tracking-tight text-ink">
+            {finding.title}
+          </h2>
+
+          {/* 제목 아래 첫 콘텐츠: 호이의 쉬운 요약 (요구사항 8.1, 8.4) */}
+          <HoiSpeech
+            mood={summary.mood}
+            size="md"
+            className="mt-5"
+            footer={<span className="font-semibold text-ink">지금 단계 · {currentStep}</span>}
+          >
+            {summary.title && (
+              <h3 className="text-xl font-bold tracking-tight text-ink">{summary.title}</h3>
+            )}
+            <p className={summary.title ? "mt-1 font-semibold" : undefined}>{summary.message}</p>
+          </HoiSpeech>
+
+          <div className="mt-5 flex flex-wrap items-center gap-2">
             <SeverityBadge severity={finding.severity} />
             <StatusBadge status={finding.status} />
             <TestStatusBadge status={finding.testStatus ?? toTestStatus(finding.status)} />
             {finding.simulated && <SimulatedTag />}
             {isAi && <AiTag />}
           </div>
-          <h2 id="finding-title" className="mt-4 break-words text-3xl font-bold tracking-tight text-ink">
-            {finding.title}
-          </h2>
-          <HoiSpeech mood={finding.status === "resolved" ? "celebrate" : "concerned"} size="md" className="mt-6">
-            <span>
-              <span className="block text-sm font-semibold text-brand-700">현재 단계 · {currentStep}</span>
-              <span className="mt-1 block">
-                {finding.status === "resolved"
-                  ? "이 항목은 수정 후 보안과 기본 기능 확인을 모두 통과했어요."
-                  : "괜찮아요. 먼저 영향과 위치를 확인한 뒤, 아래 해결 여정의 버튼 하나만 따라오면 돼요."}
-              </span>
-            </span>
-          </HoiSpeech>
-        </section>
 
-        {(isAi || finding.simulated) && (
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            {isAi && (
-              <Card variant="flat" className="border-blue-200 bg-info-soft p-4 text-sm leading-relaxed text-info">
-                <strong>AI 분석 안내</strong><br />AI의 설명은 참고용이에요. 실제 상태는 저장된 근거와 재검증 결과를 우선해 판단해요.
-              </Card>
-            )}
-            {finding.simulated && (
-              <Card variant="warm" className="p-4 text-sm leading-relaxed text-ink-subtle">
-                <strong className="text-ink">격리 시뮬레이션 안내</strong><br />허용된 격리 범위에서 문제 상황을 재현한 기록이에요. 운영 공격을 실행했다는 뜻이 아니에요.
-              </Card>
-            )}
-          </div>
-        )}
+          {(isAi || finding.simulated) && (
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              {isAi && (
+                <Card variant="flat" className="border-[#c9def3] bg-info-soft p-4 text-sm leading-relaxed text-info">
+                  <strong>AI 분석 안내</strong>
+                  <br />
+                  {AI_NOTICE}
+                </Card>
+              )}
+              {finding.simulated && (
+                <Card variant="warm" className="p-4 text-sm leading-relaxed text-ink-subtle">
+                  <strong className="text-ink">격리 시뮬레이션 안내</strong>
+                  <br />
+                  허용된 격리 범위에서 문제 상황을 재현한 기록이에요. 운영 공격을 실행했다는 뜻이 아니에요.
+                </Card>
+              )}
+            </div>
+          )}
+        </section>
 
         <GuideSection eyebrow="먼저 읽어요" title="한눈에 보기">
           <Card variant="raised" className="p-5 sm:p-6">
             <p className="text-lg font-semibold leading-relaxed text-ink">{finding.whyItMatters}</p>
             <div className="mt-4 flex flex-wrap gap-2">
               <Badge tone={finding.severity === "critical" ? "danger" : finding.severity === "high" ? "warning" : "neutral"}>
-                우선순위 · <SeverityBadge severity={finding.severity} className="ml-1 border-0 bg-transparent px-0" />
+                우선순위 · {severityLabel(finding.severity)}
               </Badge>
               <Badge tone="neutral">분류 · {categoryLabel(finding.category)}</Badge>
             </div>
           </Card>
         </GuideSection>
 
-        <GuideSection eyebrow="내 서비스에는" title="사용자 영향">
-          <p className="text-lg leading-relaxed text-ink-subtle">{finding.humanReadableImpact}</p>
+        <GuideSection eyebrow="내 서비스에는" title="이대로 두면 어떤 일이 생겨요?">
+          <Card variant="warm" className="p-5 sm:p-6">
+            <p className="text-lg leading-relaxed text-ink">{finding.humanReadableImpact}</p>
+          </Card>
         </GuideSection>
 
-        <GuideSection eyebrow="코드에서 확인해요" title="어디서 찾았나요?">
+        <GuideSection eyebrow="코드에서 확인해요" title="어디에서 찾았나요?">
           {finding.location ? (
             <Card variant="warm" className="p-5">
               <dl className="grid gap-4 text-sm sm:grid-cols-[1fr_auto]">
@@ -131,10 +148,10 @@ export default async function FindingPage({ params }: { params: { id: string } }
               </dl>
             </Card>
           ) : (
-            <p className="text-ink-subtle">특정 파일과 줄로 좁히지 못한 항목이에요. 아래 근거 요약과 전문가용 원문을 확인해 주세요.</p>
+            <p className="text-ink-subtle">특정 파일과 줄로 좁히지 못한 항목이에요. 아래 근거 요약과 &quot;기술 정보 보기&quot;의 원문을 확인해 주세요.</p>
           )}
           {sourceEvidence && (
-            <Evidence
+            <CodeEvidence
               className="mt-4"
               label={`${sourceEvidence.label} · ${sourceEvidence.masked ? "민감값 마스킹됨" : "저장된 코드 문맥"}`}
               content={sourceEvidence.content}
@@ -156,7 +173,7 @@ export default async function FindingPage({ params }: { params: { id: string } }
           />
         </GuideSection>
 
-        <GuideSection eyebrow="수정 뒤" title="고친 뒤 확인할 것">
+        <GuideSection eyebrow="수정 뒤" title="고친 뒤 호이가 확인할 것">
           <ul className="grid gap-3 sm:grid-cols-2">
             <CheckItem title="같은 문제가 막혔나요?" description="처음 문제를 확인한 규칙이나 재현 방법으로 다시 점검해요." />
             <CheckItem title="기존 기능은 그대로인가요?" description="정상 사용 흐름과 저장·응답 무결성이 깨지지 않았는지 확인해요." />
@@ -178,8 +195,9 @@ export default async function FindingPage({ params }: { params: { id: string } }
         </GuideSection>
 
         <section className="mt-12" aria-labelledby="expert-details-title">
-          <TechnicalDetails summary={<span id="expert-details-title">전문가용 정보 펼쳐보기</span>}>
+          <TechnicalDetails summary={<span id="expert-details-title">기술 정보 보기</span>}>
             <dl className="grid gap-4 text-sm sm:grid-cols-2">
+              <ExpertMeta label="심각도" value={expertSeverity(finding.severity)} />
               <ExpertMeta label="CWE" value={finding.cwe ?? "기록 없음"} />
               <ExpertMeta label="OWASP" value={finding.owasp ?? "기록 없음"} />
               <ExpertMeta label="CVSS" value={typeof finding.cvss === "number" ? String(finding.cvss) : "기록 없음"} />
@@ -205,11 +223,13 @@ export default async function FindingPage({ params }: { params: { id: string } }
             </div>
             <div className="mt-6 space-y-4 border-t border-line pt-5">
               <h3 className="font-semibold text-ink">스캐너 원문</h3>
+              {finding.evidence.length === 0 && <p className="text-sm">저장된 원문이 없어요.</p>}
               {finding.evidence.map((evidence) => (
                 <div key={evidence.id}>
                   {evidence.masked && <p className="mb-2 text-xs font-bold text-warning">민감한 값은 저장된 마스킹 상태로만 표시해요.</p>}
-                  <Evidence
-                    label={`${evidence.label} · ${EVIDENCE_KIND_LABEL[evidence.kind]} · ID ${evidence.id}`}
+                  {/* 저장된 content를 그대로 넘긴다. 마스킹된 값은 마스킹된 채로 보인다(요구사항 8.10). */}
+                  <CodeEvidence
+                    label={`${evidence.label} · ${EVIDENCE_KIND_LABEL[evidence.kind] ?? evidence.kind} · ID ${evidence.id}`}
                     content={evidence.content}
                     tone={evidence.kind === "attack_reproduction" ? "danger" : "default"}
                   />
@@ -227,7 +247,7 @@ function GuideSection({ eyebrow, title, children }: { eyebrow: string; title: st
   const id = `section-${title.replace(/[^가-힣a-zA-Z0-9]/g, "-")}`;
   return (
     <section className="mt-12" aria-labelledby={id}>
-      <p className="text-sm font-semibold text-brand-700">{eyebrow}</p>
+      <p className="text-sm font-semibold text-brand-800">{eyebrow}</p>
       <h2 id={id} className="mt-1 mb-4 text-2xl font-bold tracking-tight text-ink">{title}</h2>
       {children}
     </section>
@@ -236,8 +256,11 @@ function GuideSection({ eyebrow, title, children }: { eyebrow: string; title: st
 
 function CheckItem({ title, description }: { title: string; description: string }) {
   return (
-    <li className="rounded-2xl border border-line bg-white p-4 shadow-warm">
-      <p className="font-semibold text-ink">□ {title}</p>
+    <li className="rounded-2xl border border-line bg-surface p-4 shadow-warm">
+      <p className="font-semibold text-ink">
+        <span aria-hidden="true">□ </span>
+        {title}
+      </p>
       <p className="mt-1 text-sm leading-relaxed text-ink-subtle">{description}</p>
     </li>
   );
@@ -251,8 +274,8 @@ function EvidenceSummary({ evidence, index }: { evidence: SecurityEvidence; inde
         <span className="font-semibold text-ink">{evidence.label}</span>
       </div>
       <p className="mt-2 text-sm leading-relaxed text-ink-subtle">
-        {EVIDENCE_KIND_LABEL[evidence.kind]} 기록이 저장되어 있어요.
-        {evidence.masked ? " 민감한 값은 이미 가린 상태예요." : " 원문은 아래 전문가용 정보에서 확인할 수 있어요."}
+        {EVIDENCE_KIND_LABEL[evidence.kind] ?? evidence.kind} 기록이 저장되어 있어요.
+        {evidence.masked ? " 민감한 값은 이미 가린 상태예요." : " 원문은 아래 \"기술 정보 보기\"에서 확인할 수 있어요."}
       </p>
     </Card>
   );
@@ -265,6 +288,14 @@ function ExpertMeta({ label, value, mono = false }: { label: string; value: stri
       <dd className={`mt-1 break-all text-ink ${mono ? "font-mono text-xs" : ""}`}>{value}</dd>
     </div>
   );
+}
+
+/** "심각(Critical) · 지금 확인해요" 형식 (요구사항 4.6). 모르는 값은 대체 라벨. */
+function expertSeverity(severity: Severity): string {
+  const expert = Object.prototype.hasOwnProperty.call(SEV_EXPERT_LABEL, severity)
+    ? SEV_EXPERT_LABEL[severity]
+    : UNKNOWN_STATUS_LABEL;
+  return `${expert} · ${severityLabel(severity)}`;
 }
 
 function getCurrentStep(status: string, hasFix: boolean, applied: boolean): string {

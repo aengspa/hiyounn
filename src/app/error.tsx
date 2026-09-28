@@ -1,51 +1,48 @@
 "use client";
 
-import { Button } from "@/components/ui";
-import { FriendlyError } from "@/components/ui";
+import { useEffect } from "react";
+import Link from "next/link";
 import { HoiScene } from "@/components/mascot/HoiScene";
+import { Button, buttonClassName } from "@/components/ui";
 
+/**
+ * 최상위 렌더링 오류 화면 (요구사항 10.7, 10.8).
+ * 오류 원문·digest·스택은 화면과 스크린리더 텍스트 어디에도 넣지 않고 콘솔에만 남긴다.
+ */
 export default function ErrorBoundary({
+  error,
   reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  const offline = typeof navigator !== "undefined" && !navigator.onLine;
-
-  function goBack() {
-    if (window.history.length > 1) window.history.back();
-    else window.location.assign("/");
-  }
+  useEffect(() => {
+    console.error(error);
+  }, [error]);
 
   return (
     <main
       id="main-content"
       tabIndex={-1}
-      aria-live="assertive"
       className="mx-auto flex min-h-screen max-w-4xl items-center px-4 py-10 outline-none sm:px-6"
     >
-      <HoiScene
-        headingLevel="h1"
-        mood="concerned"
-        className="w-full"
-        title={offline ? "인터넷 연결을 확인해 주세요" : "호이가 페이지를 마치지 못했어요"}
-        description={
-          <FriendlyError
-            title={offline ? "연결이 잠깐 끊겼어요" : "요청 중 문제가 생겼어요"}
-            description={
-              offline
-                ? "Wi-Fi나 네트워크 연결을 확인한 뒤 다시 시도해 주세요. 입력하거나 저장한 상태는 화면을 떠나기 전에 확인해 주세요."
-                : "기술 오류 내용은 화면에 표시하지 않았어요. 잠시 뒤 다시 시도하거나 이전 화면으로 돌아갈 수 있어요."
-            }
-            action={
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Button onClick={reset}>다시 시도하기</Button>
-                <Button variant="secondary" onClick={goBack}>이전 화면으로 돌아가기</Button>
-              </div>
-            }
-          />
-        }
-      />
+      <div role="alert" className="w-full">
+        <HoiScene
+          headingLevel="h1"
+          mood="concerned"
+          className="w-full"
+          title="잠시 문제가 생겼어요"
+          description="호이가 이 화면을 보여드리는 중에 멈췄어요. 인터넷 연결을 확인한 뒤 다시 시도해 주세요."
+          action={
+            <>
+              <Button onClick={() => reset()}>다시 시도하기</Button>
+              <Link href="/" className={buttonClassName({ variant: "secondary" })}>
+                처음으로 돌아가기
+              </Link>
+            </>
+          }
+        />
+      </div>
     </main>
   );
 }

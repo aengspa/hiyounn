@@ -6,6 +6,7 @@ import type { FindingStatus, FixAttempt, VerificationResult } from "@/lib/domain
 import { Hoi } from "@/components/mascot/Hoi";
 import { HoiSpeech } from "@/components/mascot/HoiSpeech";
 import { Badge, Button, Card, Evidence, FriendlyError } from "@/components/ui";
+import { primaryActionForFinding, type FindingPrimaryAction } from "@/lib/ui/presentation";
 
 interface Props {
   findingId: string;
@@ -34,6 +35,8 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
   const [reviewConfirmed, setReviewConfirmed] = useState(false);
   const [error, setError] = useState<{ title: string; message: string } | null>(null);
   const [celebrating, setCelebrating] = useState(false);
+  // 작업이 끝난 뒤 스크린리더에 알릴 결과 문장(요구사항 11.10). 진행 중 문구와 같은 aria-live 영역을 쓴다.
+  const [announcement, setAnnouncement] = useState("");
 
   useEffect(() => {
     if (searchParams.get("fix") === "1" && !fix) setConfirmingFix(true);
@@ -62,11 +65,13 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
   async function generateFix() {
     setBusy("generate");
     setError(null);
+    setAnnouncement("");
     try {
       const data = await postJson(`/api/findings/${findingId}/generate-fix`);
       if (!data?.fix) throw new Error("수정안을 받지 못했어요.");
       setFix(data.fix);
       setConfirmingFix(false);
+      setAnnouncement("수정안을 만들었어요. 제안된 수정 내용을 확인해 주세요.");
       router.refresh();
     } catch (cause) {
       setError(mapError(cause, "generate"));
@@ -78,6 +83,7 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
   async function applyFix() {
     setBusy("apply");
     setError(null);
+    setAnnouncement("");
     try {
       const data = await postJson(`/api/findings/${findingId}/apply-fix`);
       if (!data?.finding) throw new Error("반영 상태를 갱신하지 못했어요.");
@@ -85,6 +91,7 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
       setFix((current) => current ? { ...current, applied: true } : current);
       setConfirmingApply(false);
       setReviewConfirmed(false);
+      setAnnouncement("점검 기록의 반영 상태를 갱신했어요.");
       router.refresh();
     } catch (cause) {
       setError(mapError(cause, "apply"));
@@ -96,6 +103,7 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
   async function verify() {
     setBusy("verify");
     setError(null);
+    setAnnouncement("");
     try {
       const data = await postJson(`/api/findings/${findingId}/verify`);
       if (!data?.finding || !data?.result) {
@@ -104,7 +112,9 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
       const nextStatus = data.finding.status as FindingStatus;
       setStatus(nextStatus);
       setVerification(data.result);
-      if (nextStatus === "resolved" && status !== "resolved") setCelebrating(true);
+      // 색종이는 해결 상태로 바뀐 순간에만, 동작 줄이기 설정이 없을 때만 보여 준다.
+      if (nextStatus === "resolved" && status !== "resolved" && !prefersReducedMotion()) setCelebrating(true);
+      setAnnouncement(verifyAnnouncement(nextStatus));
       router.refresh();
     } catch (cause) {
       setError(mapError(cause, "verify"));
@@ -114,8 +124,15 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
   }
 
   const canVerify = status === "fixed" || status === "verification_failed" || status === "regression_failed";
-  const currentStage = !fix ? 2 : !fix.applied ? 3 : canVerify ? 5 : status === "resolved" ? 6 : 4;
+  const hasFix = Boolean(fix);
+  const applied = Boolean(fix?.applied);
+  // 단계 표시는 실제 상태(수정안 유무, 기록상 반영 여부, 재검증 결과, 발견 상태)와
+  // 사용자가 연 확인 카드만 반영한다. 추정 진행률은 만들지 않는다(요구사항 12.3).
+  const currentStage = !fix ? 2 : !fix.applied ? (confirmingApply ? 4 : 3) : canVerify ? 5 : status === "resolved" ? 6 : 4;
   const guide = getGuide({ status, fix, canVerify });
+  // 한 화면 하나의 다음 행동(요구사항 8.7): 이 값이 가리키는 버튼만 primary, 나머지는 secondary.
+  const primaryAction = primaryActionForFinding({ status, hasFix, applied });
+  const variantFor = (action: FindingPrimaryAction) => (primaryAction === action ? "primary" : "secondary");
 
   return (
     <div className="mt-7 space-y-6" aria-busy={busy !== null}>
@@ -126,25 +143,26 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
             ? "반영 상태를 갱신하고 있어요"
             : busy === "verify"
               ? "고친 내용과 기존 기능을 다시 확인하고 있어요"
-              : ""}
+              : announcement}
       </div>
       <JourneyTimeline
         currentStage={currentStage}
         status={status}
-        hasFix={Boolean(fix)}
-        applied={Boolean(fix?.applied)}
+        hasFix={hasFix}
+        applied={applied}
+        reviewing={confirmingApply}
         verification={verification}
       />
 
       {status === "resolved" ? (
-        <div className="relative overflow-hidden rounded-xl border border-green-300 bg-success-soft p-5 sm:p-6" aria-live="polite">
+        <div className="relative overflow-hidden rounded-3xl border border-[#bfe0c8] bg-success-soft p-5 shadow-warm sm:p-6" aria-live="polite">
           {celebrating && <Confetti />}
           <div className="relative flex flex-col items-center gap-4 text-center sm:flex-row sm:text-left">
             <Hoi mood="celebrate" size="md" decorative />
             <div>
-              <h3 className="text-xl font-bold text-success">고친 내용이 잘 막히는지 확인했어요!</h3>
-              <p className="mt-1 text-sm leading-relaxed text-green-800">
-                같은 보안 문제가 다시 생기지 않았고, 이 점검에서 확인 가능한 기본 기능 조건도 통과했어요. 이 한 항목에 대한 결과이며 서비스 전체 안전을 보장하지는 않아요.
+              <h3 className="text-xl font-bold text-success">잘 막았어요! 한 단계 더 튼튼해졌어요</h3>
+              <p className="mt-1 text-sm leading-relaxed text-ink">
+                같은 보안 문제가 다시 생기지 않았고, 이 점검에서 확인 가능한 기본 기능 조건도 통과했어요. 이 한 항목에 대한 결과이고, 자동 점검만으로 서비스의 모든 위험을 찾을 수는 없어요.
               </p>
             </div>
           </div>
@@ -177,7 +195,7 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
             승인하면 AI 또는 결정적 규칙이 제안만 만들어요. 이 단계에서는 코드, 저장소, 배포 환경이 바뀌지 않아요.
           </p>
           <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-            <Button onClick={generateFix} disabled={busy !== null} className="w-full sm:w-auto">
+            <Button variant={variantFor("generate")} onClick={generateFix} disabled={busy !== null} className="w-full sm:w-auto">
               {busy === "generate" ? "수정안 만드는 중…" : "승인하고 수정안 만들기"}
             </Button>
             <Button variant="secondary" onClick={() => setConfirmingFix(false)} disabled={busy !== null} className="w-full sm:w-auto">
@@ -188,7 +206,7 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
       )}
 
       {!fix && !confirmingFix && (
-        <Button onClick={() => setConfirmingFix(true)} disabled={busy !== null} size="lg" className="w-full sm:w-auto">
+        <Button variant={variantFor("generate")} onClick={() => setConfirmingFix(true)} disabled={busy !== null} size="lg" className="w-full sm:w-auto">
           2단계 · 수정안 만들기
         </Button>
       )}
@@ -214,27 +232,27 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
           <div className="mt-5 space-y-4">
             {fix.diffs.length > 0 ? fix.diffs.map((diff, index) => (
               <DiffBlock key={`${diff.file}-${index}`} file={diff.file} patch={diff.patch} />
-            )) : <p className="rounded-2xl bg-warning-soft p-4 text-sm text-warning">제안에 저장된 diff가 없어요. 상태를 갱신하기 전에 원본 수정 내용을 별도로 확인해 주세요.</p>}
+            )) : <p className="rounded-2xl border border-[#f0d9a6] bg-warning-soft p-4 text-sm text-warning">제안에 저장된 diff가 없어요. 상태를 갱신하기 전에 원본 수정 내용을 별도로 확인해 주세요.</p>}
           </div>
 
           {!fix.applied && !confirmingApply && (
-            <Button onClick={() => setConfirmingApply(true)} disabled={busy !== null} size="lg" className="mt-5 w-full sm:w-auto">
+            <Button variant={variantFor("review")} onClick={() => setConfirmingApply(true)} disabled={busy !== null} size="lg" className="mt-5 w-full sm:w-auto">
               3단계 · 변경 검토하고 승인
             </Button>
           )}
 
           {!fix.applied && confirmingApply && (
             <Card variant="danger" className="mt-5 p-5" role="group" aria-labelledby="apply-confirm-title">
-              <h3 id="apply-confirm-title" className="font-semibold text-red-900">4단계 · 반영 상태를 갱신할까요?</h3>
-              <p className="mt-2 text-sm leading-relaxed text-red-800">
+              <h3 id="apply-confirm-title" className="font-semibold text-danger">4단계 · 반영 상태를 갱신할까요?</h3>
+              <p className="mt-2 text-sm leading-relaxed text-ink">
                 이 버튼은 점검 기록에서 수정안의 적용 상태를 갱신해요. 실제 저장소·파일·배포 환경에 diff를 쓰지 않으므로, 직접 반영했는지 별도로 확인해야 해요.
               </p>
-              <label className="mt-4 flex min-h-11 cursor-pointer items-start gap-3 rounded-2xl border border-red-200 bg-white p-3 text-sm font-bold text-ink">
+              <label className="mt-4 flex min-h-11 cursor-pointer items-start gap-3 rounded-2xl border border-[#f3c4bd] bg-surface p-3 text-sm font-bold text-ink">
                 <input
                   type="checkbox"
                   checked={reviewConfirmed}
                   onChange={(event) => setReviewConfirmed(event.target.checked)}
-                  className="mt-0.5 h-5 w-5 shrink-0 accent-brand-600"
+                  className="mt-0.5 h-5 w-5 shrink-0 accent-brand-700"
                 />
                 <span>diff, 영향, 되돌림 안내를 읽었고 실제 반영 여부를 별도로 확인하겠습니다.</span>
               </label>
@@ -257,7 +275,7 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
           <p className="mt-2 text-sm leading-relaxed text-ink-subtle">
             마지막으로 저장된 소스 또는 허가된 배포 대상을 같은 규칙으로 점검해요. 실제 변경이 그 대상에 반영되지 않았다면 제안만으로 통과할 수 없어요.
           </p>
-          <Button onClick={verify} disabled={busy !== null} size="lg" className="mt-4 w-full sm:w-auto">
+          <Button variant={variantFor("verify")} onClick={verify} disabled={busy !== null} size="lg" className="mt-4 w-full sm:w-auto">
             {busy === "verify" ? "재검증 중…" : status === "fixed" ? "5단계 · 수정 재검증" : "다시 재검증"}
           </Button>
           <p className="mt-3 text-xs leading-relaxed text-ink-muted">
@@ -278,17 +296,19 @@ export function FindingActions({ findingId, initialStatus, initialFix, initialVe
   );
 }
 
-function JourneyTimeline({ currentStage, status, hasFix, applied, verification }: {
+function JourneyTimeline({ currentStage, status, hasFix, applied, reviewing, verification }: {
   currentStage: number;
   status: FindingStatus;
   hasFix: boolean;
   applied: boolean;
+  reviewing: boolean;
   verification: VerificationResult | null;
 }) {
   const steps = [
     { label: "발견 확인", done: true },
     { label: "수정안 만들기", done: hasFix },
-    { label: "변경 영향 검토", done: applied },
+    // 사용자가 "변경 검토하고 승인"으로 확인 카드를 연 경우에만 검토 단계를 끝난 것으로 본다.
+    { label: "변경 영향 검토", done: applied || reviewing },
     { label: "반영 상태 갱신", done: applied },
     { label: "보안·기능 재검증", done: Boolean(verification) },
     { label: "해결 확인", done: status === "resolved" },
@@ -308,13 +328,26 @@ function JourneyTimeline({ currentStage, status, hasFix, applied, verification }
               key={step.label}
               aria-current={current ? "step" : undefined}
               className={`flex min-h-12 items-center gap-3 rounded-2xl border px-3 py-2 ${
-                step.done ? "border-green-200 bg-success-soft" : current ? "border-blue-200 bg-primary-soft" : "border-line bg-white"
+                step.done
+                  ? "border-[#bfe0c8] bg-success-soft"
+                  : current
+                    ? "border-brand-300 bg-primary-soft shadow-warm"
+                    : "border-line bg-surface"
               }`}
             >
-              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold ${step.done ? "bg-success text-white" : current ? "bg-brand-700 text-white" : "bg-surface-warm text-ink-muted"}`}>
+              <span
+                aria-hidden="true"
+                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
+                  step.done ? "bg-success text-white" : current ? "bg-brand-500 text-ink" : "border border-line bg-surface-warm text-ink-muted"
+                }`}
+              >
                 {step.done ? "✓" : number}
               </span>
-              <span className={`text-sm font-bold ${step.done ? "text-success" : current ? "text-brand-900" : "text-ink-muted"}`}>{step.label}</span>
+              <span className={`text-sm font-bold ${step.done ? "text-success" : current ? "text-brand-800" : "text-ink-muted"}`}>
+                <span className="sr-only">{number}단계 </span>
+                {step.label}
+                <span className="sr-only">{step.done ? " · 끝났어요" : current ? " · 지금 단계" : " · 아직이에요"}</span>
+              </span>
             </li>
           );
         })}
@@ -325,11 +358,11 @@ function JourneyTimeline({ currentStage, status, hasFix, applied, verification }
 
 function DiffBlock({ file, patch }: { file: string; patch: string }) {
   return (
-    <div className="max-w-full overflow-hidden rounded-2xl border border-line">
-      <div className="break-all border-b border-line bg-surface-warm px-4 py-2 font-mono text-xs font-bold text-ink-subtle">{file}</div>
-      <pre className="evidence max-w-full overflow-x-auto bg-code p-4 text-sm" tabIndex={0} aria-label={`${file} 수정 diff`}>
+    <div className="max-w-full overflow-hidden rounded-2xl border border-[#5b4d44] bg-code shadow-warm">
+      <div className="break-all border-b border-white/15 bg-white/[0.06] px-4 py-2 font-mono text-xs font-bold text-code-muted">{file}</div>
+      <pre className="evidence max-w-full overflow-x-auto bg-code p-4 text-sm text-code-text" tabIndex={0} aria-label={`${file} 수정 diff`}>
         {patch.split("\n").map((line, index) => (
-          <span key={index} className={`block min-w-max ${line.startsWith("+") ? "text-green-300" : line.startsWith("-") ? "text-red-300" : "text-[#fffaf2]"}`}>{line || " "}</span>
+          <span key={index} className={`block min-w-max ${line.startsWith("+") ? "text-green-300" : line.startsWith("-") ? "text-red-300" : "text-code-text"}`}>{line || " "}</span>
         ))}
       </pre>
     </div>
@@ -343,9 +376,9 @@ function InfoCard({ title, text }: { title: string; text: string }) {
 function OutcomeGuide({ title, description, next }: { title: string; description: string; next: string }) {
   return (
     <Card variant="danger" className="p-5">
-      <h3 className="text-lg font-bold text-red-900">{title}</h3>
-      <p className="mt-2 text-sm leading-relaxed text-red-800">{description}</p>
-      <p className="mt-3 rounded-2xl bg-white p-3 text-sm font-semibold text-ink">{next}</p>
+      <h3 className="text-lg font-bold text-danger">{title}</h3>
+      <p className="mt-2 text-sm leading-relaxed text-ink">{description}</p>
+      <p className="mt-3 rounded-2xl border border-line bg-surface p-3 text-sm font-semibold text-ink">{next}</p>
     </Card>
   );
 }
@@ -402,13 +435,39 @@ function Verdict({ title, passed, success, failure }: { title: string; passed: b
   );
 }
 
+/**
+ * 해결 상태로 막 바뀐 순간에만 1회 보여 주는 장식.
+ * 호출부에서 동작 줄이기 설정을 확인하고, CSS(motion-reduce:hidden)로도 한 번 더 숨긴다.
+ */
 function Confetti() {
   const dots = [
-    ["left-[8%]", "top-4", "bg-brand-600"], ["left-[20%]", "top-10", "bg-[#F5B93D]"],
-    ["left-[35%]", "top-3", "bg-[#C23B4B]"], ["right-[8%]", "top-5", "bg-success"],
-    ["right-[22%]", "top-12", "bg-brand-600"], ["right-[38%]", "top-2", "bg-[#F5B93D]"],
+    ["left-[8%]", "top-4", "bg-brand-500"], ["left-[20%]", "top-10", "bg-sun"],
+    ["left-[35%]", "top-3", "bg-crimson"], ["right-[8%]", "top-5", "bg-success"],
+    ["right-[22%]", "top-12", "bg-brand-500"], ["right-[38%]", "top-2", "bg-sun"],
   ];
-  return <div aria-hidden="true" className="pointer-events-none absolute inset-0">{dots.map(([x, y, color], index) => <span key={index} className={`absolute ${x} ${y} ${color} h-2.5 w-2.5 animate-ping rounded-sm`} style={{ animationDelay: `${index * 90}ms`, animationIterationCount: "1" }} />)}</div>;
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 motion-reduce:hidden">
+      {dots.map(([x, y, color], index) => (
+        <span
+          key={index}
+          className={`absolute ${x} ${y} ${color} h-2.5 w-2.5 animate-ping rounded-sm motion-reduce:animate-none`}
+          style={{ animationDelay: `${index * 90}ms`, animationIterationCount: "1" }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function prefersReducedMotion(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function verifyAnnouncement(nextStatus: FindingStatus): string {
+  if (nextStatus === "resolved") return "재검증을 마쳤어요. 같은 문제가 다시 나타나지 않았고 기본 기능 조건도 통과했어요.";
+  if (nextStatus === "verification_failed") return "재검증을 마쳤어요. 같은 문제가 아직 나타나요. 수정 내용을 보완한 뒤 다시 확인해 주세요.";
+  if (nextStatus === "regression_failed") return "재검증을 마쳤어요. 기존 기능 확인 중 기대와 다른 항목이 있어요.";
+  return "재검증을 마쳤어요. 아래 결과를 확인해 주세요.";
 }
 
 function getGuide({ status, fix, canVerify }: { status: FindingStatus; fix: FixAttempt | null; canVerify: boolean }): string {
