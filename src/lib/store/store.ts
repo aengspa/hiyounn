@@ -25,7 +25,12 @@ import { SupabaseStore } from "./supabaseStore";
  * Ownership (the IDOR defense) is enforced inside each backend, not here.
  */
 
-export { NotAuthorizedError, NotFoundError, EmailInUseError } from "./errors";
+export {
+  NotAuthorizedError,
+  NotFoundError,
+  EmailInUseError,
+  VerificationUnavailableError,
+} from "./errors";
 export { DEMO_USER };
 
 function selectBackend(): StoreBackend {
@@ -134,7 +139,7 @@ export function applyFix(
 export function verifyFinding(
   findingId: string,
   ownerId: string
-): Promise<{ finding: SecurityFinding; result?: VerificationResult }> {
+): Promise<{ finding: SecurityFinding; result: VerificationResult }> {
   return backend.verifyFinding(findingId, ownerId);
 }
 export function getVerification(

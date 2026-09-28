@@ -12,7 +12,12 @@ import { contextForProject } from "@/lib/scanners/contextFor";
 import { SecurityOrchestrator } from "@/lib/scanners/orchestrator";
 import { generateScanReport } from "@/lib/reporting/reportGenerator";
 import { generateFixSmart } from "@/lib/remediation/fixGenerator";
-import { NotAuthorizedError, NotFoundError, EmailInUseError } from "./errors";
+import {
+  NotAuthorizedError,
+  NotFoundError,
+  EmailInUseError,
+  VerificationUnavailableError,
+} from "./errors";
 import type { StoreBackend } from "./backend";
 import {
   selectRows,
@@ -498,12 +503,12 @@ export class SupabaseStore implements StoreBackend {
   async verifyFinding(
     findingId: string,
     ownerId: string
-  ): Promise<{ finding: SecurityFinding; result?: VerificationResult }> {
+  ): Promise<{ finding: SecurityFinding; result: VerificationResult }> {
     const finding = await this.requireFinding(findingId, ownerId);
     const scanner = this.orchestrator.scannerForFinding(finding);
 
     if (!scanner?.verify) {
-      return { finding };
+      throw new VerificationUnavailableError();
     }
 
     const scanRow = await selectOne<ScanRow>(
@@ -526,8 +531,12 @@ export class SupabaseStore implements StoreBackend {
       finding.status = "verification_failed";
     } else if (result.regression.outcome === "fail") {
       finding.status = "regression_failed";
-    } else {
+    } else if (result.resolved) {
       finding.status = "resolved";
+    } else {
+      // Preserve fixed-but-unverified when evidence is informative but not
+      // sufficient for final resolution.
+      finding.status = "fixed";
     }
     finding.testStatus = toTestStatus(finding.status);
     finding.updatedAt = now();

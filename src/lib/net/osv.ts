@@ -54,8 +54,49 @@ async function fetchJson(
   }
 }
 
-interface BatchResponse {
-  results?: Array<{ vulns?: Array<{ id: string; modified?: string }> }>;
+interface BatchVulnRef {
+  id: string;
+  modified?: string;
+}
+
+interface BatchRow {
+  vulns?: BatchVulnRef[];
+}
+
+function validatedBatchRows(value: unknown, expectedRows: number): BatchRow[] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Invalid OSV batch response");
+  }
+
+  const results = (value as { results?: unknown }).results;
+  if (!Array.isArray(results) || results.length !== expectedRows) {
+    throw new Error("Invalid OSV batch response alignment");
+  }
+
+  return results.map((row) => {
+    if (typeof row !== "object" || row === null || Array.isArray(row)) {
+      throw new Error("Invalid OSV batch response row");
+    }
+
+    const vulns = (row as { vulns?: unknown }).vulns;
+    if (vulns === undefined) return {};
+    if (!Array.isArray(vulns)) {
+      throw new Error("Invalid OSV vulnerability list");
+    }
+
+    const validatedVulns = vulns.map((vuln) => {
+      if (typeof vuln !== "object" || vuln === null || Array.isArray(vuln)) {
+        throw new Error("Invalid OSV vulnerability reference");
+      }
+      const id = (vuln as { id?: unknown }).id;
+      if (typeof id !== "string" || id.trim().length === 0) {
+        throw new Error("Invalid OSV vulnerability id");
+      }
+      return { id };
+    });
+
+    return { vulns: validatedVulns };
+  });
 }
 
 interface VulnDetail {
@@ -133,8 +174,8 @@ function firstFixed(detail: VulnDetail, pkg: string): string | undefined {
 }
 
 /**
- * 주어진 패키지 목록을 OSV에 배치 조회하고, 취약점이 있는 패키지의 상세를 채워 반환.
- * 네트워크 실패 시 예외를 던진다.
+ * 주어진 패키지 목록을 OSV에 배치 조회하고, 입력마다 취약점 상세 또는 빈 목록을 반환.
+ * 네트워크 실패나 배치 응답 불일치 시 예외를 던진다.
  */
 export async function queryOsv(
   packages: OsvPackageQuery[],
@@ -149,7 +190,7 @@ export async function queryOsv(
     })),
   };
 
-  const batch = (await fetchJson(
+  const batch = await fetchJson(
     OSV_BATCH_URL,
     {
       method: "POST",
@@ -157,16 +198,15 @@ export async function queryOsv(
       body: JSON.stringify(body),
     },
     timeoutMs
-  )) as BatchResponse;
+  );
 
   const results: OsvPackageResult[] = [];
   const detailCache = new Map<string, OsvVulnSummary>();
+  const rows = validatedBatchRows(batch, packages.length);
 
-  const rows = batch.results ?? [];
   for (let i = 0; i < packages.length; i++) {
     const pkg = packages[i];
-    const vulnRefs = rows[i]?.vulns ?? [];
-    if (vulnRefs.length === 0) continue;
+    const vulnRefs = rows[i].vulns ?? [];
 
     const vulns: OsvVulnSummary[] = [];
     for (const ref of vulnRefs) {
@@ -181,7 +221,7 @@ export async function queryOsv(
           timeoutMs
         )) as VulnDetail;
         const summary: OsvVulnSummary = {
-          id: detail.id,
+          id: ref.id,
           summary: detail.summary,
           cvss: parseCvss(detail),
           fixedVersion: firstFixed(detail, pkg.name),

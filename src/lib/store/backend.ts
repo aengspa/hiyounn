@@ -69,7 +69,7 @@ export interface StoreBackend {
   verifyFinding(
     findingId: string,
     ownerId: string
-  ): Promise<{ finding: SecurityFinding; result?: VerificationResult }>;
+  ): Promise<{ finding: SecurityFinding; result: VerificationResult }>;
   getVerification(
     findingId: string,
     ownerId: string

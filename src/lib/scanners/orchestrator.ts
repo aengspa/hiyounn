@@ -109,6 +109,7 @@ export class SecurityOrchestrator {
       return this.getScanner("bruteforce-scanner");
     if (key.startsWith("cookie:")) return this.getScanner("cookie-scanner");
     if (key.startsWith("bfla:")) return this.getScanner("bfla-scanner");
+    if (key.startsWith("ai:")) return this.getScanner("ai-code-scanner");
     return undefined;
   }
 

@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { NotAuthorizedError, NotFoundError } from "@/lib/store/store";
+import {
+  NotAuthorizedError,
+  NotFoundError,
+  VerificationUnavailableError,
+} from "@/lib/store/store";
 
 /** Map store errors to HTTP responses without leaking internals. */
 export function handleApiError(err: unknown): NextResponse {
@@ -8,6 +12,15 @@ export function handleApiError(err: unknown): NextResponse {
   }
   if (err instanceof NotFoundError) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+  if (err instanceof VerificationUnavailableError) {
+    return NextResponse.json(
+      {
+        error:
+          "자동 재검증을 완료할 충분한 근거를 확보하지 못했습니다. 수정된 소스·배포 권한·외부 검사 서비스 상태를 확인한 뒤 다시 시도해 주세요.",
+      },
+      { status: 422 }
+    );
   }
   // Do not echo repo contents / secrets into logs or responses.
   return NextResponse.json({ error: "internal_error" }, { status: 500 });

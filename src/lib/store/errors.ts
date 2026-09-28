@@ -24,3 +24,11 @@ export class EmailInUseError extends Error {
     this.name = "EmailInUseError";
   }
 }
+
+/** Verification could not produce conclusive evidence, so it must not resolve. */
+export class VerificationUnavailableError extends Error {
+  constructor() {
+    super("Verification could not produce conclusive evidence");
+    this.name = "VerificationUnavailableError";
+  }
+}

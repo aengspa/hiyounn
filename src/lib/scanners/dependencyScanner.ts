@@ -1,7 +1,14 @@
 import type { SecurityScanner, ProjectContext } from "@/lib/scanners/types";
-import type { SecurityFinding, SecurityEvidence } from "@/lib/domain/types";
+import type {
+  RegressionTest,
+  SecurityEvidence,
+  SecurityFinding,
+  VerificationResult,
+  VerificationTest,
+} from "@/lib/domain/types";
 import { id, now } from "@/lib/util";
 import { queryOsv, type OsvPackageQuery, type OsvPackageResult } from "@/lib/net/osv";
+import { VerificationUnavailableError } from "@/lib/store/errors";
 
 /**
  * REAL scanner (SEC-004). package.json의 의존성을 OSV.dev에 조회해 알려진
@@ -30,6 +37,242 @@ function collectDeps(pkgRaw: string): Record<string, string> {
   } catch {
     return {};
   }
+}
+
+type JsonRecord = Record<string, unknown>;
+
+const PACKAGE_NAME = /^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$/;
+const EXACT_VERSION =
+  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+
+function isRecord(value: unknown): value is JsonRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function unavailable(): never {
+  throw new VerificationUnavailableError();
+}
+
+function verificationPackage(key: string | undefined): string {
+  if (!key?.startsWith("dep:")) return unavailable();
+  const name = key.slice(4);
+  if (name.length === 0 || name.length > 214 || !PACKAGE_NAME.test(name)) {
+    return unavailable();
+  }
+  return name;
+}
+
+interface VerifiedManifest {
+  declared: boolean;
+  spec?: string;
+}
+
+function verifyManifest(raw: string | undefined, name: string): VerifiedManifest {
+  if (typeof raw !== "string" || raw.trim().length === 0) return unavailable();
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return unavailable();
+  }
+  if (!isRecord(parsed)) return unavailable();
+
+  const declarations: string[] = [];
+  for (const field of ["dependencies", "devDependencies"] as const) {
+    const section = parsed[field];
+    if (section === undefined) continue;
+    if (!isRecord(section)) return unavailable();
+    for (const value of Object.values(section)) {
+      if (typeof value !== "string" || value.trim().length === 0) {
+        return unavailable();
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(section, name)) {
+      declarations.push(section[name] as string);
+    }
+  }
+
+  if (declarations.length === 0) return { declared: false };
+  if (declarations.some((value) => value !== declarations[0])) return unavailable();
+  return { declared: true, spec: declarations[0] };
+}
+
+function parseLock(raw: string | undefined): JsonRecord | undefined {
+  if (raw === undefined) return undefined;
+  if (raw.trim().length === 0) return unavailable();
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return unavailable();
+  }
+  if (!isRecord(parsed)) return unavailable();
+
+  const lockfileVersion = parsed.lockfileVersion;
+  if (lockfileVersion !== 1 && lockfileVersion !== 2 && lockfileVersion !== 3) {
+    return unavailable();
+  }
+  const entries = lockfileVersion === 1 ? parsed.dependencies : parsed.packages;
+  if (entries !== undefined && !isRecord(entries)) return unavailable();
+  if ((lockfileVersion === 2 || lockfileVersion === 3) && entries === undefined) {
+    return unavailable();
+  }
+  return parsed;
+}
+
+function lockContainsPackage(lock: JsonRecord | undefined, name: string): boolean {
+  if (!lock) return false;
+  const lockfileVersion = lock.lockfileVersion as 1 | 2 | 3;
+  const entries = (lockfileVersion === 1 ? lock.dependencies : lock.packages) as
+    | JsonRecord
+    | undefined;
+  const key = lockfileVersion === 1 ? name : `node_modules/${name}`;
+  return Boolean(entries && Object.prototype.hasOwnProperty.call(entries, key));
+}
+
+interface ConcreteVersion {
+  version: string;
+  source: string;
+}
+
+function exactPinnedVersion(value: unknown, allowEquals: boolean): string | null {
+  if (typeof value !== "string" || value !== value.trim()) return null;
+  const normalized = allowEquals && value.startsWith("=") ? value.slice(1) : value;
+  return EXACT_VERSION.test(normalized) ? normalized : null;
+}
+
+interface SemverCore {
+  major: number;
+  minor: number;
+  patch: number;
+}
+
+function semverCore(version: string): SemverCore | null {
+  if (!EXACT_VERSION.test(version) || version.includes("-") || version.includes("+")) {
+    return null;
+  }
+  const [major, minor, patch] = version.split(".").map(Number);
+  return { major, minor, patch };
+}
+
+function compareVersions(left: SemverCore, right: SemverCore): number {
+  return left.major - right.major || left.minor - right.minor || left.patch - right.patch;
+}
+
+function versionMatchesSpec(version: string, spec: string): boolean {
+  if (spec !== spec.trim()) return false;
+
+  const exact = exactPinnedVersion(spec, true);
+  if (exact) return exact === version;
+
+  const current = semverCore(version);
+  if (!current) return false;
+
+  if (spec.startsWith("^") || spec.startsWith("~")) {
+    const operator = spec[0];
+    const base = semverCore(spec.slice(1));
+    if (!base || compareVersions(current, base) < 0) return false;
+    if (operator === "~") {
+      return current.major === base.major && current.minor === base.minor;
+    }
+    if (base.major > 0) return current.major === base.major;
+    if (base.minor > 0) {
+      return current.major === 0 && current.minor === base.minor;
+    }
+    return current.major === 0 && current.minor === 0 && current.patch === base.patch;
+  }
+
+  const comparators = spec.split(/\s+/);
+  if (comparators.length === 0) return false;
+  return comparators.every((comparator) => {
+    const match = comparator.match(/^(>=|<=|>|<)(.+)$/);
+    if (!match) return false;
+    const boundary = semverCore(match[2]);
+    if (!boundary) return false;
+    const compared = compareVersions(current, boundary);
+    switch (match[1]) {
+      case ">=":
+        return compared >= 0;
+      case "<=":
+        return compared <= 0;
+      case ">":
+        return compared > 0;
+      case "<":
+        return compared < 0;
+      default:
+        return false;
+    }
+  });
+}
+
+function rootLockSpec(entries: JsonRecord, name: string): string {
+  const root = entries[""];
+  if (!isRecord(root)) return unavailable();
+
+  const declarations: string[] = [];
+  for (const field of ["dependencies", "devDependencies"] as const) {
+    const section = root[field];
+    if (section === undefined) continue;
+    if (!isRecord(section)) return unavailable();
+    if (Object.prototype.hasOwnProperty.call(section, name)) {
+      const value = section[name];
+      if (typeof value !== "string" || value.trim().length === 0) {
+        return unavailable();
+      }
+      declarations.push(value);
+    }
+  }
+
+  if (
+    declarations.length === 0 ||
+    declarations.some((value) => value !== declarations[0])
+  ) {
+    return unavailable();
+  }
+  return declarations[0];
+}
+
+function concreteVersion(
+  lock: JsonRecord | undefined,
+  name: string,
+  manifestSpec: string
+): ConcreteVersion {
+  if (lock) {
+    const lockfileVersion = lock.lockfileVersion as 1 | 2 | 3;
+    const entries = (lockfileVersion === 1 ? lock.dependencies : lock.packages) as
+      | JsonRecord
+      | undefined;
+    const key = lockfileVersion === 1 ? name : `node_modules/${name}`;
+
+    if (entries && Object.prototype.hasOwnProperty.call(entries, key)) {
+      if (
+        lockfileVersion !== 1 &&
+        rootLockSpec(entries, name) !== manifestSpec
+      ) {
+        return unavailable();
+      }
+
+      const entry = entries[key];
+      if (!isRecord(entry)) return unavailable();
+      const version = exactPinnedVersion(entry.version, false);
+      if (!version || !versionMatchesSpec(version, manifestSpec)) {
+        return unavailable();
+      }
+      return {
+        version,
+        source:
+          lockfileVersion === 1
+            ? "package-lock.json v1"
+            : `package-lock.json v${lockfileVersion}`,
+      };
+    }
+  }
+
+  const version = exactPinnedVersion(manifestSpec, true);
+  if (!version) return unavailable();
+  return { version, source: "package.json의 정확한 고정 버전" };
 }
 
 // ── 오프라인 폴백(네트워크 없을 때만) ────────────────────────
@@ -93,6 +336,140 @@ export class DependencyScanner implements SecurityScanner {
 
     // 2) 오프라인 폴백(조회 불가 환경). simulated:true로 명확히 표시.
     return this.offlineFallback(deps);
+  }
+
+  async verify(
+    finding: SecurityFinding,
+    context: ProjectContext
+  ): Promise<VerificationResult> {
+    const packageName = verificationPackage(finding.verificationKey);
+    const manifest = verifyManifest(context.files["package.json"], packageName);
+    const lock = parseLock(context.files["package-lock.json"]);
+
+    if (!manifest.declared) {
+      // A package removed from direct declarations may still be installed as a
+      // transitive dependency. Without resolving that lock entry's provenance,
+      // do not claim that the vulnerable component disappeared.
+      if (lockContainsPackage(lock, packageName)) return unavailable();
+
+      const security: VerificationTest = {
+        id: id("vtest"),
+        findingId: finding.id,
+        label: "대상 의존성 제거 재검증",
+        before: {
+          label: "수정 전",
+          request: `최초 의존성 탐지 기록 확인: ${packageName}`,
+          response: "알려진 취약점이 있는 대상 의존성이 탐지됨",
+          attackSucceeded: true,
+        },
+        after: {
+          label: "수정 후",
+          request: `package.json 및 package-lock.json 대상 의존성 확인: ${packageName}`,
+          response: "대상 의존성이 직접 선언과 잠금 파일에서 제거됨",
+          attackSucceeded: false,
+        },
+        outcome: "pass",
+        createdAt: now(),
+      };
+      const regression: RegressionTest = {
+        id: id("rtest"),
+        findingId: finding.id,
+        checks: [
+          {
+            label: "의존성 메타데이터 무결성",
+            expectation: "package.json이 유효하고 제거된 패키지가 잠금 파일에 남아 있지 않아야 함",
+            outcome: "pass",
+            detail: `${packageName}이 직접 선언과 잠금 파일에 존재하지 않습니다. 빌드·기능 실행은 별도 CI에서 확인해야 합니다.`,
+          },
+        ],
+        outcome: "pass",
+        createdAt: now(),
+      };
+      return {
+        findingId: finding.id,
+        security,
+        regression,
+        resolved: true,
+      };
+    }
+
+    const current = concreteVersion(lock, packageName, manifest.spec!);
+    let osvResult: OsvPackageResult;
+    try {
+      const rows = await queryOsv([
+        { name: packageName, version: current.version, ecosystem: "npm" },
+      ]);
+      if (
+        rows.length !== 1 ||
+        rows[0].name !== packageName ||
+        rows[0].version !== current.version ||
+        !Array.isArray(rows[0].vulns)
+      ) {
+        return unavailable();
+      }
+      osvResult = rows[0];
+    } catch {
+      return unavailable();
+    }
+
+    const stillVulnerable = osvResult.vulns.length > 0;
+    const security: VerificationTest = {
+      id: id("vtest"),
+      findingId: finding.id,
+      label: "대상 의존성 OSV 재검증",
+      before: {
+        label: "수정 전",
+        request: `최초 의존성 탐지 기록 확인: ${packageName}`,
+        response: "알려진 취약점이 있는 대상 의존성이 탐지됨",
+        attackSucceeded: true,
+      },
+      after: {
+        label: "수정 후",
+        request: `OSV.dev 조회: ${packageName}@${current.version}`,
+        response: stillVulnerable
+          ? `현재 버전에서 OSV 취약점 ${osvResult.vulns.length}건 확인 (${osvResult.vulns
+              .map((vuln) => vuln.id)
+              .join(", ")})`
+          : "현재 버전에서 OSV 취약점이 확인되지 않음",
+        attackSucceeded: stillVulnerable,
+      },
+      outcome: stillVulnerable ? "fail" : "pass",
+      createdAt: now(),
+    };
+
+    const regression: RegressionTest = {
+      id: id("rtest"),
+      findingId: finding.id,
+      checks: [
+        {
+          label: "package.json 구문 및 구조",
+          expectation: "package.json이 유효한 JSON이며 의존성 필드 구조가 유효해야 함",
+          outcome: "pass",
+          detail: "package.json 구문과 의존성 필드를 확인함",
+        },
+        {
+          label: "대상 의존성 선언 유지",
+          expectation: `${packageName} 의존성이 계속 선언되어야 함`,
+          outcome: "pass",
+          detail: "대상 의존성 선언을 확인함",
+        },
+        {
+          label: "구체적인 현재 버전 확인",
+          expectation: "잠금 파일 또는 정확히 고정된 선언에서 현재 버전을 확정해야 함",
+          outcome: "pass",
+          detail: `${current.source}에서 ${packageName}@${current.version} 확인`,
+        },
+      ],
+      outcome: "pass",
+      createdAt: now(),
+    };
+
+    return {
+      findingId: finding.id,
+      security,
+      regression,
+      resolved: security.outcome === "pass" && regression.outcome === "pass",
+    };
   }
 
   private findingsFromOsv(

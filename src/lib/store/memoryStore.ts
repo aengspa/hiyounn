@@ -12,7 +12,12 @@ import { contextForProject } from "@/lib/scanners/contextFor";
 import { SecurityOrchestrator } from "@/lib/scanners/orchestrator";
 import { generateScanReport } from "@/lib/reporting/reportGenerator";
 import { generateFixSmart } from "@/lib/remediation/fixGenerator";
-import { NotAuthorizedError, NotFoundError, EmailInUseError } from "./errors";
+import {
+  NotAuthorizedError,
+  NotFoundError,
+  EmailInUseError,
+  VerificationUnavailableError,
+} from "./errors";
 import type { StoreBackend } from "./backend";
 
 /**
@@ -302,12 +307,12 @@ export class MemoryStore implements StoreBackend {
   async verifyFinding(
     findingId: string,
     ownerId: string
-  ): Promise<{ finding: SecurityFinding; result?: VerificationResult }> {
+  ): Promise<{ finding: SecurityFinding; result: VerificationResult }> {
     const finding = this.assertFindingOwner(findingId, ownerId);
     const scanner = this.orchestrator.scannerForFinding(finding);
 
     if (!scanner?.verify) {
-      return { finding };
+      throw new VerificationUnavailableError();
     }
 
     const scan = this.db.scans.get(finding.scanId)!;
@@ -323,8 +328,12 @@ export class MemoryStore implements StoreBackend {
       finding.status = "verification_failed";
     } else if (result.regression.outcome === "fail") {
       finding.status = "regression_failed";
-    } else {
+    } else if (result.resolved) {
       finding.status = "resolved";
+    } else {
+      // A scanner may produce useful source/config evidence that is not strong
+      // enough for final resolution (for example AI review or secret rotation).
+      finding.status = "fixed";
     }
     finding.testStatus = toTestStatus(finding.status);
     finding.updatedAt = now();
