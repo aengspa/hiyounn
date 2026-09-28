@@ -19,6 +19,8 @@ import {
   NotAuthorizedError,
 } from "@/lib/store/store";
 import { RunScanButton } from "@/components/RunScanButton";
+import { ScanScopeMeter } from "@/components/ScanScopeMeter";
+import { SCAN_MODE_INFO } from "@/lib/domain/scanMode";
 
 export const dynamic = "force-dynamic";
 
@@ -58,6 +60,8 @@ export default async function ProjectPage({
   const sourceReady = project.isDemo || Boolean(project.sourceCode);
   const activeCheckReady =
     Boolean(project.deploymentUrl) && Boolean(project.deploymentAuthorized);
+  const modeInfo = project.scanMode ? SCAN_MODE_INFO[project.scanMode] : null;
+  const testAccountCount = project.testAccounts?.length ?? 0;
 
   return (
     <>
@@ -225,6 +229,28 @@ export default async function ProjectPage({
             title={<span id="settings-title">설정</span>}
             description="어떤 자료와 권한으로 점검하는지 확인해요. 기술 식별자는 필요할 때만 펼쳐보세요."
           />
+          {modeInfo && (
+            <Card variant="raised" className="mt-5 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="font-extrabold text-ink">
+                  보안 스캔 방식: <span className="text-brand-800">{modeInfo.letter} · {modeInfo.title}</span>
+                </p>
+                <Badge tone={project.scanMode === "isolated_active" ? "danger" : project.scanMode === "safe_active" ? "warning" : "success"}>
+                  {modeInfo.tagline}
+                </Badge>
+              </div>
+              <ScanScopeMeter scope={modeInfo.scope} className="mt-3 max-w-sm" />
+              {project.scanMode === "isolated_active" && (
+                <p className="mt-3 text-sm leading-relaxed text-ink-subtle">
+                  격리 서버 테스트 계정 {testAccountCount}개가 연결되어 있어요
+                  {project.testAccounts?.length
+                    ? ` (${project.testAccounts.map((a) => a.label).join(", ")})`
+                    : ""}
+                  . 비밀번호는 화면에 표시하지 않아요.
+                </p>
+              )}
+            </Card>
+          )}
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             <Card variant="warm" className="p-5">
               <p className="font-extrabold text-ink">소스 코드 점검</p>
@@ -235,7 +261,9 @@ export default async function ProjectPage({
                     : project.sourceZipName
                       ? `${project.sourceZipName}에서 제공된 소스를 읽기 전용으로 점검해요.`
                       : "붙여넣은 소스를 읽기 전용으로 점검해요."
-                  : "연결된 소스가 없어 정적 분석을 실행할 수 없어요. 새 프로젝트에서 ZIP을 올리거나 코드를 붙여넣어 주세요."}
+                  : project.scanMode && project.scanMode !== "static"
+                    ? "소스 없이 연결했어요. 정적 분석은 건너뛰고 배포 주소 동적 분석만 진행해요."
+                    : "연결된 소스가 없어 정적 분석을 실행할 수 없어요. 새 프로젝트에서 ZIP을 올리거나 코드를 붙여넣어 주세요."}
               </p>
             </Card>
             <Card variant="warm" className="p-5">
@@ -244,7 +272,9 @@ export default async function ProjectPage({
                 {!project.deploymentUrl
                   ? "배포 주소가 없어 네트워크 점검 대상이 없어요."
                   : activeCheckReady
-                    ? "소유·점검 권한을 확인한 배포 주소에 허용된 비파괴 점검만 실행해요."
+                    ? project.scanMode === "isolated_active"
+                      ? "격리된 테스트 서버에 테스트 계정으로 공격 재현(IDOR·권한 상승 등)까지 실행해요."
+                      : "소유·점검 권한을 확인한 배포 주소에 허용된 비파괴 점검만 실행해요."
                     : "배포 주소는 있지만 소유·점검 권한 승인이 없어 능동 점검은 실행하지 않아요. 소스 정적 분석만 진행해요."}
               </p>
             </Card>

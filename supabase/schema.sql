@@ -49,8 +49,15 @@ create table if not exists public.projects (
   handler_fixed       boolean not null default false,
   is_demo             boolean not null default false,
   deployment_authorized boolean not null default false,
+  -- 보안 스캔 방식: static(A) / safe_active(B) / isolated_active(C)
+  scan_mode           text check (scan_mode in ('static', 'safe_active', 'isolated_active')),
+  -- C 방식 격리 서버 테스트 계정 [{label, username, password}] (서버 전용)
+  test_accounts       jsonb,
   created_at          timestamptz not null default now()
 );
+-- 기존 DB 마이그레이션용
+alter table public.projects add column if not exists scan_mode text;
+alter table public.projects add column if not exists test_accounts jsonb;
 create index if not exists projects_owner_idx on public.projects (owner_id);
 
 -- ── scans ─────────────────────────────────────────────────────

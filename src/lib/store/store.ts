@@ -6,6 +6,7 @@
   VerificationResult,
   User,
 } from "@/lib/domain/types";
+import type { ScanMode, TestAccount } from "@/lib/domain/scanMode";
 import type { StoreBackend } from "./backend";
 import { MemoryStore, DEMO_USER } from "./memoryStore";
 import { SupabaseStore } from "./supabaseStore";
@@ -84,6 +85,8 @@ export function createProject(
     deploymentUrl?: string;
     sourceCode?: string;
     deploymentAuthorized?: boolean;
+    scanMode?: ScanMode;
+    testAccounts?: TestAccount[];
   }
 ): Promise<Project> {
   return backend.createProject(ownerId, input);

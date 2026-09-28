@@ -1,4 +1,5 @@
-﻿/**
+﻿import type { ScanMode, TestAccount } from "@/lib/domain/scanMode";
+/**
  * Core domain types for the Vibe Coding Security Agent.
  *
  * Design principle: evidence over AI guesswork. Every finding carries
@@ -323,6 +324,13 @@ export interface Project {
    * `deploymentUrl`. Required before any active (network) DAST check runs.
    */
   deploymentAuthorized?: boolean;
+  /**
+   * 사용자가 고른 보안 스캔 방식 (A: static / B: safe_active / C: isolated_active).
+   * 없으면 이전 동작(권한 확인 시 ISOLATED_ACTIVE까지 허용)을 따른다.
+   */
+  scanMode?: ScanMode;
+  /** C 방식에서 쓰는 격리 서버 테스트 계정. 비밀번호는 서버에만 보관. */
+  testAccounts?: TestAccount[];
   /**
    * True ONLY for the bundled "Acme Notes (demo)" project. Demo projects scan
    * the built-in vulnerable fixture (for the IDOR full-loop demo). Real user

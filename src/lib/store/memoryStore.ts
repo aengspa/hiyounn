@@ -6,6 +6,7 @@ import type {
   VerificationResult,
   User,
 } from "@/lib/domain/types";
+import type { ScanMode, TestAccount } from "@/lib/domain/scanMode";
 import { toTestStatus } from "@/lib/domain/types";
 import { id, now } from "@/lib/util";
 import { contextForProject } from "@/lib/scanners/contextFor";
@@ -168,6 +169,8 @@ export class MemoryStore implements StoreBackend {
       deploymentUrl?: string;
       sourceCode?: string;
       deploymentAuthorized?: boolean;
+      scanMode?: ScanMode;
+      testAccounts?: TestAccount[];
     }
   ): Promise<Project> {
     const p: Project = {
@@ -178,6 +181,8 @@ export class MemoryStore implements StoreBackend {
       deploymentUrl: input.deploymentUrl?.trim() || undefined,
       sourceCode: input.sourceCode?.trim() || undefined,
       deploymentAuthorized: input.deploymentAuthorized ?? false,
+      scanMode: input.scanMode,
+      testAccounts: input.testAccounts?.length ? input.testAccounts : undefined,
       isDemo: false,
       currentCommit: "b72c42d",
       createdAt: now(),

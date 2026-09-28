@@ -2,6 +2,7 @@ import type { Project } from "@/lib/domain/types";
 import type { ProjectContext } from "@/lib/scanners/types";
 import { buildDemoContext } from "@/lib/demo/demoContext";
 import { buildProjectContext } from "@/lib/demo/sourceFiles";
+import { toRuleMode } from "@/lib/domain/scanMode";
 
 /**
  * Build the scan context for a project.
@@ -33,7 +34,7 @@ export function contextForProject(
     });
   }
 
-  return buildProjectContext(project.id, {
+  const context = buildProjectContext(project.id, {
     name: project.name,
     repositoryUrl: project.repositoryUrl,
     deploymentUrl: project.deploymentUrl,
@@ -42,4 +43,9 @@ export function contextForProject(
     sourceBlob: project.sourceCode,
     deploymentAuthorized: project.deploymentAuthorized,
   });
+  // 사용자가 고른 스캔 방식(A/B/C)을 규칙 엔진의 모드로 넘긴다.
+  // 없으면 엔진이 제공된 입력으로 모드를 보수적으로 추론한다(modeForContext).
+  return project.scanMode
+    ? { ...context, scanMode: toRuleMode(project.scanMode) }
+    : context;
 }
