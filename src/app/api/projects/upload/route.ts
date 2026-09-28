@@ -2,6 +2,13 @@ import { NextRequest } from "next/server";
 import { getCurrentUserId } from "@/lib/auth";
 import { createProject } from "@/lib/store/store";
 import { ok, handleApiError } from "@/lib/api";
+import {
+  parseScanMode,
+  parseTestAccounts,
+  redactProject,
+  validateScanModeInput,
+  SCAN_MODE_ERROR_MESSAGE,
+} from "@/lib/domain/scanMode";
 import { unzipToFileMap, UnzipError } from "@/lib/net/unzip";
 import { isScannableFile, serializeFileMap } from "@/lib/demo/sourceFiles";
 
@@ -69,15 +76,39 @@ export async function POST(req: NextRequest) {
     const deploymentAuthorized =
       Boolean(deploymentUrl) && form.get("deploymentAuthorized") === "true";
 
+    // 보안 스캔 방식(A/B/C). ZIP이 있으므로 소스 조건은 항상 충족된다.
+    const rawMode = form.get("scanMode");
+    const scanMode = rawMode == null || rawMode === "" ? null : parseScanMode(rawMode);
+    if (rawMode && scanMode === null) {
+      return ok({ error: "invalid_scan_mode" }, 400);
+    }
+    const testAccounts = parseTestAccounts(form.get("testAccounts"));
+    if (testAccounts === null) {
+      return ok({ error: "invalid_test_accounts" }, 400);
+    }
+    if (scanMode) {
+      const invalid = validateScanModeInput(scanMode, {
+        hasSource: true,
+        deploymentUrl: deploymentUrl ?? undefined,
+        deploymentAuthorized,
+        testAccounts,
+      });
+      if (invalid) {
+        return ok({ error: invalid, message: SCAN_MODE_ERROR_MESSAGE[invalid] }, 400);
+      }
+    }
+
     const project = await createProject(uid, {
       name,
       repositoryUrl: repositoryUrl ?? undefined,
       deploymentUrl: deploymentUrl ?? undefined,
       sourceCode: serializeFileMap(scannable),
       deploymentAuthorized,
+      scanMode: scanMode ?? undefined,
+      testAccounts: scanMode === "isolated_active" ? testAccounts : undefined,
     });
 
-    return ok({ project, fileCount: count }, 201);
+    return ok({ project: redactProject(project), fileCount: count }, 201);
   } catch (err) {
     return handleApiError(err);
   }

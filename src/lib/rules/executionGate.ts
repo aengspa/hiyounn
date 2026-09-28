@@ -3,6 +3,7 @@ import type { SecurityRule, RuleCheck } from "@/lib/rules/types";
 import { isRegisteredRule } from "@/lib/rules/registry";
 import { isRegisteredTool } from "@/lib/rules/toolCatalog";
 import type { ExecutionTier } from "@/lib/domain/types";
+import { REQUIRED_TEST_ACCOUNTS } from "@/lib/domain/scanMode";
 
 /**
  * 실행 게이트 (문서 4-3).
@@ -38,12 +39,30 @@ export function allowedMaxTier(context: ProjectContext): ExecutionTier {
   // 능동(네트워크) 검사는 테스트 대상 URL이 있고 + 사용자가 소유/테스트 권한을
   // 명시적으로 확인(deploymentAuthorized)했을 때만 허용한다. URL만으로는
   // 권한이 아니다. 그 외에는 정적(PASSIVE)만 실행한다.
-  // MVP에서는 ISOLATED_ACTIVE까지만 자동 허용하고, PATCH/PRIVILEGED_CHANGE는
-  // 별도 승인 흐름에서만 올린다.
-  if (context.deploymentUrl && context.deploymentAuthorized) {
-    return "ISOLATED_ACTIVE";
+  const authorized = Boolean(context.deploymentUrl && context.deploymentAuthorized);
+
+  // 사용자가 고른 스캔 방식(A/B/C)이 있으면 그 범위를 넘지 않는다.
+  //   A(static)          → PASSIVE
+  //   B(safe_active)     → SAFE_ACTIVE (권한 확인 필요)
+  //   C(isolated_active) → ISOLATED_ACTIVE (권한 확인 + 테스트 계정 2개 필요)
+  switch (context.scanMode) {
+    case "static":
+      return "PASSIVE";
+    case "safe_active":
+      return authorized ? "SAFE_ACTIVE" : "PASSIVE";
+    case "isolated_active":
+      if (!authorized) return "PASSIVE";
+      return hasIsolatedTestAccounts(context) ? "ISOLATED_ACTIVE" : "SAFE_ACTIVE";
+    default:
+      // 스캔 방식이 없는 기존 프로젝트/데모: 이전 동작 유지.
+      // MVP에서는 ISOLATED_ACTIVE까지만 자동 허용하고, PATCH/PRIVILEGED_CHANGE는
+      // 별도 승인 흐름에서만 올린다.
+      return authorized ? "ISOLATED_ACTIVE" : "PASSIVE";
   }
-  return "PASSIVE";
+}
+
+function hasIsolatedTestAccounts(context: ProjectContext): boolean {
+  return (context.testAccounts?.length ?? 0) >= REQUIRED_TEST_ACCOUNTS;
 }
 
 const TIER_ORDER: Record<ExecutionTier, number> = {
@@ -123,11 +142,19 @@ function availableConditions(context: ProjectContext): Set<string> {
   // 배포 URL + 소유권 확인이 모두 있어야 테스트 배포가 승인된 것으로 본다.
   if (context.deploymentUrl && context.deploymentAuthorized) {
     s.add("authorized_test_deployment");
-    // 데모: 테스트 사용자/객체는 데모 앱에 준비되어 있다.
-    s.add("test_user_a");
-    s.add("test_user_b");
-    s.add("object_owned_by_a");
-    s.add("object_owned_by_b");
+    // 테스트 사용자/객체:
+    // - 스캔 방식이 없는 기존 프로젝트·데모는 데모 앱에 준비된 계정을 쓴다.
+    // - C(격리 동적 분석)는 사용자가 준 테스트 계정 2개가 있을 때만 충족된다.
+    // - A/B 방식은 계정 기반 공격 재현을 하지 않으므로 충족시키지 않는다.
+    const accountsReady =
+      context.scanMode === undefined ||
+      (context.scanMode === "isolated_active" && hasIsolatedTestAccounts(context));
+    if (accountsReady) {
+      s.add("test_user_a");
+      s.add("test_user_b");
+      s.add("object_owned_by_a");
+      s.add("object_owned_by_b");
+    }
   }
   return s;
 }

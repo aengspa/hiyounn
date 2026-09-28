@@ -6,6 +6,7 @@ import type {
   VerificationResult,
   User,
 } from "@/lib/domain/types";
+import type { ScanMode, TestAccount } from "@/lib/domain/scanMode";
 
 /**
  * The storage backend contract.
@@ -40,6 +41,8 @@ export interface StoreBackend {
       deploymentUrl?: string;
       sourceCode?: string;
       deploymentAuthorized?: boolean;
+      scanMode?: ScanMode;
+      testAccounts?: TestAccount[];
     }
   ): Promise<Project>;
 

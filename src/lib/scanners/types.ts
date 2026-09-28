@@ -1,4 +1,5 @@
 import type { SecurityFinding, VerificationResult, ScanStep } from "@/lib/domain/types";
+import type { ScanMode, TestAccount } from "@/lib/domain/scanMode";
 
 /**
  * The context a scanner needs to reason about a project. In the MVP this is
@@ -41,6 +42,12 @@ export interface ProjectContext {
    * NOT authorization. The bundled demo target is always authorized.
    */
   deploymentAuthorized?: boolean;
+
+  /** 사용자가 고른 스캔 방식. 실행 게이트의 최고 허용 등급을 결정한다. */
+  scanMode?: ScanMode;
+
+  /** C(격리 동적 분석) 방식에서 제공된 테스트 계정. */
+  testAccounts?: TestAccount[];
 }
 
 /**

@@ -2,11 +2,19 @@ import { NextRequest } from "next/server";
 import { getCurrentUserId } from "@/lib/auth";
 import { listProjects, createProject } from "@/lib/store/store";
 import { ok, handleApiError } from "@/lib/api";
+import {
+  parseScanMode,
+  parseTestAccounts,
+  redactProject,
+  validateScanModeInput,
+  SCAN_MODE_ERROR_MESSAGE,
+} from "@/lib/domain/scanMode";
 
 export async function GET() {
   try {
     const uid = await getCurrentUserId();
-    return ok({ projects: await listProjects(uid) });
+    const projects = await listProjects(uid);
+    return ok({ projects: projects.map(redactProject) });
   } catch (err) {
     return handleApiError(err);
   }
@@ -41,14 +49,38 @@ export async function POST(req: NextRequest) {
     const deploymentAuthorized =
       Boolean(deploymentUrl) && body.deploymentAuthorized === true;
 
+    // 보안 스캔 방식(A/B/C). 없으면 기존 동작을 유지한다.
+    const scanMode = body.scanMode == null ? null : parseScanMode(body.scanMode);
+    if (body.scanMode != null && scanMode === null) {
+      return ok({ error: "invalid_scan_mode" }, 400);
+    }
+    const testAccounts = parseTestAccounts(body.testAccounts);
+    if (testAccounts === null) {
+      return ok({ error: "invalid_test_accounts" }, 400);
+    }
+    if (scanMode) {
+      const invalid = validateScanModeInput(scanMode, {
+        hasSource: Boolean(sourceCode?.trim()),
+        deploymentUrl: deploymentUrl ?? undefined,
+        deploymentAuthorized,
+        testAccounts,
+      });
+      if (invalid) {
+        return ok({ error: invalid, message: SCAN_MODE_ERROR_MESSAGE[invalid] }, 400);
+      }
+    }
+
     const project = await createProject(uid, {
       name,
       repositoryUrl: repositoryUrl ?? undefined,
       deploymentUrl: deploymentUrl ?? undefined,
       sourceCode,
       deploymentAuthorized,
+      scanMode: scanMode ?? undefined,
+      // 테스트 계정은 C(격리 동적 분석)에서만 보관한다.
+      testAccounts: scanMode === "isolated_active" ? testAccounts : undefined,
     });
-    return ok({ project }, 201);
+    return ok({ project: redactProject(project) }, 201);
   } catch (err) {
     return handleApiError(err);
   }

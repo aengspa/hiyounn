@@ -6,6 +6,7 @@ import type {
   VerificationResult,
   User,
 } from "@/lib/domain/types";
+import { parseScanMode, type ScanMode, type TestAccount } from "@/lib/domain/scanMode";
 import { toTestStatus } from "@/lib/domain/types";
 import { id, now } from "@/lib/util";
 import { contextForProject } from "@/lib/scanners/contextFor";
@@ -63,6 +64,8 @@ interface ProjectRow {
   handler_fixed: boolean;
   is_demo?: boolean | null;
   deployment_authorized?: boolean | null;
+  scan_mode?: string | null;
+  test_accounts?: TestAccount[] | null;
   created_at: string;
 }
 interface ScanRow {
@@ -123,6 +126,8 @@ function toProject(r: ProjectRow): Project {
     lastScanDate: r.last_scan_date ?? undefined,
     isDemo: r.is_demo ?? undefined,
     deploymentAuthorized: r.deployment_authorized ?? undefined,
+    scanMode: parseScanMode(r.scan_mode) ?? undefined,
+    testAccounts: r.test_accounts ?? undefined,
     createdAt: r.created_at,
   };
 }
@@ -255,6 +260,8 @@ export class SupabaseStore implements StoreBackend {
       deploymentUrl?: string;
       sourceCode?: string;
       deploymentAuthorized?: boolean;
+      scanMode?: ScanMode;
+      testAccounts?: TestAccount[];
     }
   ): Promise<Project> {
     // Base row uses only columns present in the original schema. The newer
@@ -277,6 +284,8 @@ export class SupabaseStore implements StoreBackend {
       ...base,
       is_demo: false,
       deployment_authorized: input.deploymentAuthorized ?? false,
+      scan_mode: input.scanMode ?? null,
+      test_accounts: input.testAccounts?.length ? input.testAccounts : null,
     };
 
     let inserted: ProjectRow;
@@ -289,6 +298,8 @@ export class SupabaseStore implements StoreBackend {
         // Preserve the requested authorization in the returned object even
         // though it couldn't be persisted (until the DB is migrated).
         inserted.deployment_authorized = input.deploymentAuthorized ?? false;
+        inserted.scan_mode = input.scanMode ?? null;
+        inserted.test_accounts = input.testAccounts?.length ? input.testAccounts : null;
       } else {
         throw e;
       }

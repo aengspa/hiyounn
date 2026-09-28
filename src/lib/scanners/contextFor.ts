@@ -33,7 +33,7 @@ export function contextForProject(
     });
   }
 
-  return buildProjectContext(project.id, {
+  const context = buildProjectContext(project.id, {
     name: project.name,
     repositoryUrl: project.repositoryUrl,
     deploymentUrl: project.deploymentUrl,
@@ -42,4 +42,9 @@ export function contextForProject(
     sourceBlob: project.sourceCode,
     deploymentAuthorized: project.deploymentAuthorized,
   });
+  return {
+    ...context,
+    scanMode: project.scanMode,
+    testAccounts: project.testAccounts,
+  };
 }
