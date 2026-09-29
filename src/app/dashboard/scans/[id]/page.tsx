@@ -23,6 +23,7 @@ import { isStale } from "@/lib/fixjobs/fixAllService";
 import { LIMITS } from "@/lib/config/limits";
 import { codeContextFor, secretValues } from "@/lib/ui/codeContext";
 import { formatKstDateTime } from "@/lib/time";
+import { groupFindings } from "@/lib/ui/groupFindings";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +81,8 @@ export default async function ScanResultsPage({ params }: { params: { id: string
   const proposals = (await listCustomRules(uid, scan.projectId).catch(() => [])).filter((r) => r.sourceScanId === scan.id);
   const falsePositiveCount = views.filter((v) => v.aiReview?.adjudication?.verdict === "not_vulnerable").length;
   const activeCount = views.length - falsePositiveCount;
+  // 여러 곳에서 발견된 같은 취약점은 한 가지로 센다(화면 표시만, 항목은 그대로).
+  const activeGroupCount = groupFindings(views.filter((v) => v.aiReview?.adjudication?.verdict !== "not_vulnerable")).length;
 
   const projectHref = `/dashboard/projects/${scan.projectId}`;
   const scannedAt = formatKstDateTime(scan.completedAt ?? scan.startedAt);
@@ -97,7 +100,9 @@ export default async function ScanResultsPage({ params }: { params: { id: string
               </p>
               <h2 id="report-title" className="mt-2 text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
                 {activeCount > 0
-                  ? `확인할 부분 ${activeCount}개를 찾았어요`
+                  ? activeGroupCount === activeCount
+                    ? `확인할 부분 ${activeCount}개를 찾았어요`
+                    : `확인할 문제 ${activeGroupCount}가지를 찾았어요 (발견 위치 ${activeCount}곳)`
                   : "이번 범위에서 확인할 부분을 찾지 못했어요"}
               </h2>
             </div>
@@ -109,6 +114,7 @@ export default async function ScanResultsPage({ params }: { params: { id: string
           )}
           {scan.scope.aiCoverage && <AiCoverageNotice coverage={scan.scope.aiCoverage} />}
           {scan.scope.semgrep && <SemgrepNotice semgrep={scan.scope.semgrep} />}
+          {scan.scope.tools && scan.scope.tools.items.length > 0 && <ToolsNotice tools={scan.scope.tools} />}
           {scan.scope.incremental && (
             <p className="mt-2 text-base leading-relaxed text-ink-subtle">
               새로 올린 코드에서 바뀐 파일 {scan.scope.incremental.changedFiles.length}개만 AI가 새로 봤어요. 바뀌지 않은 파일{" "}
@@ -215,6 +221,49 @@ function AuthzTable({ rows }: { rows: RouteAuthzEntry[] }) {
   );
 }
 
+const TOOL_STATUS: Record<NonNullable<ScanScope["tools"]>["items"][number]["status"], { mark: string; text: string }> = {
+  ready: { mark: "✓", text: "설치해서 사용했어요" },
+  already_installed: { mark: "✓", text: "이미 있어서 사용했어요" },
+  install_failed: { mark: "✕", text: "설치하지 못해 이번에는 쓰지 못했어요" },
+  install_disabled: { mark: "−", text: "서버에서 설치를 꺼 두어 쓰지 않았어요" },
+  timed_out: { mark: "?", text: "준비 시간이 모자라 이번에는 쓰지 못했어요" },
+};
+
+/** 점검 시작 때 고른 추가 도구(허용 목록 안에서만)와 준비 결과. */
+function ToolsNotice({ tools }: { tools: NonNullable<ScanScope["tools"]> }) {
+  const who =
+    tools.planner === "ai"
+      ? "AI가 이 프로젝트에 필요하다고 본 추가 점검 도구예요."
+      : tools.planner === "disabled"
+        ? "추가 점검 도구 설치가 꺼져 있어, 서버에 이미 있는 도구만 확인했어요."
+        : "AI 없이 프로젝트 파일 종류를 보고 고른 추가 점검 도구예요.";
+  return (
+    <details className="mt-2 break-words text-base leading-relaxed text-ink">
+      <summary className="flex min-h-11 cursor-pointer items-center font-bold text-brand-800">
+        추가 점검 도구 {tools.items.length}개 ({tools.items.filter((t) => t.status === "ready" || t.status === "already_installed").length}개 사용)
+      </summary>
+      <p className="mt-1">{who} 미리 검증해 둔 도구 목록 안에서만 골라요.</p>
+      <ul className="mt-2 space-y-2">
+        {tools.items.map((t) => {
+          const s = TOOL_STATUS[t.status] ?? { mark: "?", text: t.status };
+          return (
+            <li key={t.id} className="min-w-0">
+              <span className="font-bold">
+                <span aria-hidden="true" className="mr-1 inline-block w-4 text-center">{s.mark}</span>
+                {t.displayName}
+                {t.version ? ` ${t.version}` : ""}
+              </span>
+              <span className="ml-1">· {s.text}</span>
+              <span className="block text-ink-subtle">{t.reason}</span>
+              {t.detail && t.status !== "ready" && t.status !== "already_installed" && <span className="block text-ink-subtle">{t.detail}</span>}
+            </li>
+          );
+        })}
+      </ul>
+    </details>
+  );
+}
+
 function SemgrepNotice({ semgrep }: { semgrep: NonNullable<ScanScope["semgrep"]> }) {
   const text =
     semgrep.status === "ran"
@@ -312,7 +361,7 @@ function ScanScopePanel({ scope }: { scope: ScanScope }) {
         자동 점검은 모든 문제를 찾지 못해요. 이 결과는 점검한 시점의 코드와 실행한 항목에만 해당하며, 발견이 없어도 모든 위험을 찾았다는 뜻은 아니에요.
       </p>
       <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
-        <ScopeRow label="점검 시각" value={`${formatKstDateTime(scope.scanDate)} (KST)`} />
+        <ScopeRow label="점검 시각" value={formatKstDateTime(scope.scanDate)} />
         <ScopeRow label="배포 주소" value={scope.deploymentUrl ?? "연결 안 됨"} />
         <ScopeRow label="스캐너 버전" value={scope.scannerVersion} mono />
         <ScopeRow label="룰셋 버전" value={scope.rulesetVersion} mono />

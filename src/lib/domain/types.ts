@@ -346,8 +346,30 @@ export interface ScanScope {
   authzMatrix?: RouteAuthzEntry[];
   /** Semgrep 실행 결과 요약. */
   semgrep?: { status: "ran" | "not_installed" | "failed" | "skipped"; findings: number; config?: string; detail?: string };
+  /** 점검 시작 때 고른 추가 도구(허용 목록 안에서만)와 준비 결과. */
+  tools?: ScanToolsReport;
   /** 재업로드 증분 점검 정보. */
   incremental?: { previousScanId: string; changedFiles: string[]; unchangedFiles: number; carriedOver: number };
+}
+
+export interface ScanToolsReport {
+  /** ai = AI가 고름, heuristic = 규칙으로 고름(AI 없음·실패), disabled = 서버에서 설치를 꺼 둠. */
+  planner: "ai" | "heuristic" | "disabled";
+  /** heuristic일 때 AI를 쓰지 않은 이유(not_configured | call_failed | invalid_response). */
+  fallbackReason?: string;
+  items: ScanToolItem[];
+}
+
+export interface ScanToolItem {
+  id: string;
+  displayName: string;
+  /** 이 도구를 고른 이유(쉬운 한국어). */
+  reason: string;
+  /** timed_out = 준비 시간 안에 끝나지 않아 이번 점검에서는 쓰지 않음. */
+  status: "ready" | "already_installed" | "install_failed" | "install_disabled" | "timed_out";
+  version?: string;
+  /** 실패·꺼짐 이유(쉬운 한국어). */
+  detail?: string;
 }
 
 /** 라우트 하나의 권한 확인 사실(AI가 코드에서 뽑고 서버가 근거를 검증). */

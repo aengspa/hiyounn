@@ -24,6 +24,7 @@ import { LIMITS, type Limits } from "@/lib/config/limits";
 import { isLlmConfigured } from "@/lib/ai/llmConfig";
 import { deterministicFixFor } from "@/lib/remediation/deterministicFix";
 import { generateLlmFileFix } from "@/lib/remediation/llmFileFix";
+import { chunkFile, excerptAroundLine, findEvidenceLine, type FileExcerpt } from "@/lib/remediation/fixExcerpt";
 import { redactSecrets, scrubPlaceholders } from "@/lib/ai/redact";
 import { buildProjectMap } from "@/lib/scanners/aiScanPlanner";
 import {
@@ -331,7 +332,10 @@ async function processJob(job: FixJob, ctx: ProcessCtx): Promise<void> {
           llmFix,
           ai,
           timeoutMs: Math.min(limits.llmCallTimeoutMs, remaining - 1_000),
-          llmFileChars: limits.llmFileChars,
+          fixWindowChars: limits.llmFixWindowChars,
+          llmCallTimeoutMs: limits.llmCallTimeoutMs,
+          deadline,
+          clock,
         });
       }
       job.items[i] = item;
@@ -413,7 +417,20 @@ async function fixOne(
   finding: SecurityFinding,
   working: Record<string, string>,
   base: SourceVersion,
-  o: { llmOn: boolean; llmFix: typeof generateLlmFileFix; ai: AiGate; timeoutMs: number; llmFileChars: number }
+  o: {
+    llmOn: boolean;
+    llmFix: typeof generateLlmFileFix;
+    ai: AiGate;
+    /** 첫 AI 호출의 제한 시간. */
+    timeoutMs: number;
+    /** AI 호출 한 번에 보낼 파일 내용의 최대 길이. 더 긴 파일은 발췌해 보낸다. */
+    fixWindowChars: number;
+    /** 조각을 이어서 시도할 때 호출 한 번의 제한 시간. */
+    llmCallTimeoutMs: number;
+    /** 작업 전체의 마감 시각(ms). 조각을 이어서 시도할 때 지킨다. */
+    deadline: number;
+    clock: () => number;
+  }
 ): Promise<FixJobItem> {
   const head = itemBase(finding);
 
@@ -470,16 +487,6 @@ async function fixOne(
         "이 항목은 문제가 된 파일 위치가 없어 코드를 자동으로 고치지 않았어요. 서버 설정이나 배포 환경처럼 코드 밖에서 생긴 문제일 수 있어요. 점검 결과의 설명을 보고 해당 설정을 직접 확인해 주세요.",
     };
   }
-  if (working[file].length > o.llmFileChars) {
-    return {
-      ...head,
-      outcome: "unsupported",
-      reasonCode: "file_too_large_for_ai",
-      reason: `이 파일은 ${o.llmFileChars.toLocaleString("ko-KR")}자보다 길어서 AI에 보내지 않았어요. 일부만 잘라 보내면 잘못된 수정안이 나올 수 있어서예요. 문제가 된 부분을 직접 고치거나, 파일을 더 작은 파일 여러 개로 나눈 뒤 다시 점검해 주세요.`,
-      files: [file],
-    };
-  }
-
   // 비밀값은 가려서 보내고, 돌아온 수정안은 원래 값으로 되돌려 실제 파일과 대조한다.
   const redaction = redactSecrets(working);
   const aiFinding: SecurityFinding = {
@@ -488,25 +495,119 @@ async function fixOne(
     remediation: finding.remediation ? redaction.redactText(finding.remediation) : undefined,
     evidence: finding.evidence.map((e) => ({ ...e, content: redaction.redactText(e.content) })),
   };
+  const content = redaction.files[file];
+  const plan = planFixWindows(content, working[file], finding.location?.line, aiFinding.evidence, o.fixWindowChars, redaction.redactText);
+
+  // 조각(발췌)마다 한 번씩 시도하고, 적용되는 수정안이 나오면 멈춘다. 발췌가 필요 없거나
+  // 위치를 아는 파일은 한 번만 부른다. 조각을 이어서 시도할 때는 남은 시간을 지킨다.
+  let last: FixJobItem | null = null;
+  let tried = 0;
+  for (let k = 0; k < plan.windows.length; k++) {
+    let timeoutMs = o.timeoutMs;
+    if (k > 0) {
+      const remaining = o.deadline - o.clock();
+      if (remaining < MIN_ITEM_BUDGET_MS || o.ai.blocked) break;
+      timeoutMs = Math.min(o.llmCallTimeoutMs, remaining - 1_000);
+    }
+    tried += 1;
+    const step = await attemptLlmFix(head, finding, aiFinding, file, content, plan.windows[k], timeoutMs, working, base, redaction, o);
+    if (step.done) return step.item;
+    last = step.item;
+  }
+  if (plan.mode === "chunks" && last) {
+    last = {
+      ...last,
+      reason: `파일이 길고 문제가 된 줄 위치를 알 수 없어서, 파일을 ${plan.totalChunks}조각으로 나눠 앞에서부터 ${tried}조각을 AI에게 보여줬지만 적용할 수 있는 수정안을 받지 못했어요. ${last.reason ?? ""}`.trim(),
+      files: last.files.length > 0 ? last.files : [file],
+    };
+  }
+  return last!;
+}
+
+/** 위치를 모르는 긴 파일에서 이어서 시도할 조각의 최대 수(시간 예산과 별개로 상한). */
+const MAX_CHUNK_ATTEMPTS = 6;
+
+interface FixWindowPlan {
+  /** undefined는 파일 전체를 보낸다는 뜻. */
+  windows: (FileExcerpt | undefined)[];
+  mode: "whole" | "around" | "chunks";
+  totalChunks?: number;
+}
+
+/**
+ * AI에 보낼 파일 내용을 정한다. 한도 안의 파일은 전체를, 긴 파일은 문제 줄 주변
+ * 발췌를 보낸다. 줄 위치가 없으면 근거 코드를 파일에서 찾아 그 주변을 보내고,
+ * 그것도 못 찾으면 파일을 한도에 맞게 나눈 조각을 앞에서부터 보낸다.
+ *
+ * @param content 비밀값을 가린 파일 내용(발췌는 여기서 잘라 낸다).
+ * @param original 가리기 전 파일 내용(점검이 알려 준 줄 번호의 기준).
+ */
+function planFixWindows(
+  content: string,
+  original: string,
+  line: number | undefined,
+  evidence: SecurityFinding["evidence"],
+  budget: number,
+  redactText: (t: string) => string
+): FixWindowPlan {
+  if (content.length <= budget) return { windows: [undefined], mode: "whole" };
+  if (line !== undefined && Number.isFinite(line) && line >= 1) {
+    return { windows: [excerptAroundLine(content, redactedLine(original, content, line, redactText), budget)], mode: "around" };
+  }
+  const hit = findEvidenceLine(content, evidence);
+  if (hit) return { windows: [excerptAroundLine(content, hit.line, budget, hit.column)], mode: "around" };
+  const chunks = chunkFile(content, budget);
+  return { windows: chunks.slice(0, MAX_CHUNK_ATTEMPTS), mode: "chunks", totalChunks: chunks.length };
+}
+
+/** 가리기 전 파일의 줄 번호를 가린 파일의 줄 번호로 바꾼다(여러 줄짜리 비밀값을 가리면 줄 수가 달라진다). */
+function redactedLine(original: string, redacted: string, line: number, redactText: (t: string) => string): number {
+  const lines = original.split("\n");
+  if (line <= 1 || lines.length === redacted.split("\n").length) return line;
+  return redactText(lines.slice(0, line - 1).join("\n")).split("\n").length + 1;
+}
+
+/**
+ * AI 수정안 한 번 받기·적용하기. `done`이면 이 항목의 결과로 끝낸다(적용 성공
+ * 또는 다시 불러도 소용없는 AI 오류). 아니면 다음 조각을 시도할 수 있다.
+ */
+async function attemptLlmFix(
+  head: ReturnType<typeof itemBase>,
+  finding: SecurityFinding,
+  aiFinding: SecurityFinding,
+  file: string,
+  content: string,
+  excerpt: FileExcerpt | undefined,
+  timeoutMs: number,
+  working: Record<string, string>,
+  base: SourceVersion,
+  redaction: ReturnType<typeof redactSecrets>,
+  o: { llmFix: typeof generateLlmFileFix; ai: AiGate }
+): Promise<{ done: boolean; item: FixJobItem }> {
   const res = await o.llmFix({
     finding: aiFinding,
     filePath: file,
-    fileContent: redaction.files[file],
-    timeoutMs: o.timeoutMs,
+    fileContent: content,
+    ...(excerpt ? { excerpt } : {}),
+    timeoutMs,
     projectMap: o.ai.projectMap,
   });
+  const fail = (item: FixJobItem) => ({ done: false, item });
   if (res.kind === "error") {
     if (AI_BLOCKING_ERRORS.has(res.code)) o.ai.blocked = res.code;
     return {
-      ...head,
-      outcome: "apply_failed",
-      reasonCode: `ai_${res.code}`,
-      reason: aiErrorReason(res.code),
-      llmCorrelationId: res.correlationId ?? undefined,
+      done: true,
+      item: {
+        ...head,
+        outcome: "apply_failed",
+        reasonCode: `ai_${res.code}`,
+        reason: aiErrorReason(res.code),
+        llmCorrelationId: res.correlationId ?? undefined,
+      },
     };
   }
   if (res.kind === "declined") {
-    return {
+    return fail({
       ...head,
       outcome: "unsupported",
       reasonCode: "ai_declined",
@@ -515,17 +616,17 @@ async function fixOne(
           "AI가 이 파일만 바꿔서는 안전하게 고칠 수 없다고 판단했어요. 다른 파일이나 배포 설정을 함께 바꿔야 할 수 있어요. 점검 결과의 설명을 보고 필요한 부분을 직접 확인해 주세요."
       ),
       llmCorrelationId: res.correlationId,
-    };
+    });
   }
   if (res.kind === "invalid") {
-    return {
+    return fail({
       ...head,
       outcome: "apply_failed",
       reasonCode: "ai_invalid_fix",
       reason:
         "AI가 보낸 수정안을 실제 파일 내용에 정확히 맞출 수 없어 적용하지 않았어요. 엉뚱한 곳을 바꾸지 않으려고 멈춘 거예요. 파일은 바뀌지 않았어요. 다시 시도하거나 직접 고쳐 주세요.",
       llmCorrelationId: res.correlationId,
-    };
+    });
   }
   const fix: FixAttempt = {
     ...res.fix,
@@ -541,18 +642,21 @@ async function fixOne(
   const snapshot = { ...working };
   const r = applyDiffsAtomically(working, base.files, fix.diffs);
   if (!r.ok) {
-    return {
+    return fail({
       ...head,
       outcome: "apply_failed",
       reasonCode: r.failure,
       reason: PATCH_FAILURE_MESSAGE[r.failure],
       fixSource: "llm",
       llmCorrelationId: res.correlationId,
-    };
+    });
   }
   return {
-    ...appliedItem(head, fix, r.changedFiles, "llm", finding.category === "secrets", o.ai.secrets, snapshot),
-    llmCorrelationId: res.correlationId,
+    done: true,
+    item: {
+      ...appliedItem(head, fix, r.changedFiles, "llm", finding.category === "secrets", o.ai.secrets, snapshot),
+      llmCorrelationId: res.correlationId,
+    },
   };
 }
 

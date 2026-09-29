@@ -22,6 +22,8 @@ import type { SecurityFinding } from "@/lib/domain/types";
 import { CodeView } from "@/components/CodeView";
 import { EditDiff, JobDiff } from "@/components/DiffView";
 import { AdjudicationNote, VerifyNote } from "@/components/ReviewNotes";
+import { FindingLocations } from "@/components/FindingLocations";
+import { aggregateStatus, formatLocation, groupFindings, type FindingGroup } from "@/lib/ui/groupFindings";
 
 export interface FindingView {
   id: string;
@@ -81,6 +83,25 @@ function errorText(status: number, data: any, fallback: string): string {
   if (typeof data?.message === "string" && data.message) return data.message;
   if (status === 504 || status === 408) return "처리 시간이 너무 오래 걸려 멈췄어요. 잠시 후 다시 시도해 주세요.";
   return fallback;
+}
+
+/** 묶은 개수와 원래 개수가 다르면 둘 다 보여 준다. 예: "문제 5가지 · 발견 위치 12곳" */
+function countText(groups: number, raw: number): string {
+  return groups === raw ? `${raw}개` : `문제 ${groups}가지 · 발견 위치 ${raw}곳`;
+}
+
+type VerifyItem = NonNullable<PublicFixJob["verification"]>["items"][number];
+
+/** 한 항목(발견 위치 하나)의 수정·재검증 상태. */
+interface MemberState {
+  finding: FindingView;
+  status: FixStatus;
+  steps?: FixStep[];
+  hasJobItem: boolean;
+  applied: boolean;
+  fixNote?: string;
+  edits?: { file: string; before: string; after: string }[];
+  verifyItem?: VerifyItem;
 }
 
 function formatBytes(n: number): string {
@@ -184,30 +205,32 @@ export function FixAllPanel({
   const active = findings.filter((f) => !isAdjudicatedFalsePositive(f));
   const verification = job?.verification;
 
-  function renderRow(f: FindingView) {
+  function memberState(f: FindingView): MemberState {
     const jobItem = job?.items.find((it) => it.findingId === f.id);
     const input =
       busy === "fix"
         ? { jobStatus: "running" as const, item: { findingId: f.id, outcome: "skipped" as const, reasonCode: "pending" } }
         : { jobStatus: job?.status, item: jobItem, verification, adjudicatedFalsePositive: isAdjudicatedFalsePositive(f) };
-    const status = fixStatusFor(f.id, input);
-    const steps = fixStepsFor(f.id, input);
     const verifyItem =
       busy !== "fix" && verification && verification.status !== "running" ? verification.items.find((it) => it.findingId === f.id) : undefined;
     const applied = busy !== "fix" && jobItem?.outcome === "applied";
-    return (
-      <FindingRow
-        finding={f}
-        status={status}
-        steps={steps}
-        hasJobItem={Boolean(input.item)}
-        applied={applied}
-        fixNote={applied ? jobItem?.plainExplanation ?? jobItem?.summary : undefined}
-        edits={applied ? jobItem?.edits : undefined}
-        verifyItem={verifyItem}
-      />
-    );
+    return {
+      finding: f,
+      status: fixStatusFor(f.id, input),
+      steps: fixStepsFor(f.id, input),
+      hasJobItem: Boolean(input.item),
+      applied,
+      fixNote: applied ? jobItem?.plainExplanation ?? jobItem?.summary : undefined,
+      edits: applied ? jobItem?.edits : undefined,
+      verifyItem,
+    };
   }
+
+  function renderGroup(g: FindingGroup<FindingView>) {
+    return <FindingRow group={g} members={g.members.map(memberState)} />;
+  }
+  const activeGroups = groupFindings(active);
+  const falsePositiveGroups = groupFindings(falsePositives);
   const showFixButton = findings.length > 0 && canFix && (!job || job.status === "failed");
 
   return (
@@ -249,16 +272,16 @@ export function FixAllPanel({
       )}
 
       {/* 수정 결과 */}
-      {finished && job && <FixResult job={job} busy={busy} onVerify={runVerify} />}
+      {finished && job && <FixResult job={job} findings={findings} busy={busy} onVerify={runVerify} />}
 
       {/* 항목 목록 */}
       <section aria-labelledby="findings-title" className="mt-10">
         <h2 id="findings-title" className="text-xl font-extrabold text-ink sm:text-2xl">
-          호이가 찾은 부분 <span className="text-brand-800">({active.length}개)</span>
+          호이가 찾은 부분 <span className="text-brand-800">({countText(activeGroups.length, active.length)})</span>
         </h2>
         <ol className="mt-4 space-y-3">
-          {active.map((f) => (
-            <li key={f.id}>{renderRow(f)}</li>
+          {activeGroups.map((g) => (
+            <li key={g.key}>{renderGroup(g)}</li>
           ))}
         </ol>
       </section>
@@ -266,14 +289,14 @@ export function FixAllPanel({
       {falsePositives.length > 0 && (
         <details className="mt-8 rounded-3xl border-2 border-dashed border-line-strong bg-surface-warm p-4 sm:p-5">
           <summary className="flex min-h-11 cursor-pointer items-center text-base font-extrabold text-ink hover:text-brand-800">
-            AI가 오탐으로 판정한 규칙 결과 ({falsePositives.length}개)
+            AI가 오탐으로 판정한 규칙 결과 ({countText(falsePositiveGroups.length, falsePositives.length)})
           </summary>
           <p className="mt-2 text-base leading-relaxed text-ink">
             규칙 검사가 잡았지만, AI가 코드 근거를 확인해 실제 취약점이 아니라고 판정한 항목이에요. 기록으로 남겨 두었고 자동 수정 대상에서는 뺐어요. 판정이 맞는지 근거 코드를 한 번 확인해 주세요.
           </p>
           <ol className="mt-4 space-y-3">
-            {falsePositives.map((f) => (
-              <li key={f.id}>{renderRow(f)}</li>
+            {falsePositiveGroups.map((g) => (
+              <li key={g.key}>{renderGroup(g)}</li>
             ))}
           </ol>
         </details>
@@ -329,53 +352,61 @@ function explanationBlocks(f: FindingView): { key: string; label: string; text: 
   return out;
 }
 
-function FindingRow({
-  finding,
-  status,
-  steps,
-  hasJobItem,
-  applied,
-  fixNote,
-  edits,
-  verifyItem,
-}: {
-  finding: FindingView;
-  status: FixStatus;
-  steps?: FixStep[];
-  hasJobItem: boolean;
-  applied: boolean;
-  fixNote?: string;
-  edits?: { file: string; before: string; after: string }[];
-  verifyItem?: NonNullable<PublicFixJob["verification"]>["items"][number];
-}) {
+/**
+ * 카드 하나 = 같은 취약점 묶음 하나. 한 곳에서만 발견됐으면 예전과 같은 모양이고,
+ * 여러 곳이면 제목·설명은 한 번만, 위치 목록과 상태 내역을 보여 주고
+ * 위치별 수정·재검증 결과는 "자세히 보기" 안에 위치 이름을 붙여 둔다.
+ */
+function FindingRow({ group, members }: { group: FindingGroup<FindingView>; members: MemberState[] }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
+  const single = members.length === 1;
+  const rep = members.find((m) => m.finding.id === group.representative.id) ?? members[0];
+  const finding = rep.finding;
+  const agg = single ? undefined : aggregateStatus(members.map((m) => m.status.key));
+  const statusKey = agg ? agg.key : rep.status.key;
+  const statusLabel = agg ? agg.label : rep.status.label;
+  const statusNote = agg ? members.find((m) => m.status.key === statusKey)?.status.note : rep.status.note;
+  const any = (p: (f: FindingView) => boolean) => members.some((m) => p(m.finding));
   const adjudication = finding.aiReview?.adjudication;
   const blocks = explanationBlocks(finding);
+  const corroborators = [...new Set(members.flatMap((m) => m.finding.corroboratedBy ?? []))].filter((c) => c !== "ai");
   return (
     <div className="relative min-w-0 overflow-hidden rounded-3xl border-2 border-line bg-surface p-5 pl-6 shadow-warm sm:p-6 sm:pl-7">
       {/* 심각도 색 띠(장식). 심각도는 배지의 글자·아이콘으로도 전달한다 */}
-      <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1.5 ${SEV_ACCENT[finding.severity] ?? "bg-line-strong"}`} />
+      <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1.5 ${SEV_ACCENT[group.severity] ?? "bg-line-strong"}`} />
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={STATUS_TONE[status.key]}>
-          <span aria-hidden="true">{FIX_STATUS_MARK[status.key]}</span>
-          {status.label}
+        <Badge tone={STATUS_TONE[statusKey]}>
+          <span aria-hidden="true">{FIX_STATUS_MARK[statusKey]}</span>
+          {statusLabel}
         </Badge>
-        <SeverityBadge severity={finding.severity} />
-        {finding.isAi && <Badge tone="neutral">AI 분석</Badge>}
-        {finding.aiReview?.verdict === "confirmed" && <Badge tone="neutral">AI도 확인</Badge>}
-        {finding.aiReview?.verdict === "likely_false_positive" && !adjudication && <Badge tone="neutral">AI: 오탐 가능성</Badge>}
-        {(finding.corroboratedBy ?? [])
-          .filter((c) => c !== "ai")
-          .map((c) => (
-            <Badge key={c} tone="neutral">
-              {CORROBORATOR_LABEL[c] ?? `${c}도 확인`}
-            </Badge>
-          ))}
-        {finding.carriedOver && <Badge tone="neutral">이전 점검에서 이어옴</Badge>}
+        <SeverityBadge severity={group.severity} />
+        {any((f) => f.isAi) && <Badge tone="neutral">AI 분석</Badge>}
+        {any((f) => f.aiReview?.verdict === "confirmed") && <Badge tone="neutral">AI도 확인</Badge>}
+        {any((f) => f.aiReview?.verdict === "likely_false_positive" && !f.aiReview?.adjudication) && (
+          <Badge tone="neutral">AI: 오탐 가능성</Badge>
+        )}
+        {corroborators.map((c) => (
+          <Badge key={c} tone="neutral">
+            {CORROBORATOR_LABEL[c] ?? `${c}도 확인`}
+          </Badge>
+        ))}
+        {any((f) => Boolean(f.carriedOver)) && <Badge tone="neutral">이전 점검에서 이어옴</Badge>}
       </div>
-      {status.note && <p className="mt-2 break-words text-sm font-semibold leading-relaxed text-ink">{status.note}</p>}
+      {agg?.breakdown && (
+        <p className="mt-2 break-words text-sm font-bold leading-relaxed text-ink">
+          <span className="sr-only">위치별 상태: </span>
+          {agg.breakdown}
+        </p>
+      )}
+      {statusNote && <p className="mt-2 break-words text-sm font-semibold leading-relaxed text-ink">{statusNote}</p>}
       <h3 className="mt-3 break-words text-lg font-extrabold text-ink sm:text-xl">{finding.title}</h3>
+      {!single && (
+        <>
+          <p className="mt-1 text-base font-semibold leading-relaxed text-ink-subtle">같은 문제가 {members.length}곳에서 발견됐어요</p>
+          <FindingLocations locations={group.locations} className="mt-3" />
+        </>
+      )}
 
       <div className="mt-4 space-y-4">
         {blocks.map((b) => (
@@ -386,11 +417,9 @@ function FindingRow({
         ))}
       </div>
 
-      {adjudication && <AdjudicationNote adjudication={adjudication} />}
+      {single && adjudication && <AdjudicationNote adjudication={adjudication} />}
 
-      {(hasJobItem || verifyItem) && (
-        <FixOutcome status={status} steps={steps} applied={applied} fixNote={fixNote} edits={edits} verifyItem={verifyItem} />
-      )}
+      {single && (rep.hasJobItem || rep.verifyItem) && <FixOutcome {...outcomeProps(rep)} />}
 
       <button
         type="button"
@@ -399,7 +428,7 @@ function FindingRow({
         aria-controls={panelId}
         onClick={() => setOpen((v) => !v)}
       >
-        {open ? "접기" : "자세히 보기 (코드·기술 정보)"}
+        {open ? "접기" : single ? "자세히 보기 (코드·기술 정보)" : "자세히 보기 (위치별 코드·수정 결과)"}
         <span aria-hidden="true" className={`transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`}>
           ▾
         </span>
@@ -409,28 +438,67 @@ function FindingRow({
         hidden={!open}
         className="mt-3 min-w-0 space-y-3 rounded-2xl border-2 border-dashed border-line bg-surface-warm p-4 text-sm leading-relaxed text-ink-subtle"
       >
-        {finding.code ? (
-          <CodeView code={finding.code} caption="문제가 된 코드" />
-        ) : finding.location ? (
-          <p className="break-all font-mono text-xs text-ink">
-            {finding.location.file}:{finding.location.line}
-          </p>
-        ) : null}
-        {finding.aiReview?.verdict === "likely_false_positive" && !adjudication && (
-          <p className="break-words text-base text-ink">
-            <span className="block text-sm font-bold text-ink">AI 의견</span>
-            규칙이 찾은 항목이지만 AI는 실제 문제가 아닐 수 있다고 봤어요
-            {finding.aiReview.reason ? ` (${finding.aiReview.reason})` : ""}. 규칙 결과는 그대로 두었으니 코드를 보고 판단해 주세요.
-          </p>
+        {single ? (
+          <MemberTech finding={finding} />
+        ) : (
+          <ol className="space-y-4">
+            {members.map((m) => {
+              const where = m.finding.location ? formatLocation(m.finding.location) : "위치 기록 없음";
+              const adj = m.finding.aiReview?.adjudication;
+              return (
+                <li key={m.finding.id} className="min-w-0 rounded-2xl border-2 border-line bg-surface p-4">
+                  <h4 className="flex flex-wrap items-center gap-2 text-sm font-bold text-ink">
+                    <span className="min-w-0 break-all font-mono text-xs">{where}</span>
+                    <span className="inline-flex items-center gap-1 font-semibold">
+                      <span aria-hidden="true">{FIX_STATUS_MARK[m.status.key]}</span>
+                      {m.status.label}
+                    </span>
+                  </h4>
+                  <div className="mt-2 space-y-3">
+                    <MemberTech finding={m.finding} hideLocation />
+                    {adj && <AdjudicationNote adjudication={adj} />}
+                    {(m.hasJobItem || m.verifyItem) && <FixOutcome {...outcomeProps(m)} label={`${where} 수정과 재검증 결과`} />}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
         )}
-        <dl className="grid gap-2 sm:grid-cols-2">
-          <TechRow label="규칙 ID" value={finding.ruleId} />
-          <TechRow label="CWE" value={finding.cwe} />
-          <TechRow label="OWASP" value={finding.owasp} />
-          <TechRow label="위치" value={finding.location ? `${finding.location.file}:${finding.location.line}` : undefined} />
-        </dl>
       </div>
     </div>
+  );
+}
+
+function outcomeProps(m: MemberState) {
+  return { status: m.status, steps: m.steps, applied: m.applied, fixNote: m.fixNote, edits: m.edits, verifyItem: m.verifyItem };
+}
+
+/** 한 위치의 코드·AI 의견·기술 정보. */
+function MemberTech({ finding, hideLocation = false }: { finding: FindingView; hideLocation?: boolean }) {
+  const adjudication = finding.aiReview?.adjudication;
+  return (
+    <>
+      {finding.code ? (
+        <CodeView code={finding.code} caption="문제가 된 코드" />
+      ) : finding.location && !hideLocation ? (
+        <p className="break-all font-mono text-xs text-ink">
+          {finding.location.file}:{finding.location.line}
+        </p>
+      ) : null}
+      {finding.aiReview?.verdict === "likely_false_positive" && !adjudication && (
+        <p className="break-words text-base text-ink">
+          <span className="block text-sm font-bold text-ink">AI 의견</span>
+          규칙이 찾은 항목이지만 AI는 실제 문제가 아닐 수 있다고 봤어요
+          {finding.aiReview.reason ? ` (${finding.aiReview.reason})` : ""}. 규칙 결과는 그대로 두었으니 코드를 보고 판단해 주세요.
+        </p>
+      )}
+      <dl className="grid gap-2 sm:grid-cols-2">
+        <TechRow label="규칙 ID" value={finding.ruleId} />
+        <TechRow label="CWE" value={finding.cwe} />
+        <TechRow label="OWASP" value={finding.owasp} />
+        <TechRow label="위치" value={finding.location ? `${finding.location.file}:${finding.location.line}` : undefined} />
+      </dl>
+    </>
   );
 }
 
@@ -474,6 +542,7 @@ function FixOutcome({
   fixNote,
   edits,
   verifyItem,
+  label = "수정과 재검증 결과",
 }: {
   status: FixStatus;
   steps?: FixStep[];
@@ -481,10 +550,12 @@ function FixOutcome({
   fixNote?: string;
   edits?: { file: string; before: string; after: string }[];
   verifyItem?: NonNullable<PublicFixJob["verification"]>["items"][number];
+  /** 묶음 카드 안에서는 위치를 붙여 구분한다. */
+  label?: string;
 }) {
   const showChanges = Boolean(steps) && status.key !== "fixing" && status.key !== "false_positive";
   return (
-    <section aria-label="수정과 재검증 결과" className="mt-5 min-w-0 rounded-2xl border-2 border-line bg-surface-warm p-4">
+    <section aria-label={label} className="mt-5 min-w-0 rounded-2xl border-2 border-line bg-surface-warm p-4">
       <h4 className="text-base font-extrabold text-ink">수정과 재검증 결과</h4>
       {steps && (
         <ol className="mt-2 flex flex-col gap-1 text-sm text-ink sm:flex-row sm:flex-wrap sm:gap-x-5">
@@ -532,14 +603,32 @@ function FixOutcome({
 
 function FixResult({
   job,
+  findings,
   busy,
   onVerify,
 }: {
   job: PublicFixJob;
+  findings: FindingView[];
   busy: "fix" | "verify" | null;
   onVerify: () => void;
 }) {
   const failedItems = job.items.filter((it) => it.outcome !== "applied");
+  // 고치지 못한 항목도 같은 취약점끼리 묶어 제목은 한 번, 위치는 목록으로 보여 준다.
+  const findingById = new Map(findings.map((f) => [f.id, f]));
+  const failedGroups = groupFindings(
+    failedItems.map((it) => {
+      const f = findingById.get(it.findingId);
+      return {
+        id: it.findingId,
+        title: f?.title ?? it.title,
+        severity: f?.severity ?? it.severity,
+        ruleId: f ? f.ruleId : it.ruleId,
+        cwe: f?.cwe,
+        location: f?.location,
+        reason: it.reason,
+      };
+    })
+  );
   const appliedItems = job.items.filter((it) => it.outcome === "applied");
   const v = job.verification;
   const vCounts = { resolved: 0, executed: 0, resolvedAi: 0, still: 0, falsePositive: 0, disputed: 0, check: 0 };
@@ -666,18 +755,41 @@ function FixResult({
 
         {failedItems.length > 0 && (
           <div className="mt-5">
-            <h3 className="text-base font-bold text-ink">자동으로 고치지 못한 항목 ({failedItems.length}개)</h3>
+            <h3 className="text-base font-bold text-ink">
+              자동으로 고치지 못한 항목 ({countText(failedGroups.length, failedItems.length)})
+            </h3>
             <p className="mt-1 text-sm leading-relaxed text-ink-subtle">이 항목들은 파일이 바뀌지 않았어요. 이유와 해야 할 일을 확인해 주세요.</p>
             <ul className="mt-2 space-y-2">
-              {failedItems.map((it) => (
-                <li key={it.findingId} className="min-w-0 rounded-2xl border-2 border-line bg-surface p-3">
-                  <span className="flex items-start gap-1.5 break-words font-bold text-ink">
-                    <span aria-hidden="true">✕</span>
-                    <span className="min-w-0">{it.title}</span>
-                  </span>
-                  {it.reason && <span className="mt-1 block break-words text-base leading-relaxed text-ink">{it.reason}</span>}
-                </li>
-              ))}
+              {failedGroups.map((g) => {
+                const reasons = [...new Set(g.members.map((m) => m.reason).filter((r): r is string => Boolean(r)))];
+                return (
+                  <li key={g.key} className="min-w-0 rounded-2xl border-2 border-line bg-surface p-3">
+                    <span className="flex items-start gap-1.5 break-words font-bold text-ink">
+                      <span aria-hidden="true">✕</span>
+                      <span className="min-w-0">{g.representative.title}</span>
+                    </span>
+                    {g.members.length > 1 && (
+                      <>
+                        <span className="mt-1 block text-sm font-semibold text-ink-subtle">같은 문제가 {g.members.length}곳에 있어요</span>
+                        <FindingLocations locations={g.locations} className="mt-2" />
+                      </>
+                    )}
+                    {reasons.length === 1 && <span className="mt-1 block break-words text-base leading-relaxed text-ink">{reasons[0]}</span>}
+                    {reasons.length > 1 && (
+                      <ul className="mt-1 space-y-1">
+                        {g.members
+                          .filter((m) => m.reason)
+                          .map((m) => (
+                            <li key={m.id} className="min-w-0 break-words text-base leading-relaxed text-ink">
+                              <span className="break-all font-mono text-xs font-bold">{m.location ? formatLocation(m.location) : "위치 기록 없음"}</span>{" "}
+                              {m.reason}
+                            </li>
+                          ))}
+                      </ul>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}

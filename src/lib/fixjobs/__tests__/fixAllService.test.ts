@@ -19,6 +19,7 @@ import {
 import type { generateLlmFileFix } from "@/lib/remediation/llmFileFix";
 import type { FixAttempt } from "@/lib/domain/types";
 import { LIMITS } from "@/lib/config/limits";
+import { excerptChars } from "@/lib/remediation/fixExcerpt";
 
 // All values are fake test fixtures (no real secrets).
 const SECRET_FILES = {
@@ -56,6 +57,27 @@ const stubFix: LlmFix = async ({ finding, filePath, fileContent }) => {
   const after = line.replace(/innerHTML = "<\w>" \+ (\w+) \+ "<\/\w>"/, "textContent = $1");
   return llmFixOf(filePath, finding.id, line, after);
 };
+
+/** A ~60,000-char file with one innerHTML line in the middle. */
+function bigFile(): { content: string; vulnLine: string; lineNo: number } {
+  const filler = (i: number) => `export function f${i}(a: number): number {\n  return a + ${i};\n}\n`;
+  const vulnLine = '  el.innerHTML = "<b>" + name + "</b>";';
+  let content = 'import { helper } from "./helper";\n\nexport const h = helper;\n';
+  let i = 0;
+  while (content.length < 30_000) content += filler(i++);
+  const lineNo = content.split("\n").length + 1;
+  content += `export function render(el: HTMLElement, name: string) {\n${vulnLine}\n}\n`;
+  while (content.length < 60_000) content += filler(i++);
+  return { content, vulnLine, lineNo };
+}
+
+/** Stub LLM that only looks at what the model would see (the excerpt when given). */
+function stubFromExcerpt(input: Parameters<LlmFix>[0]): Awaited<ReturnType<LlmFix>> {
+  const seen = input.excerpt ? input.excerpt.parts.map((p) => p.text).join("\n") : input.fileContent;
+  const line = seen.split("\n").find((l) => l.includes("innerHTML"));
+  if (!line) return { kind: "declined", reason: "nothing here", correlationId: "c-x" };
+  return llmFixOf(input.filePath, input.finding.id, line, line.replace(/innerHTML = "<\w>" \+ (\w+) \+ "<\/\w>"/, "textContent = $1"));
+}
 
 async function setup(tag: string, files: Record<string, string>) {
   const user = await createUser({ email: `${tag}-${Date.now()}-${Math.random()}@example.test`, passwordHash: "x:y" });
@@ -267,6 +289,79 @@ describe("startFixAll AI path", () => {
     expect(job.skippedForLimit).toBe(c.findings.filter((f) => f.status !== "resolved").length - 1);
     expect(job.items.filter((i) => i.reasonCode === "item_limit").length).toBe(job.skippedForLimit);
     expect(job.status === "partial" || job.status === "failed").toBe(true);
+  });
+
+  it("fixes a file longer than the per-call budget by sending an excerpt and patching the full file", async () => {
+    const { content, vulnLine, lineNo } = bigFile();
+    expect(content.length).toBeGreaterThanOrEqual(60_000);
+    const c = await setup("big", { "src/big.ts": content });
+    const target = c.findings.find((f) => f.location?.file === "src/big.ts" && f.location.line === lineNo)!;
+    expect(target).toBeDefined();
+    const seen: Parameters<LlmFix>[0][] = [];
+    const llm: LlmFix = async (input) => {
+      seen.push(input);
+      return stubFromExcerpt(input);
+    };
+    const { job } = await startFixAll(
+      { ownerId: c.user.id, scanId: c.scan.id, findingIds: [target.id] },
+      { llmConfigured: true, llmFix: llm }
+    );
+    const item = job.items[0];
+    expect(item.outcome).toBe("applied");
+    expect(item.fixSource).toBe("llm");
+    expect(item.edits?.[0]).toMatchObject({ file: "src/big.ts", line: lineNo });
+
+    // The model saw only an excerpt under the budget that contains the flagged line and the imports.
+    expect(seen.length).toBe(1);
+    const ex = seen[0].excerpt!;
+    expect(ex).toBeDefined();
+    expect(excerptChars(ex)).toBeLessThanOrEqual(LIMITS.llmFixWindowChars);
+    expect(ex.parts.some((p) => p.text.includes(vulnLine))).toBe(true);
+    expect(ex.parts[0]).toMatchObject({ startLine: 1 });
+    expect(ex.parts[0].text).toContain('import { helper } from "./helper";');
+
+    // The edit landed at the flagged line; every other byte is unchanged.
+    const result = await getSourceVersion(job.resultVersionId!, c.user.id);
+    expect(result.files["src/big.ts"]).toBe(content.replace(vulnLine, "  el.textContent = name;"));
+  });
+
+  it("an excerpt edit whose before text is not in the file fails safely", async () => {
+    const { content, lineNo } = bigFile();
+    const c = await setup("big-bad", { "src/big.ts": content });
+    const target = c.findings.find((f) => f.location?.file === "src/big.ts" && f.location.line === lineNo)!;
+    const llm: LlmFix = async ({ finding, filePath }) =>
+      llmFixOf(filePath, finding.id, '  el.innerHTML = "<b>" + nameX + "</b>";', "  el.textContent = nameX;");
+    const { job } = await startFixAll(
+      { ownerId: c.user.id, scanId: c.scan.id, findingIds: [target.id] },
+      { llmConfigured: true, llmFix: llm }
+    );
+    expect(job.items[0]).toMatchObject({ outcome: "apply_failed", reasonCode: "before_not_found" });
+    expect(job.items[0].reason).toContain("적용하지 않았어요");
+    expect(job.status).toBe("failed");
+    expect(job.resultVersionId).toBeUndefined();
+  });
+
+  it("without a line location, tries consecutive chunks of a long file and stops at the first valid fix", async () => {
+    const { content, vulnLine, lineNo } = bigFile();
+    const c = await setup("big-noline", { "src/big.ts": content });
+    const target = (await getFindingsForScan(c.scan.id, c.user.id)).find(
+      (f) => f.location?.file === "src/big.ts" && f.location.line === lineNo
+    )!;
+    // The memory store returns stored objects: drop the line and make the evidence unfindable.
+    target.location = { file: "src/big.ts", line: 0 };
+    target.evidence = target.evidence.map((e) => ({ ...e, content: "(표시할 코드가 없어요)" }));
+    const llm = vi.fn<LlmFix>(async (input) => stubFromExcerpt(input));
+    const { job } = await startFixAll(
+      { ownerId: c.user.id, scanId: c.scan.id, findingIds: [target.id] },
+      { llmConfigured: true, llmFix: llm }
+    );
+    expect(job.items[0].outcome).toBe("applied");
+    const calls = llm.mock.calls.map((a) => a[0].excerpt!);
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    expect(calls.every((ex) => excerptChars(ex) <= LIMITS.llmFixWindowChars)).toBe(true);
+    expect(calls.slice(0, -1).some((ex) => ex.parts.some((p) => p.text.includes(vulnLine)))).toBe(false);
+    const result = await getSourceVersion(job.resultVersionId!, c.user.id);
+    expect(result.files["src/big.ts"]).toBe(content.replace(vulnLine, "  el.textContent = name;"));
   });
 
   it("stale check only touches running jobs", async () => {

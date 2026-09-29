@@ -17,6 +17,7 @@ import { CookieScanner } from "@/lib/scanners/cookieScanner";
 import { BflaScanner } from "@/lib/scanners/bflaScanner";
 import { AiCodeScanner, AI_SCAN_GAP_RULE } from "@/lib/scanners/aiCodeScanner";
 import { SemgrepScanner } from "@/lib/scanners/semgrepScanner";
+import { GitleaksScanner } from "@/lib/scanners/gitleaksScanner";
 import { CustomRuleScanner } from "@/lib/rules/customRules";
 import { mergeAiIntoRules, mergeCorroborating } from "@/lib/scanners/findingMerge";
 import type { RouteAuthzEntry } from "@/lib/domain/types";
@@ -72,7 +73,8 @@ export class SecurityOrchestrator {
     this.scanners = scanners ?? [new SecretScanner(), new DependencyScanner(), new BaaSConfigScanner(),
       new AuthorizationScanner(), new StaticWebScanner(), new Asvs5Scanner(), new HeaderScanner(), new ExposedEndpointScanner(),
       new TlsScanner(), new UserEnumerationScanner(), new BruteForceScanner(), new CookieScanner(),
-      new BflaScanner(), new CustomRuleScanner(), new SemgrepScanner(), new AiCodeScanner()];
+      // Gitleaks는 실행 파일이 있을 때만 적용된다(isApplicable).
+      new BflaScanner(), new CustomRuleScanner(), new SemgrepScanner(), new GitleaksScanner(), new AiCodeScanner()];
   }
 
   getScanner(name: string): SecurityScanner | undefined { return this.scanners.find((s) => s.name === name); }
@@ -85,7 +87,7 @@ export class SecurityOrchestrator {
       dep: "dependency-scanner", rls: "baas-config-scanner", asvs5: "asvs5-static-scanner", xss: "static-web-scanner", inj: "static-web-scanner",
       expose: "static-web-scanner", trav: "static-web-scanner", sidor: "static-web-scanner", exposed: "exposed-endpoint-scanner",
       tls: "tls-scanner", enum: "user-enumeration-scanner", brute: "bruteforce-scanner", cookie: "cookie-scanner", bfla: "bfla-scanner", ai: "ai-code-scanner",
-      semgrep: "semgrep-scanner", custom: "custom-rule-scanner",
+      semgrep: "semgrep-scanner", gitleaks: "gitleaks-scanner", custom: "custom-rule-scanner",
     };
     return this.getScanner(names[key.split(":")[0]]);
   }
@@ -186,7 +188,7 @@ export class SecurityOrchestrator {
     const plannedIds = new Set(plan.selectedChecks.map((check) => check.ruleId));
     const plannedKeys = new Set(plan.selectedChecks.map((check) => `${check.ruleId}/${check.checkId}`));
     for (const scanner of await this.selectApplicable(context)) {
-      const alwaysRun = ["ai-code-scanner", "semgrep-scanner", "custom-rule-scanner"].includes(scanner.name);
+      const alwaysRun = ["ai-code-scanner", "semgrep-scanner", "gitleaks-scanner", "custom-rule-scanner"].includes(scanner.name);
       if (!alwaysRun && !(LEGACY_CHECKS[scanner.name] ?? []).some((key) => plannedKeys.has(key))) continue;
       if (scanner instanceof CustomRuleScanner) {
         // 사람이 승인한 규칙도 기준 규칙이다. 기존 규칙 결과와 같은 문제면 합친다.
@@ -205,6 +207,16 @@ export class SecurityOrchestrator {
         findings.push(...merged.kept);
         semgrep = report.status;
         if (report.status.status === "ran") testedCategories.add("Semgrep 규칙 검사");
+        continue;
+      }
+      if (scanner instanceof GitleaksScanner) {
+        // 기본 비밀키 검사와 같은 줄의 같은 문제면 합치고 "Gitleaks도 확인" 표시.
+        const report = await scanner.scanWithReport(context);
+        report.findings.forEach((finding) => this.decorateWithRule(finding));
+        const merged = mergeCorroborating(findings, report.findings, "gitleaks");
+        findings.push(...merged.kept);
+        if (report.status === "ran") testedCategories.add("Gitleaks 비밀키 검사");
+        else if (report.status === "failed") plan.coverageGaps.push({ ruleId: "SEC-001", checkId: "gitleaks", reason: "Gitleaks 실행에 실패해 추가 비밀키 검사를 하지 못했어요." });
         continue;
       }
       if (scanner instanceof AiCodeScanner) {

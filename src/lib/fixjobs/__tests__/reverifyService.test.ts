@@ -19,6 +19,8 @@ import { SecurityOrchestrator } from "@/lib/scanners/orchestrator";
 import type { generateLlmFileFix } from "@/lib/remediation/llmFileFix";
 import type { FixAttempt, ReverifyItem, SecurityFinding, SourceVersion } from "@/lib/domain/types";
 import { fixStatusFor } from "@/lib/ui/fixStatus";
+import { LIMITS } from "@/lib/config/limits";
+import { excerptChars } from "@/lib/remediation/fixExcerpt";
 
 // Fake fixtures only.
 const SECRET_FILES = {
@@ -418,19 +420,100 @@ describe("validateLlmResult", () => {
 });
 
 describe("selectFilesForReview", () => {
-  it("records omitted files instead of truncating", () => {
-    const version = { files: { "a.ts": "x".repeat(100), "b.ts": "y".repeat(100), "big.ts": "z".repeat(500) } } as unknown as SourceVersion;
+  it("records files over the total budget instead of truncating", () => {
+    const version = { files: { "a.ts": "x".repeat(100), "b.ts": "y".repeat(100), "c.ts": "z".repeat(100) } } as unknown as SourceVersion;
     const fs = [
       { location: { file: "a.ts", line: 1 } },
-      { location: { file: "big.ts", line: 1 } },
+      { location: { file: "c.ts", line: 1 } },
       { location: { file: "b.ts", line: 1 } },
     ] as SecurityFinding[];
-    const r = selectFilesForReview(version, fs, [], { reverifyPromptChars: 150, llmFileChars: 400 });
+    const r = selectFilesForReview(version, fs, [], { reverifyPromptChars: 150, llmFixWindowChars: 400 });
     expect(r.sent).toEqual(["a.ts"]);
     expect(r.omitted).toEqual([
-      { path: "big.ts", reason: "too_large" },
+      { path: "c.ts", reason: "over_budget" },
       { path: "b.ts", reason: "over_budget" },
     ]);
+  });
+
+  it("sends an excerpt of a long file instead of omitting it as too large", () => {
+    const content = bigFixedFile();
+    const version = { files: { "big.ts": content } } as unknown as SourceVersion;
+    const fs = [{ id: "f", evidence: [], location: { file: "big.ts", line: 1 } }] as unknown as SecurityFinding[];
+    const edits = [{ findingId: "f", file: "big.ts", after: MITIGATION }];
+    const r = selectFilesForReview(version, fs, [], { reverifyPromptChars: 60_000, llmFixWindowChars: 24_000 }, edits);
+    expect(r.omitted).toEqual([]);
+    expect(r.sent).toEqual(["big.ts"]);
+    const ex = r.excerpts["big.ts"];
+    expect(excerptChars(ex)).toBeLessThanOrEqual(24_000);
+    expect(ex.parts.some((p) => p.text.includes(MITIGATION))).toBe(true);
+    expect(ex.parts[0]).toMatchObject({ startLine: 1 });
+    // Parts are verbatim slices of the file at the lines they claim.
+    const lines = content.split("\n");
+    for (const p of ex.parts) expect(p.text).toBe(lines.slice(p.startLine - 1, p.endLine).join("\n"));
+  });
+});
+
+const MITIGATION = "  el.textContent = name;";
+const FAR_AWAY = "export const farAwayMarker = 424242;";
+
+/** A ~60,000-char file with the fixed line in the middle and a marker line at the very end. */
+function bigFixedFile(vulnLine = MITIGATION): string {
+  const filler = (i: number) => `export function f${i}(a: number): number {\n  return a + ${i};\n}\n`;
+  let content = 'import { helper } from "./helper";\n\nexport const h = helper;\n';
+  let i = 0;
+  while (content.length < 30_000) content += filler(i++);
+  content += `export function render(el: HTMLElement, name: string) {\n${vulnLine}\n}\n`;
+  while (content.length < 60_000) content += filler(i++);
+  return `${content}${FAR_AWAY}\n`;
+}
+
+describe("re-verify of a long file", () => {
+  const BIG_VULN = '  el.innerHTML = "<b>" + name + "</b>";';
+
+  async function run(snippet: string) {
+    const { user, job, ids } = await fixedJob("rv-big", { "src/big.ts": bigFixedFile(BIG_VULN) });
+    expect(job.changedFiles).toContain("src/big.ts");
+    const payloads: string[] = [];
+    const out = await reverifyFixJob(job.id, user.id, {
+      llmConfigured: true,
+      exploitGen: noExploit,
+      orchestrator: new SecurityOrchestrator([]),
+      llmCall: async (_s, u) => {
+        payloads.push(u);
+        return {
+          correlationId: "c",
+          text: JSON.stringify({
+            results: [
+              { findingId: "F1", verdict: "fixed_in_source", summary: "ok", evidence: [{ role: "mitigation", file: "src/big.ts", snippet, explanation: "x" }] },
+            ],
+          }),
+        };
+      },
+    });
+    return { out, ids, payload: JSON.parse(payloads[0]) as { currentFiles: Record<string, unknown>[] } };
+  }
+
+  it("sends an excerpt within budget that contains the fixed line, and accepts evidence from it", async () => {
+    const { out, ids, payload } = await run(MITIGATION.trim());
+    const v = out.verification!;
+    expect(v.sentFiles).toEqual(["src/big.ts"]);
+    expect(v.omittedFiles).toEqual([]);
+    const file = payload.currentFiles[0] as { file: string; excerpt: boolean; totalLines: number; parts: { content: string }[] };
+    expect(file).toMatchObject({ file: "src/big.ts", excerpt: true });
+    const sentChars = file.parts.reduce((n, p) => n + p.content.length, 0);
+    expect(sentChars).toBeLessThanOrEqual(LIMITS.llmFixWindowChars);
+    expect(file.parts.some((p) => p.content.includes(MITIGATION))).toBe(true);
+    expect(file.parts.some((p) => p.content.includes(FAR_AWAY))).toBe(false);
+    const it = v.items.find((i) => i.findingId === ids[0])!;
+    expect(it.verdict).toBe("fixed_in_source");
+    expect(it.reasonCode).toBeUndefined();
+  });
+
+  it("rejects evidence that exists in the full file but was not in the sent excerpt", async () => {
+    const { out, ids } = await run(FAR_AWAY);
+    const it = out.verification!.items.find((i) => i.findingId === ids[0])!;
+    expect(it.verdict).toBe("inconclusive");
+    expect(it.reasonCode).toBe("evidence_not_verified");
   });
 });
 

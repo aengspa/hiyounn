@@ -10,11 +10,13 @@ import { safeProjectPath } from "@/lib/remediation/patchEngine";
 import { issueClass } from "@/lib/scanners/findingMerge";
 import { stillPresentAfterFix } from "@/lib/scanners/findingPresence";
 import { id, now } from "@/lib/util";
+import { installedBin } from "@/lib/tools/installableTools";
+import { logToolEvent } from "@/lib/tools/toolInstaller";
 
 /**
  * Semgrep 규칙 검사(기준 규칙 검사기 중 하나).
  *
- * SEMGREP_BIN(또는 PATH의 semgrep)이 있을 때만 돈다. 임시 폴더에 코드 사본을 쓰고
+ * SEMGREP_BIN(또는 PATH의 semgrep, 또는 서버가 도구 폴더에 설치한 고정 버전)이 있을 때만 돈다. 임시 폴더에 코드 사본을 쓰고
  * semgrep을 실행한다(서버의 키·비밀값 환경변수는 넘기지 않음). 레지스트리 규칙
  * (SEMGREP_CONFIG, 기본 p/javascript,p/nodejsscan,p/owasp-top-ten)은 semgrep이
  * 내려받는다. 결과 줄 내용은 semgrep 출력이 아니라 우리 파일에서 읽는다.
@@ -31,7 +33,8 @@ export function semgrepBin(env: Record<string, string | undefined> = process.env
     const candidate = path.join(dir, "semgrep");
     if (dir && existsSync(candidate)) return candidate;
   }
-  return undefined;
+  // 점검 시작 때 서버가 허용 목록에서 설치한 고정 버전(없으면 undefined).
+  return installedBin("semgrep", env);
 }
 
 export function semgrepConfigs(env: Record<string, string | undefined> = process.env): string[] {
@@ -143,7 +146,10 @@ async function runSemgrep(bin: string, files: Record<string, string>, configs: s
       HOME: process.env.HOME ?? dir,
       LANG: "en_US.UTF-8",
       SEMGREP_SEND_METRICS: "off",
+      // Windows에서 Python(설치한 semgrep)이 동작하려면 필요한 시스템 폴더(비밀 아님).
+      ...(process.platform === "win32" && process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}),
     };
+    const started = Date.now();
     const stdout = await new Promise<string>((resolve, reject) => {
       const child = spawn(bin, args, { env, stdio: ["ignore", "pipe", "pipe"] });
       let out = "";
@@ -160,6 +166,7 @@ async function runSemgrep(bin: string, files: Record<string, string>, configs: s
       child.on("close", (code) => {
         clearTimeout(timer);
         // semgrep은 발견이 있어도 0, 설정 오류면 2 이상.
+        logToolEvent({ event: "run", id: "semgrep", exit: code, ms: Date.now() - started });
         if (code !== 0 && code !== 1) reject(new Error(`semgrep exit ${code}: ${err.trim().split("\n").slice(-2).join(" ")}`));
         else resolve(out);
       });

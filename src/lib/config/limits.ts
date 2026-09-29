@@ -33,11 +33,19 @@ export const DEFAULT_LIMITS = {
   fixAllTimeBudgetMs: 90_000,
   verifyTimeBudgetMs: 150_000,
   llmCallTimeoutMs: 30_000,
-  /** LLM에 보낼 한 파일의 최대 길이. 넘으면 그 파일은 LLM 수정·검토 대상에서 뺀다. */
+  /**
+   * 점검에서 LLM에 보낼 한 파일의 최대 길이. 넘으면 그 파일은 LLM 검토 대상에서 뺀다.
+   * (재검증은 이 한도로 빼지 않고 llmFixWindowChars 안에서 발췌해 보낸다.)
+   */
   llmFileChars: 24_000,
+  /**
+   * 전체 수정: AI 호출 한 번에 보낼 파일 내용의 최대 길이. 더 긴 파일도 거절하지
+   * 않고 문제 위치 주변만 이 길이 안에서 발췌해 보낸다.
+   */
+  llmFixWindowChars: 24_000,
   /** 실행 중으로 남은 작업을 실패로 볼 때까지의 시간. */
   staleJobMs: 180_000,
-  /** 재검증 한 번에 AI로 보낼 파일 내용 총량. 넘는 파일은 보내지 않고 기록한다. */
+  /** 재검증 한 번에 AI로 보낼 파일 내용 총량(발췌 포함). 넘는 파일은 보내지 않고 기록한다. */
   reverifyPromptChars: 60_000,
   /** 재검증 AI 호출 한 번의 제한 시간. */
   reverifyLlmTimeoutMs: 60_000,
@@ -57,6 +65,8 @@ export const DEFAULT_LIMITS = {
   exploitMaxTests: 6,
   /** 공격 재현 테스트 한 번(격리 프로세스)의 제한 시간. */
   exploitRunTimeoutMs: 10_000,
+  /** 점검 시작 때 추가 도구 준비(선택·설치)에 쓰는 시간. 넘으면 그 도구 없이 점검한다. */
+  toolPrepBudgetMs: 45_000,
 } as const;
 
 export interface Limits {
@@ -70,6 +80,7 @@ export interface Limits {
   verifyTimeBudgetMs: number;
   llmCallTimeoutMs: number;
   llmFileChars: number;
+  llmFixWindowChars: number;
   staleJobMs: number;
   reverifyPromptChars: number;
   reverifyLlmTimeoutMs: number;
@@ -81,6 +92,7 @@ export interface Limits {
   fixAllConcurrency: number;
   exploitMaxTests: number;
   exploitRunTimeoutMs: number;
+  toolPrepBudgetMs: number;
 }
 
 export function readLimits(): Limits {
@@ -96,6 +108,7 @@ export function readLimits(): Limits {
     verifyTimeBudgetMs: intFromEnv("LIMIT_VERIFY_TIME_BUDGET_MS", d.verifyTimeBudgetMs, 5_000, 280_000),
     llmCallTimeoutMs: intFromEnv("LIMIT_LLM_CALL_TIMEOUT_MS", d.llmCallTimeoutMs, 1_000, 120_000),
     llmFileChars: intFromEnv("LIMIT_LLM_FILE_CHARS", d.llmFileChars, 1_000, 200_000),
+    llmFixWindowChars: intFromEnv("LIMIT_LLM_FIX_WINDOW_CHARS", d.llmFixWindowChars, 2_000, 200_000),
     staleJobMs: intFromEnv("LIMIT_STALE_JOB_MS", d.staleJobMs, 10_000, 3_600_000),
     reverifyPromptChars: intFromEnv("LIMIT_REVERIFY_PROMPT_CHARS", d.reverifyPromptChars, 5_000, 400_000),
     reverifyLlmTimeoutMs: intFromEnv("LIMIT_REVERIFY_LLM_TIMEOUT_MS", d.reverifyLlmTimeoutMs, 5_000, 110_000),
@@ -107,6 +120,7 @@ export function readLimits(): Limits {
     fixAllConcurrency: intFromEnv("LIMIT_FIX_ALL_CONCURRENCY", d.fixAllConcurrency, 1, 8),
     exploitMaxTests: intFromEnv("LIMIT_EXPLOIT_MAX_TESTS", d.exploitMaxTests, 0, 30),
     exploitRunTimeoutMs: intFromEnv("LIMIT_EXPLOIT_RUN_TIMEOUT_MS", d.exploitRunTimeoutMs, 2_000, 60_000),
+    toolPrepBudgetMs: intFromEnv("LIMIT_TOOL_PREP_BUDGET_MS", d.toolPrepBudgetMs, 0, 240_000),
   };
 }
 

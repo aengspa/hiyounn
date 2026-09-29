@@ -19,6 +19,8 @@ import {
   categoryLabel,
 } from "@/components/ui";
 import { HoiSpeech } from "@/components/mascot/HoiSpeech";
+import { FindingLocations } from "@/components/FindingLocations";
+import { formatLocation, groupFindings, type FindingGroup } from "@/lib/ui/groupFindings";
 import type { SecurityFinding } from "@/lib/domain/types";
 import {
   LIMIT_NOTICE,
@@ -224,13 +226,18 @@ export default function QuickCheckPage() {
 function QuickResults({ result }: { result: QuickResult }) {
   const { findings, scannedFiles, notCovered } = result;
   const summary = summarizeResult(findings);
-  const sorted = sortBySeverity(findings);
+  // 여러 곳에서 발견된 같은 취약점은 카드 하나로 묶는다.
+  const groups = groupFindings(sortBySeverity(findings));
 
   return (
     <section className="mt-10 space-y-6" aria-labelledby="quick-results-title">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <h2 id="quick-results-title" className="text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
-          {findings.length > 0 ? `확인할 부분 ${findings.length}개를 찾았어요` : "빠른 점검 결과"}
+          {findings.length === 0
+            ? "빠른 점검 결과"
+            : groups.length === findings.length
+              ? `확인할 부분 ${findings.length}개를 찾았어요`
+              : `확인할 문제 ${groups.length}가지를 찾았어요 (발견 위치 ${findings.length}곳)`}
         </h2>
         <Badge tone="info">검사한 파일 {scannedFiles.length}개</Badge>
       </div>
@@ -239,10 +246,10 @@ function QuickResults({ result }: { result: QuickResult }) {
         {summary.message}
       </HoiSpeech>
 
-      {sorted.length > 0 && (
+      {groups.length > 0 && (
         <div className="space-y-4">
-          {sorted.map((finding, index) => (
-            <FindingCard key={finding.id} finding={finding} index={index} />
+          {groups.map((group, index) => (
+            <FindingCard key={group.key} group={group} index={index} />
           ))}
         </div>
       )}
@@ -266,21 +273,32 @@ function QuickResults({ result }: { result: QuickResult }) {
   );
 }
 
-function FindingCard({ finding, index }: { finding: SecurityFinding; index: number }) {
-  const isAi = finding.category === "AI Detected";
+function FindingCard({ group, index }: { group: FindingGroup<SecurityFinding>; index: number }) {
+  const finding = group.representative;
+  const single = group.members.length === 1;
+  const isAi = group.members.some((m) => m.category === "AI Detected");
+  const evidence = group.members.flatMap((m) =>
+    m.evidence.map((e) => ({ e, key: `${m.id}:${e.id}`, where: !single && m.location ? formatLocation(m.location) : undefined }))
+  );
 
   return (
     <Card variant="default" className="overflow-hidden p-0">
       <div className="border-b-2 border-line bg-surface-warm px-5 py-4 sm:px-6">
         <div className="flex flex-wrap items-center gap-2">
           <span className="inline-flex min-h-7 items-center rounded-full bg-ink px-3 text-[13px] font-bold text-surface">{index + 1}번째로 살펴볼 곳</span>
-          <SeverityBadge severity={finding.severity} />
+          <SeverityBadge severity={group.severity} />
           <StatusBadge status={finding.status} />
           {finding.testStatus && <TestStatusBadge status={finding.testStatus} />}
           {finding.simulated && <SimulatedTag />}
           {isAi && <AiTag />}
         </div>
         <h3 className="mt-3 break-words text-lg font-bold text-ink">{finding.title}</h3>
+        {!single && (
+          <>
+            <p className="mt-1 text-base font-semibold leading-relaxed text-ink-subtle">같은 문제가 {group.members.length}곳에서 발견됐어요</p>
+            <FindingLocations locations={group.locations} className="mt-3" />
+          </>
+        )}
       </div>
 
       <div className="space-y-5 p-5">
@@ -302,20 +320,24 @@ function FindingCard({ finding, index }: { finding: SecurityFinding; index: numb
             <TechnicalRow label="심각도(전문 용어)" value={SEV_EXPERT_LABEL[finding.severity] ?? finding.severity} />
             <TechnicalRow label="분류" value={categoryLabel(finding.category)} />
             <TechnicalRow label="규칙 ID" value={finding.ruleId ?? "기록 없음"} />
-            <TechnicalRow label="위치" value={finding.location ? `${finding.location.file}:${finding.location.line}` : "기록 없음"} />
+            <TechnicalRow
+              label={single ? "위치" : `위치 (${group.locations.length}곳)`}
+              value={group.locations.length > 0 ? group.locations.map(formatLocation).join(", ") : "기록 없음"}
+            />
             <TechnicalRow label="CWE" value={finding.cwe ?? "기록 없음"} />
             <TechnicalRow label="OWASP" value={finding.owasp ?? "기록 없음"} />
             <TechnicalRow label="CVSS" value={finding.cvss?.toString() ?? "기록 없음"} />
             {finding.standards?.length ? <TechnicalRow label="표준" value={finding.standards.join(", ")} /> : null}
           </dl>
 
-          {finding.evidence.length > 0 && (
+          {evidence.length > 0 && (
             <div className="mt-5 space-y-3">
               <h4 className="text-sm font-bold text-ink">호이가 확인한 근거(원문)</h4>
-              {finding.evidence.map((evidence) => (
-                <div key={evidence.id}>
-                  {evidence.masked && <p className="mb-2 text-xs font-bold text-ink">민감할 수 있는 값은 가려서 보여드려요.</p>}
-                  <CodeEvidence label={evidence.label} content={evidence.content} />
+              {evidence.map(({ e: item, key, where }) => (
+                <div key={key}>
+                  {where && <p className="mb-1 break-all font-mono text-xs font-bold text-ink">{where}</p>}
+                  {item.masked && <p className="mb-2 text-xs font-bold text-ink">민감할 수 있는 값은 가려서 보여드려요.</p>}
+                  <CodeEvidence label={item.label} content={item.content} />
                 </div>
               ))}
             </div>

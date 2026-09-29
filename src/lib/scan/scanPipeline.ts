@@ -11,6 +11,7 @@ import { redactSecrets } from "@/lib/ai/redact";
 import { PROPOSE_SYSTEM_PROMPT, validateProposal } from "@/lib/rules/customRules";
 import { SEVERITY_ORDER } from "@/lib/domain/types";
 import { id } from "@/lib/util";
+import { prepareScanTools } from "@/lib/tools/toolPlanner";
 
 /**
  * 한 번의 점검(두 저장소가 함께 쓰는 흐름).
@@ -33,6 +34,8 @@ export interface ScanPipelineOptions {
   /** 테스트용: 규칙 제안 LLM 대체(모델 원문을 돌려줌). */
   proposeComplete?: (system: string, user: string, timeoutMs: number) => Promise<string>;
   llmConfigured?: boolean;
+  /** 테스트용: 추가 도구 준비 대체. */
+  prepareTools?: (files: Record<string, string>, stack: { frameworks?: string[]; languages?: string[] }) => Promise<ScanScope["tools"]>;
 }
 
 const CARRY_PREFIXES = ["ai:", "authz:"];
@@ -152,7 +155,18 @@ export async function runScanPipeline(input: {
     }
   }
 
+  // 추가 도구 준비: 허용 목록 안에서 고르고(AI 또는 규칙) 시간 한도 안에서 설치한다.
+  // 실패해도 점검은 계속하고, 결과는 scope.tools에 남긴다.
+  const llmOn = opts.llmConfigured ?? isLlmConfigured();
+  let tools: ScanScope["tools"];
+  if (!project.isDemo && context.isUserProject !== false && Object.keys(context.files).length > 0) {
+    tools = await (opts.prepareTools ?? ((files, stack) => prepareScanTools(files, stack, { llmConfigured: llmOn })))(context.files, context.stack).catch(
+      () => undefined
+    );
+  }
+
   const { findings, scope, plan } = await orchestrator.run(context);
+  if (tools) scope.tools = tools;
 
   if (previous && changed && version) {
     const changedSet = new Set(changed);
@@ -171,7 +185,6 @@ export async function runScanPipeline(input: {
   }
 
   // 3) 규칙 제안.
-  const llmOn = opts.llmConfigured ?? isLlmConfigured();
   let proposals: CustomRule[] = [];
   if (llmOn && !project.isDemo && version) {
     const complete =
