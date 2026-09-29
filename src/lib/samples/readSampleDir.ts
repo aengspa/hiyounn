@@ -14,7 +14,8 @@ export function readSampleDir(root: string, name: string): Record<string, string
       const rel = path.relative(base, full).split(path.sep).join("/");
       if (SKIP.test(rel)) continue;
       if (statSync(full).isDirectory()) walk(full);
-      else out[rel] = readFileSync(full, "utf8");
+      // Windows(core.autocrlf)에서 CRLF로 체크아웃돼도 같은 내용으로 읽도록 LF로 맞춘다.
+      else out[rel] = readFileSync(full, "utf8").replace(/\r\n/g, "\n");
     }
   };
   walk(base);
