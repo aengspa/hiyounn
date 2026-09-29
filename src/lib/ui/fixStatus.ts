@@ -64,8 +64,8 @@ export const FIX_STATUS_MARK: Record<FixStatusKey, string> = {
 export const APPLIED_UNVERIFIED_MESSAGE = "수정 내용을 적용했어요. 문제가 해결됐는지 다시 확인해 주세요.";
 
 /** 재검증을 다시 돌리는 버튼 글자. 안내 문장에서 같은 이름으로 가리킨다. */
-export const VERIFY_BUTTON_LABEL = "고친 코드 다시 확인하기";
-export const REVERIFY_BUTTON_LABEL = "재검증 다시 실행하기";
+export const VERIFY_BUTTON_LABEL = "재검증하기";
+export const REVERIFY_BUTTON_LABEL = "재검증 다시 하기";
 
 type Verdict = "fixed_in_source" | "still_present" | "inconclusive" | "false_positive";
 
@@ -171,11 +171,19 @@ const INCONCLUSIVE_FALLBACK: Record<string, string> = {
 const INCONCLUSIVE_DEFAULT =
   `다시 확인했지만 이 항목이 고쳐졌는지 결론을 내리지 못했어요. 아래 바뀐 코드에서 문제가 된 줄이 어떻게 바뀌었는지 직접 확인한 뒤 ‘${REVERIFY_BUTTON_LABEL}’를 눌러 주세요.`;
 
+/** 재검증을 마쳤는데 이 항목의 결과가 없을 때(요약의 "이번 재검증에서 확인하지 못함"). */
+export const NOT_CHECKED_MESSAGE = `이번 재검증에서 확인하지 못했어요. ‘${REVERIFY_BUTTON_LABEL}’를 눌러 주세요.`;
+
 export function fixStatusFor(findingId: string, input: FixStatusInput): FixStatus {
   const { item, jobStatus, verification } = input;
-  // 재검증에서 AI가 오탐으로 판정했으면 수정 여부와 상관없이 그 판정을 보여 준다.
-  const verdictItem = verification?.status !== "running" ? verification?.items.find((it) => it.findingId === findingId) : undefined;
-  if (verdictItem?.verdict === "false_positive") return make("false_positive", FALSE_POSITIVE);
+  // 지금 재검증 결과가 있으면 처음 판정·수정 여부보다 그 결과를 먼저 따른다(요약과 같은 분류).
+  const verdictItem = verification && verification.status !== "running" ? verification.items.find((it) => it.findingId === findingId) : undefined;
+  if (verdictItem) return statusFromVerifyItem(verdictItem);
+  // 재검증을 마쳤는데 이 항목 결과가 없으면 "이번에 확인하지 못함"으로 보여 준다.
+  if (verification?.status === "completed") {
+    const why = item && item.outcome !== "applied" && item.reason ? `${item.reason} ` : "";
+    return make("needs_check", { pending: `${why}${NOT_CHECKED_MESSAGE}` });
+  }
   // 점검 때 오탐으로 판정된 항목은 전체 수정이 건너뛴다. "못 고침"이 아니라 판정을 보여 준다.
   if (input.adjudicatedFalsePositive) return make("false_positive", FALSE_POSITIVE);
   if (!item) {
@@ -205,7 +213,13 @@ export function fixStatusFor(findingId: string, input: FixStatusInput): FixStatu
     return make("needs_check", { pending: "수정 내용을 적용했고, 문제가 해결됐는지 다시 확인하고 있어요." });
   }
   if (!v) return make("needs_check", { pending: item.reason ?? APPLIED_UNVERIFIED_MESSAGE });
+  return statusFromVerifyItem(v);
+}
 
+/** 재검증 항목 하나 → 화면 상태. 요약(verifyBucketFor)과 같은 순서로 나눈다. */
+function statusFromVerifyItem(v: FixStatusVerifyItem): FixStatus {
+  // 재검증에서 AI가 오탐으로 판정했으면 수정 여부와 상관없이 그 판정을 보여 준다.
+  if (v.verdict === "false_positive") return make("false_positive", FALSE_POSITIVE);
   if (v.reasonCode === "disputed") {
     if (v.executed) {
       return make("disputed", {
@@ -388,6 +402,88 @@ export function reverifySummaryFor(
     } else if (it.verdict === "still_present") out.stillPresent += 1;
     else if (it.verdict === "false_positive") out.falsePositive += 1;
     else out.unknown += 1;
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 수정 후 요약(화면 맨 위): 요약과 항목 카드가 같은 분류를 쓴다.
+// ─────────────────────────────────────────────────────────────
+
+export type VerifyBucket = "resolvedConfirmed" | "resolvedAi" | "stillPresent" | "needsCheck" | "falsePositive";
+
+/** 재검증 항목 하나가 요약의 어느 칸에 들어가는지. fixStatusFor(statusFromVerifyItem)와 같은 순서다. */
+export function verifyBucketFor(v: FixStatusVerifyItem): VerifyBucket {
+  if (v.verdict === "false_positive") return "falsePositive";
+  if (v.reasonCode === "disputed") return "needsCheck";
+  if (v.verdict === "fixed_in_source") return v.executed || v.method !== "llm" ? "resolvedConfirmed" : "resolvedAi";
+  if (v.verdict === "still_present") return "stillPresent";
+  return "needsCheck";
+}
+
+export interface PostFixSummary {
+  /** none = 재검증 기록 없음(수정본만 만듦). */
+  state: "none" | "running" | "completed" | "failed";
+  /** 처음 발견한 항목 수(기록). */
+  originalTotal: number;
+  /** 처음 점검 때 AI가 실제 문제 아님으로 판정한 항목 수(기록). */
+  initialFalsePositive: number;
+  /** 수정 내용을 파일에 적용한 항목 수. */
+  appliedCount: number;
+  resolvedConfirmed: number;
+  resolvedExecuted: number;
+  resolvedAi: number;
+  stillPresent: number;
+  /** 결론 없음 + 판단이 엇갈림. */
+  needsCheck: number;
+  /** 재검증에서 실제 문제 아님으로 판정. 해결로 세지 않는다. */
+  falsePositive: number;
+  /** 재검증을 마쳤지만 결과가 없는 항목. */
+  notChecked: number;
+  reason?: string;
+}
+
+/**
+ * 수정 후 맨 위 요약. 재검증을 마쳤을 때만 상태별로 센다.
+ * 불변식(completed): resolvedConfirmed + resolvedAi + stillPresent + needsCheck + falsePositive + notChecked === originalTotal.
+ */
+export function postFixSummaryFor(input: {
+  findingIds: string[];
+  jobItems?: { findingId: string; outcome: FixStatusJobItem["outcome"] }[];
+  verification?: { status: "running" | "completed" | "failed"; items: FixStatusVerifyItem[]; errorMessage?: string };
+  adjudicatedFalsePositiveIds?: Iterable<string>;
+}): PostFixSummary {
+  const ids = [...new Set(input.findingIds)];
+  const idSet = new Set(ids);
+  const fp = new Set(input.adjudicatedFalsePositiveIds ?? []);
+  const appliedIds = new Set((input.jobItems ?? []).filter((it) => it.outcome === "applied" && idSet.has(it.findingId)).map((it) => it.findingId));
+  const v = input.verification;
+  const out: PostFixSummary = {
+    state: v ? v.status : "none",
+    originalTotal: ids.length,
+    initialFalsePositive: ids.filter((id) => fp.has(id)).length,
+    appliedCount: appliedIds.size,
+    resolvedConfirmed: 0,
+    resolvedExecuted: 0,
+    resolvedAi: 0,
+    stillPresent: 0,
+    needsCheck: 0,
+    falsePositive: 0,
+    notChecked: 0,
+  };
+  if (v?.status === "failed" && v.errorMessage) out.reason = v.errorMessage;
+  if (v?.status !== "completed") return out;
+  const byId = new Map<string, FixStatusVerifyItem>();
+  for (const it of v.items) if (idSet.has(it.findingId) && !byId.has(it.findingId)) byId.set(it.findingId, it);
+  for (const id of ids) {
+    const it = byId.get(id);
+    if (!it) {
+      out.notChecked += 1;
+      continue;
+    }
+    const b = verifyBucketFor(it);
+    out[b] += 1;
+    if (b === "resolvedConfirmed" && it.executed) out.resolvedExecuted += 1;
   }
   return out;
 }

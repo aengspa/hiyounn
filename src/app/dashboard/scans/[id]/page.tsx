@@ -99,15 +99,15 @@ export default async function ScanResultsPage({ params }: { params: { id: string
               <h2 id="report-title" className="mt-2 text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
                 {activeCount > 0
                   ? activeGroupCount === activeCount
-                    ? `확인할 부분 ${activeCount}개를 찾았어요`
-                    : `확인할 문제 ${activeGroupCount}가지를 찾았어요 (발견 위치 ${activeCount}곳)`
+                    ? `처음 발견한 항목 ${activeCount}건`
+                    : `처음 발견한 문제 유형 ${activeGroupCount}가지 (항목 ${activeCount}건)`
                   : "이번 범위에서 확인할 부분을 찾지 못했어요"}
               </h2>
             </div>
           </div>
           {falsePositiveCount > 0 && (
             <p className="mt-2 text-base leading-relaxed text-ink-subtle">
-              규칙 결과 중 {falsePositiveCount}개는 AI가 코드 근거를 확인해 오탐으로 판정해서 아래에 따로 모았어요.
+              규칙 결과 중 {falsePositiveCount}건은 AI가 코드 근거를 확인해 실제 문제 아님으로 판단해서 아래에 따로 모았어요.
             </p>
           )}
           {scan.scope.aiCoverage && (
@@ -128,6 +128,14 @@ export default async function ScanResultsPage({ params }: { params: { id: string
             </p>
           )}
         </section>
+  );
+
+  // 처음 점검의 권한 표·규칙 제안. 수정본이 생기면 FixAllPanel이 "처음 점검한 내용 보기" 안에 접는다.
+  const originalExtra = (
+    <>
+      {scan.scope.authzMatrix && scan.scope.authzMatrix.length > 0 && <AuthzTable rows={scan.scope.authzMatrix} />}
+      {proposals.length > 0 && <RuleProposals rules={proposals} />}
+    </>
   );
 
   return (
@@ -151,11 +159,11 @@ export default async function ScanResultsPage({ params }: { params: { id: string
             initialJob={initialJob}
             canFix={Boolean(scan.sourceVersionId)}
             header={report}
+            originalExtra={originalExtra}
           />
         )}
 
-        {scan.scope.authzMatrix && scan.scope.authzMatrix.length > 0 && <AuthzTable rows={scan.scope.authzMatrix} />}
-        {proposals.length > 0 && <RuleProposals rules={proposals} />}
+        {findings.length === 0 && originalExtra}
 
         <section className="mt-12" aria-labelledby="coverage-title">
           <h2 id="coverage-title" className="sr-only">점검 범위와 한계</h2>
