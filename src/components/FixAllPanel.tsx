@@ -358,12 +358,9 @@ export function FixAllPanel({
         <h2 id="findings-title" className="text-xl font-extrabold text-ink sm:text-2xl">
           처음 발견한 문제와 수정 후 상태 <span className="text-brand-800">({countText(activeGroups.length, active.length)})</span>
         </h2>
-        {/* 2열 배치. 카드마다 높이가 달라 위쪽을 맞춘다(펼친 카드가 옆 카드를 늘리지 않게). */}
-        <ol className="mt-4 grid items-start gap-3 lg:grid-cols-2">
+        <ol className="mt-4 space-y-3">
           {activeGroups.map((g) => (
-            <li key={g.key} className="min-w-0">
-              {renderGroup(g)}
-            </li>
+            <li key={g.key}>{renderGroup(g)}</li>
           ))}
         </ol>
       </section>
