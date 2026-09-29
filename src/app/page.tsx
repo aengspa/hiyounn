@@ -39,7 +39,7 @@ export default async function LandingPage() {
           <div className="mx-auto max-w-3xl">
             <p className="text-sm font-bold text-brand-800">바이브 코더를 위한 보안 친구</p>
             <h1 className="mt-2 break-keep text-[1.75rem] font-bold leading-[1.3] tracking-tight text-ink sm:text-5xl sm:leading-tight">
-              내 서비스, 호이와 함께 튼튼하게 만들어요
+              내 서비스, 호이와 함께 <br /> 튼튼하게 만들어요
             </h1>
             <p className="mx-auto mt-3 max-w-xl break-keep text-base leading-relaxed text-ink-subtle">
               호이가 약한 곳을 찾아 쉬운 말로 알려드리고, 고친 뒤 한 번 더 확인해요.
