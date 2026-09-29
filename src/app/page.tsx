@@ -1,18 +1,9 @@
 ﻿import Link from "next/link";
 import { TopNav } from "@/components/TopNav";
 import { HoiSpeech } from "@/components/mascot/HoiSpeech";
+import { ServiceIntro } from "@/components/ServiceIntro";
 import { Card, buttonClassName } from "@/components/ui";
-import { ChatIcon, SearchIcon, ShieldIcon } from "@/components/icons";
-import { LIMIT_NOTICE } from "@/lib/ui/presentation";
-
-// 5단계 흐름(요구사항 5.8). 순서가 곧 의미이므로 바꾸지 않는다.
-const STEPS = [
-  { title: "찾아봐요", description: "호이가 코드와 설정을 차근차근 살펴봐요." },
-  { title: "확인해요", description: "찾은 내용이 실제로 문제가 되는지 확인해요." },
-  { title: "고쳐봐요", description: "이해하기 쉬운 수정 방법을 알려드려요." },
-  { title: "다시 봐요", description: "고친 뒤 같은 문제가 막혔는지 다시 봐요." },
-  { title: "튼튼해졌어요", description: "기존 기능이 잘 동작하는지까지 보고 마무리해요." },
-] as const;
+import { ArrowRightIcon, ChatIcon, SearchIcon, ShieldIcon } from "@/components/icons";
 
 // 가치 카드 3개(요구사항 5.9). 순서 고정.
 const FEATURES = [
@@ -63,84 +54,27 @@ export default async function LandingPage() {
               만들어요
             </h1>
             <p className="mx-auto mt-4 max-w-xl break-keep text-lg leading-relaxed text-ink-subtle">
-              호이가 약한 곳을 찾아 쉬운 말로 알려드리고, 고친 뒤 한 번 더 확인해요.
+              호이가 약한 곳을 찾아 쉽게 설명해드리고, 직접 고친 뒤 잘 막혔는지 한 번 더 확인해요.
             </p>
 
             <HoiSpeech mood="welcome" size="lg" className="mt-6 justify-center">
               어려운 건 제가 쉽게 설명해 드릴게요!
             </HoiSpeech>
 
-            <div className="mt-7 flex justify-center">
+            <div className="mt-8 flex justify-center">
               <Link
                 href="/dashboard"
                 className={buttonClassName({ variant: "primary", size: "lg", className: "w-full sm:w-auto" })}
               >
+                <ShieldIcon className="h-6 w-6" />
                 내 프로젝트 점검하기
+                <ArrowRightIcon className="h-5 w-5" />
               </Link>
             </div>
-            <p className="mt-4 text-sm font-semibold text-ink-subtle">어려운 보안 용어는 쉽게 풀어드려요.</p>
           </div>
         </section>
 
-        {/* 5단계 흐름: 1024px 이상 가로, 그 미만 세로 타임라인(요구사항 5.8) */}
-        <section
-          id="how-it-works"
-          aria-labelledby="how-it-works-title"
-          className="border-y-2 border-line bg-surface-warm px-4 py-16 sm:px-6"
-        >
-          <div className="mx-auto max-w-5xl">
-            <h2
-              id="how-it-works-title"
-              className="text-center text-2xl font-extrabold tracking-tight text-ink sm:text-4xl"
-            >
-              호이와 함께 이렇게 진행해요
-            </h2>
-            <ol className="mx-auto mt-10 grid max-w-md gap-6 lg:max-w-none lg:grid-cols-5 lg:gap-4">
-              {STEPS.map((step, index) => {
-                const isLast = index === STEPS.length - 1;
-                return (
-                  <li
-                    key={step.title}
-                    className="relative flex gap-4 lg:flex-col lg:items-center lg:text-center"
-                  >
-                    {!isLast && (
-                      <>
-                        {/* 세로 타임라인 선(1024px 미만) */}
-                        <span
-                          aria-hidden="true"
-                          className="absolute -bottom-6 left-7 top-14 w-0 -translate-x-1/2 border-l-[3px] border-dashed border-brand-300 lg:hidden"
-                        />
-                        {/* 가로 연결선(1024px 이상): 다음 번호 원까지 잇는다 */}
-                        <span
-                          aria-hidden="true"
-                          className="absolute left-[calc(50%+2.25rem)] right-[calc(-50%+1.25rem)] top-7 hidden h-0 border-t-[3px] border-dashed border-brand-300 lg:block"
-                        />
-                      </>
-                    )}
-                    <span
-                      aria-hidden="true"
-                      className={`relative z-10 flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-2 text-xl font-extrabold ${
-                        isLast
-                          ? "border-[#bfe0c8] bg-success-soft text-success shadow-[0_4px_0_#bfe0c8]"
-                          : "border-brand-300 bg-sun-soft text-brand-900 shadow-[0_4px_0_var(--border-strong)]"
-                      }`}
-                    >
-                      {isLast ? "✓" : index + 1}
-                    </span>
-                    <div className="min-w-0 pb-1 pt-2 lg:mt-3 lg:pt-0">
-                      <h3 className="text-lg font-extrabold text-ink">{step.title}</h3>
-                      <p className="mt-1 break-keep text-sm leading-relaxed text-ink-subtle">
-                        {step.description}
-                      </p>
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
-          </div>
-        </section>
-
-        {/* 가치 카드 3개 + 한계 고지(요구사항 5.9, 5.10) */}
+        {/* 가치 카드 3개(요구사항 5.9). 자동 점검의 한계 고지는 아래 서비스 소개의 유의사항에 있다. */}
         <section
           id="features"
           aria-labelledby="features-title"
@@ -170,20 +104,20 @@ export default async function LandingPage() {
               </li>
             ))}
           </ul>
-          <p className="mx-auto mt-10 max-w-2xl break-keep rounded-2xl border-2 border-dashed border-line-strong bg-surface-warm px-5 py-4 text-center text-sm leading-relaxed text-ink-subtle">
-            {LIMIT_NOTICE}
-          </p>
         </section>
+
+        {/* 서비스 소개: 점검이 어떤 순서로 진행되는지(7단계), 근거 기준, 결과 예시, 유의사항 */}
+        <ServiceIntro startHref="/dashboard" />
       </main>
 
       <footer className="border-t-2 border-line bg-canvas-soft px-4 py-10 text-center text-sm text-ink-subtle">
         <p className="font-extrabold text-ink">
-          호이 <span className="text-brand-800">보안 코치</span>
+          코치코치 <span className="text-brand-800">호이</span>
         </p>
         <p className="mx-auto mt-2 max-w-xl break-keep leading-relaxed">
-          호이가 열심히 살펴보지만 자동 점검만으로 모든 위험을 찾을 수는 없어요. 중요한 서비스는 보안 전문가의 검토도 함께 받아보세요.
+          본 서비스의 자동 점검 결과는 참고용 정보이며, 존재하는 모든 취약점과 보안 위험 탐지를 보장하지 않습니다. 본 서비스의 이용, 점검 결과에 따른 판단 및 조치, 그리고 배포로 인해 발생하는 결과에 대한 책임은 이용자에게 있습니다.
         </p>
-        <p className="mt-2 text-[13px] text-ink-muted">호이 캐릭터의 권리는 고려대학교에 있어요.</p>
+        <p className="mt-2 text-[13px] text-ink-muted">호이 캐릭터에 관한 권리는 고려대학교에 귀속됩니다.</p>
       </footer>
     </>
   );
