@@ -107,7 +107,8 @@ export function ProgressDialog({
         <h2 id="progress-dialog-title" className="mt-4 text-xl font-extrabold text-ink sm:text-2xl">
           {title}
         </h2>
-        <p id="progress-dialog-description" className="mt-2 text-sm leading-relaxed text-ink-subtle">
+        {/* 설명 문자열의 줄바꿈(\n)을 그대로 보여 준다 */}
+        <p id="progress-dialog-description" className="mt-2 whitespace-pre-line text-sm leading-relaxed text-ink-subtle">
           {description}
         </p>
         {/* 진행률을 알 수 없으므로 퍼센트 막대 대신 점 세 개만 보여준다 */}
