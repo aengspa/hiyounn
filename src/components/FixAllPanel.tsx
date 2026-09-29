@@ -7,16 +7,17 @@ import { Badge, Button, Card, Confetti, SeverityBadge, buttonClassName, type Bad
 import { Hoi } from "@/components/mascot/Hoi";
 import { ProgressDialog } from "@/components/ProgressDialog";
 import {
+  APPLIED_UNVERIFIED_MESSAGE,
   FIX_STATUS_MARK,
   FIX_STEP_MARK,
   REVERIFY_BUTTON_LABEL,
   VERIFY_BUTTON_LABEL,
   fixStatusFor,
   fixStepsFor,
-  reverifySummaryFor,
+  postFixSummaryFor,
   type FixStatus,
   type FixStatusKey,
-  type ReverifySummary,
+  type PostFixSummary,
   type FixStep,
 } from "@/lib/ui/fixStatus";
 import type { CodeContext } from "@/lib/ui/codeContext";
@@ -89,7 +90,18 @@ function errorText(status: number, data: any, fallback: string): string {
 
 /** 묶은 개수와 원래 개수가 다르면 둘 다 보여 준다. 예: "문제 5가지 · 발견 위치 12곳" */
 function countText(groups: number, raw: number): string {
-  return groups === raw ? `${raw}개` : `문제 ${groups}가지 · 발견 위치 ${raw}곳`;
+  return groups === raw ? `항목 ${raw}건` : `문제 유형 ${groups}가지 · 항목 ${raw}건`;
+}
+
+/** 할 일이 남은 상태만 접힌 카드에 다음 할 일 한 줄을 보여 준다(해결·오탐 판정은 없음). */
+const NEEDS_ACTION: ReadonlySet<FixStatusKey> = new Set<FixStatusKey>(["still_present", "needs_check", "disputed", "not_fixed"]);
+
+/** 다음 할 일 한 줄: 두 문장 이하면 그대로, 길면 첫 문장만. */
+function nextActionLine(text?: string): string | undefined {
+  const t = text?.trim();
+  if (!t) return undefined;
+  const parts = t.split(/(?<=[.?!])\s+/);
+  return parts.length <= 2 ? t : parts[0];
 }
 
 type VerifyItem = NonNullable<PublicFixJob["verification"]>["items"][number];
@@ -118,14 +130,17 @@ export function FixAllPanel({
   initialJob,
   canFix,
   header,
+  originalExtra,
 }: {
   scanId: string;
   findings: FindingView[];
   initialJob?: PublicFixJob;
   /** 이 점검이 소스 버전을 기록했을 때만 전체 수정이 가능하다. */
   canFix: boolean;
-  /** 처음 점검 결과 제목. 재검증 요약 바로 아래에 둔다. */
+  /** 처음 점검 결과 제목. 수정본이 생기면 "처음 점검한 내용 보기" 안으로 접는다. */
   header?: ReactNode;
+  /** 처음 점검의 권한 표·규칙 제안 등. 처음 화면에서는 목록 아래, 수정본이 생기면 header와 함께 접는다. */
+  originalExtra?: ReactNode;
 }) {
   const [job, setJob] = useState<PublicFixJob | undefined>(initialJob);
   const [busy, setBusy] = useState<"fix" | "verify" | null>(null);
@@ -222,9 +237,10 @@ export function FixAllPanel({
   }
 
   const finished = job && job.status !== "running";
-  const falsePositives = findings.filter(isAdjudicatedFalsePositive);
-  const active = findings.filter((f) => !isAdjudicatedFalsePositive(f));
   const verification = job?.verification;
+  // 화면 모드: 수정본(artifact)이 있으면 "fixed", 재검증 기록까지 있으면 "verified".
+  // 서버가 불러온 job에서 정하므로 새로고침해도 같은 화면이다.
+  const mode: "initial" | "fixed" | "verified" = !(finished && job?.artifact) ? "initial" : verification ? "verified" : "fixed";
 
   function memberState(f: FindingView): MemberState {
     const jobItem = job?.items.find((it) => it.findingId === f.id);
@@ -247,20 +263,56 @@ export function FixAllPanel({
     };
   }
 
+  // 한 번만 계산해 목록 나누기와 카드에서 같이 쓴다.
+  const states = new Map(findings.map((f) => [f.id, memberState(f)]));
+  // 재검증 뒤에는 지금 결과(재검증 판정)로, 그 전에는 처음 점검 판정으로 나눈다.
+  const isFalsePositiveNow = (f: FindingView) =>
+    mode === "verified" ? states.get(f.id)?.status.key === "false_positive" : isAdjudicatedFalsePositive(f);
+  const falsePositives = findings.filter(isFalsePositiveNow);
+  const active = findings.filter((f) => !isFalsePositiveNow(f));
+
+  // 수정본이 생긴 뒤: 카드는 제목·상태·다음 할 일 한 줄만, 처음 점검 내용은 접는다.
+  const compact = mode !== "initial";
+  const showActions = mode !== "initial";
+
   function renderGroup(g: FindingGroup<FindingView>) {
-    return <FindingRow group={g} members={g.members.map(memberState)} />;
+    return <FindingRow group={g} members={g.members.map((f) => states.get(f.id) ?? memberState(f))} compact={compact} />;
   }
   const activeGroups = groupFindings(active);
   const falsePositiveGroups = groupFindings(falsePositives);
   const showFixButton = findings.length > 0 && canFix && (!job || job.status === "failed");
 
-  // 재검증 요약: 저장된 결과가 있을 때만. 다시 실행하는 동안에는 예전 결과 대신 진행 중으로 보여 준다.
-  const summary = busy === "verify" ? ({ state: "running" } as const) : reverifySummaryFor(verification);
+  // 요약과 카드는 같은 분류(fixStatus.ts)를 쓴다. 다시 확인하는 동안에는 예전 결과 대신 진행 중으로 보여 준다.
+  const counts = postFixSummaryFor({
+    findingIds: findings.map((f) => f.id),
+    jobItems: job?.items,
+    verification,
+    adjudicatedFalsePositiveIds: findings.filter(isAdjudicatedFalsePositive).map((f) => f.id),
+  });
+  const topState: TopState = busy === "verify" ? "running" : counts.state === "none" ? "fixed" : counts.state;
+  const groupCount = groupFindings(findings).length;
+
+  const original = (
+    <details className="mt-10 rounded-3xl border-2 border-line bg-surface p-4 shadow-warm sm:p-5">
+      <summary className="flex min-h-11 cursor-pointer items-center break-words text-base font-extrabold text-ink hover:text-brand-800">
+        처음 점검한 내용 보기
+      </summary>
+      <p className="mt-3 break-words rounded-2xl border-2 border-[#c9def3] bg-info-soft p-3 text-base font-semibold leading-relaxed text-info">
+        처음 점검 기준의 내용이에요. 수정본은 반영되어 있지 않아요.
+      </p>
+      <div className="mt-4 min-w-0">{header}</div>
+      {originalExtra}
+    </details>
+  );
 
   return (
     <>
-      {summary && <ReverifySummaryCard sectionRef={summaryRef} summary={summary} />}
-      {header}
+      {mode !== "initial" && job && (
+        <TopSummaryCard sectionRef={summaryRef} state={topState} counts={counts} groupCount={groupCount}>
+          <FixActions job={job} busy={busy} error={error} onVerify={runVerify} />
+        </TopSummaryCard>
+      )}
+      {!compact && header}
 
       {/* 맨 위: 전체 수정하기 (화면의 유일한 주요 버튼) */}
       {findings.length > 0 && (
@@ -289,7 +341,7 @@ export function FixAllPanel({
               <p className="mt-1">어떤 코드를 점검했는지 기록이 남지 않은 예전 점검이에요. 프로젝트에서 다시 점검해 주세요.</p>
             </Card>
           )}
-          {error && (
+          {error && !showActions && (
             <p role="alert" className="mt-3 break-words rounded-2xl border-2 border-[#f3c4bd] bg-danger-soft p-3 text-base font-semibold leading-relaxed text-danger">
               <span aria-hidden="true" className="mr-1">✕</span>
               {error}
@@ -298,8 +350,8 @@ export function FixAllPanel({
         </section>
       )}
 
-      {/* 수정 결과 */}
-      {finished && job && <FixResult job={job} findings={findings} busy={busy} onVerify={runVerify} />}
+      {/* 수정 결과: 처음 화면에서는 그대로, 수정본이 생긴 뒤에는 목록 아래에 접어 둔다. */}
+      {!compact && finished && job && <FixResult job={job} findings={findings} />}
 
       {/* 항목 목록 */}
       <section aria-labelledby="findings-title" className="mt-10">
@@ -319,10 +371,12 @@ export function FixAllPanel({
       {falsePositives.length > 0 && (
         <details className="mt-8 rounded-3xl border-2 border-dashed border-line-strong bg-surface-warm p-4 sm:p-5">
           <summary className="flex min-h-11 cursor-pointer items-center text-base font-extrabold text-ink hover:text-brand-800">
-            AI가 오탐으로 판정한 규칙 결과 ({countText(falsePositiveGroups.length, falsePositives.length)})
+            AI가 실제 문제 아님으로 판단한 규칙 결과 ({countText(falsePositiveGroups.length, falsePositives.length)})
           </summary>
           <p className="mt-2 text-base leading-relaxed text-ink">
-            규칙 검사가 잡았지만, AI가 코드 근거를 확인해 실제 취약점이 아니라고 판정한 항목이에요. 기록으로 남겨 두었고 자동 수정 대상에서는 뺐어요. 판정이 맞는지 근거 코드를 한 번 확인해 주세요.
+            {mode === "verified"
+              ? "이번 재검증에서 AI가 근거 코드를 확인해 실제 취약점이 아니라고 판정한 항목이에요. 해결로 세지 않았어요. 판정이 맞는지 근거 코드를 한 번 확인해 주세요."
+              : "규칙 검사가 잡았지만, AI가 코드 근거를 확인해 실제 취약점이 아니라고 판정한 항목이에요. 기록으로 남겨 두었고 자동 수정 대상에서는 뺐어요. 판정이 맞는지 근거 코드를 한 번 확인해 주세요."}
           </p>
           <ol className="mt-4 space-y-3">
             {falsePositiveGroups.map((g) => (
@@ -332,44 +386,112 @@ export function FixAllPanel({
         </details>
       )}
 
+      {compact && finished && job && (
+        <details className="mt-8 min-w-0 rounded-3xl border-2 border-line bg-surface p-4 shadow-warm sm:p-5">
+          <summary className="flex min-h-11 cursor-pointer items-center break-words text-base font-extrabold text-ink hover:text-brand-800">
+            수정 과정 자세히 보기 (바꾼 파일·재검증 내역)
+            {job.requiredEnv.length > 0 && ` · 설정할 환경변수 ${job.requiredEnv.length}개`}
+          </summary>
+          <FixResult job={job} findings={findings} />
+        </details>
+      )}
+
+      {compact ? original : originalExtra}
+
       <ProgressDialog
         open={busy !== null}
         title={busy === "verify" ? "고친 코드를 다시 확인하고 있어요" : "찾은 부분을 고치고 있어요"}
         description={
           busy === "verify"
             ? "수정본 코드를 기준으로 원래 문제가 남아 있는지 확인해요. 최대 1~2분 걸릴 수 있어요."
-            : `항목 ${findings.length}개의 수정안을 만들어 사본 파일에 차례로 적용해요. 최대 1~2분 걸릴 수 있고, 끝나면 결과를 보여 드려요.`
+            : `항목 ${findings.length}건의 수정안을 만들어 사본 파일에 차례로 적용해요. 최대 1~2분 걸릴 수 있고, 끝나면 결과를 보여 드려요.`
         }
       />
     </>
   );
 }
 
+/** 수정본 다운로드와 재검증 버튼(화면에 한 번만). 요약 카드 바로 아래에 둔다. */
+function FixActions({
+  job,
+  busy,
+  error,
+  onVerify,
+}: {
+  job: PublicFixJob;
+  busy: "fix" | "verify" | null;
+  error: string | null;
+  onVerify: () => void;
+}) {
+  const btn = "w-full min-w-0 whitespace-normal break-words text-center sm:w-auto";
+  return (
+    <section aria-label="수정본 다운로드와 재검증" className="mt-4 min-w-0">
+      <div className="flex flex-wrap items-center gap-3">
+        {job.artifact && (
+          <a
+            href={job.artifact.downloadPath}
+            download={job.artifact.fileName}
+            className={buttonClassName({ variant: "secondary", className: `min-h-11 ${btn}` })}
+          >
+            수정본 다운로드
+            <span className="text-[13px] font-medium text-ink-subtle">({formatBytes(job.artifact.size)})</span>
+          </a>
+        )}
+        {job.artifact && (
+          <Button onClick={onVerify} disabled={busy !== null} aria-busy={busy === "verify"} className={`min-h-11 ${btn}`}>
+            {job.verification ? REVERIFY_BUTTON_LABEL : VERIFY_BUTTON_LABEL}
+          </Button>
+        )}
+      </div>
+      {error && (
+        <p role="alert" className="mt-3 break-words rounded-2xl border-2 border-[#f3c4bd] bg-danger-soft p-3 text-base font-semibold leading-relaxed text-danger">
+          <span aria-hidden="true" className="mr-1">✕</span>
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
 const REVERIFY_NOTICE = "수정본 코드를 확인한 결과이며, 받은 파일을 반영하고 다시 배포해야 실제 사이트에 적용돼요.";
 
-/** 페이지 맨 위 재검증 요약. 저장된 재검증 결과만으로 센다. */
-function ReverifySummaryCard({
-  summary,
+type TopState = "fixed" | "running" | "completed" | "failed";
+
+/**
+ * 수정본이 생긴 뒤 페이지 맨 위 카드: 제목 → (재검증을 마쳤으면) 요약 → 버튼(children).
+ * 개수는 postFixSummaryFor 하나로 세고, 항목 카드도 같은 분류를 쓴다.
+ */
+function TopSummaryCard({
+  state,
+  counts: s,
+  groupCount,
   sectionRef,
+  children,
 }: {
-  summary: Pick<ReverifySummary, "state"> & Partial<ReverifySummary>;
+  state: TopState;
+  counts: PostFixSummary;
+  groupCount: number;
   sectionRef: Ref<HTMLElement>;
+  children?: ReactNode;
 }) {
-  const s = summary;
   const title =
-    s.state === "completed"
-      ? "호이가 수정한 코드를 다시 확인했어요"
-      : s.state === "failed"
-        ? "재검증을 끝내지 못했어요"
-        : "수정한 코드를 다시 확인하고 있어요";
-  const confirmed = s.resolvedConfirmed ?? 0;
-  const executed = s.resolvedExecuted ?? 0;
+    state === "fixed"
+      ? "호이가 수정본을 만들었어요"
+      : state === "completed"
+        ? "수정본을 다시 확인했어요"
+        : state === "failed"
+          ? "재검증을 끝내지 못했어요"
+          : "수정한 코드를 다시 확인하고 있어요";
+  const confirmed = s.resolvedConfirmed;
+  const executed = s.resolvedExecuted;
   const rows: { mark: string; label: string; value: number }[] = [
     { mark: FIX_STATUS_MARK.resolved, label: "해결 확인 · 실행·규칙으로 확인", value: confirmed },
-    { mark: FIX_STATUS_MARK.resolved_ai, label: "해결 확인 · AI가 코드로 판단", value: s.resolvedAi ?? 0 },
-    { mark: FIX_STATUS_MARK.still_present, label: "아직 남음", value: s.stillPresent ?? 0 },
-    { mark: FIX_STATUS_MARK.needs_check, label: "확인 불가", value: s.unknown ?? 0 },
+    { mark: FIX_STATUS_MARK.resolved_ai, label: "해결 확인 · AI가 코드로 판단", value: s.resolvedAi },
+    { mark: FIX_STATUS_MARK.still_present, label: "문제 남음", value: s.stillPresent },
+    { mark: FIX_STATUS_MARK.needs_check, label: "확인 필요", value: s.needsCheck },
+    { mark: FIX_STATUS_MARK.false_positive, label: "실제 문제 아님으로 판단 (해결로 세지 않음)", value: s.falsePositive },
   ];
+  if (s.notChecked > 0) rows.push({ mark: FIX_STATUS_MARK.needs_check, label: "이번 재검증에서 확인하지 못함", value: s.notChecked });
   return (
     <section
       ref={sectionRef}
@@ -378,18 +500,21 @@ function ReverifySummaryCard({
       aria-live="polite"
       className="mb-6 scroll-mt-6 rounded-3xl outline-none focus-visible:ring-4 focus-visible:ring-brand-300"
     >
-      <Card variant={s.state === "failed" ? "danger" : "raised"} className="min-w-0 p-5 sm:p-6">
-        <p className="inline-flex rounded-full bg-sun-soft px-3 py-0.5 text-[13px] font-bold text-brand-900">수정 후 다시 확인한 결과</p>
+      <Card variant={state === "failed" ? "danger" : "raised"} className="min-w-0 p-5 sm:p-6">
+        <p className="inline-flex rounded-full bg-sun-soft px-3 py-0.5 text-[13px] font-bold text-brand-900">
+          {state === "fixed" ? "수정본 준비됨" : "수정 후 다시 확인한 결과"}
+        </p>
         <h2 id="reverify-summary-title" className="mt-2 break-words text-xl font-extrabold text-ink sm:text-2xl">
           <span aria-hidden="true" className="mr-1.5">
-            {s.state === "completed" ? "✓" : s.state === "failed" ? "✕" : "…"}
+            {state === "completed" || state === "fixed" ? "✓" : state === "failed" ? "✕" : "…"}
           </span>
           {title}
         </h2>
-        {s.state === "failed" && s.reason && <p className="mt-2 break-words text-base leading-relaxed text-ink">{s.reason}</p>}
-        {s.state === "completed" && (
-          // 4칸을 한 줄로 나란히 둔다(좁은 모바일에서는 2칸씩).
-          <ul className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {state === "fixed" && <p className="mt-2 break-words text-base leading-relaxed text-ink">{APPLIED_UNVERIFIED_MESSAGE}</p>}
+        {state === "failed" && s.reason && <p className="mt-2 break-words text-base leading-relaxed text-ink">{s.reason}</p>}
+        {state === "completed" && (
+          // 넓은 화면에서는 칸 수와 상관없이 한 줄로 나란히 둔다(좁은 화면에서는 2~3칸씩 줄바꿈).
+          <ul className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:auto-cols-fr lg:grid-flow-col lg:grid-cols-none">
             {rows.map((r) => (
               <li
                 key={r.label}
@@ -401,18 +526,22 @@ function ReverifySummaryCard({
                   </span>
                   <span className="min-w-0 break-keep">{r.label}</span>
                 </span>
-                <span className="text-2xl font-extrabold tabular-nums">{r.value}개</span>
+                <span className="text-2xl font-extrabold tabular-nums">{r.value}건</span>
               </li>
             ))}
           </ul>
         )}
-        {s.state === "completed" && executed > 0 && (
-          <p className="mt-2 text-sm leading-relaxed text-ink-subtle">실행·규칙으로 확인한 {confirmed}개 중 {executed}개는 공격 재현 테스트를 실행해 확인했어요.</p>
+        {state === "completed" && executed > 0 && (
+          <p className="mt-2 text-sm leading-relaxed text-ink-subtle">실행·규칙으로 확인한 {confirmed}건 중 {executed}건은 공격 재현 테스트를 실행해 확인했어요.</p>
         )}
-        {s.state === "completed" && (s.falsePositive ?? 0) > 0 && (
-          <p className="mt-2 text-sm leading-relaxed text-ink-subtle">AI가 오탐으로 판정한 {s.falsePositive}개는 해결로 세지 않았어요.</p>
+        {/* 문제 유형 수는 상태 개수와 섞지 않고 따로 적는다. */}
+        <p className="mt-3 break-words text-sm leading-relaxed text-ink-subtle">
+          처음 발견한 항목 {s.originalTotal}건 · 수정 내용을 적용한 항목 {s.appliedCount}건 · 문제 유형 {groupCount}가지
+        </p>
+        {children}
+        {state === "completed" && (
+          <p className="mt-4 rounded-2xl border-2 border-[#c9def3] bg-info-soft p-3 text-sm font-semibold leading-relaxed text-info">{REVERIFY_NOTICE}</p>
         )}
-        <p className="mt-4 rounded-2xl border-2 border-[#c9def3] bg-info-soft p-3 text-base font-semibold leading-relaxed text-info">{REVERIFY_NOTICE}</p>
       </Card>
     </section>
   );
@@ -460,7 +589,16 @@ function explanationBlocks(f: FindingView): { key: string; label: string; text: 
  * 여러 곳이면 제목·설명은 한 번만, 위치 목록과 상태 내역을 보여 주고
  * 위치별 수정·재검증 결과는 "자세히 보기" 안에 위치 이름을 붙여 둔다.
  */
-function FindingRow({ group, members }: { group: FindingGroup<FindingView>; members: MemberState[] }) {
+function FindingRow({
+  group,
+  members,
+  compact = false,
+}: {
+  group: FindingGroup<FindingView>;
+  members: MemberState[];
+  /** 재검증 기록이 있을 때: 제목·상태·다음 할 일 한 줄만 보이고 나머지는 "자세히 보기" 안에 둔다. */
+  compact?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const single = members.length === 1;
@@ -469,48 +607,34 @@ function FindingRow({ group, members }: { group: FindingGroup<FindingView>; memb
   const agg = single ? undefined : aggregateStatus(members.map((m) => m.status.key));
   const statusKey = agg ? agg.key : rep.status.key;
   const statusLabel = agg ? agg.label : rep.status.label;
-  const statusNote = agg ? members.find((m) => m.status.key === statusKey)?.status.note : rep.status.note;
+  const statusMember = agg ? members.find((m) => m.status.key === statusKey) : rep;
+  const statusNote = statusMember?.status.note;
+  // 접힌 카드의 다음 할 일 한 줄: 할 일이 남은 상태일 때만(해결·오탐 판정은 없음).
+  const nextLine =
+    compact && NEEDS_ACTION.has(statusKey) ? nextActionLine(statusMember?.status.pending) ?? statusNote : undefined;
   const any = (p: (f: FindingView) => boolean) => members.some((m) => p(m.finding));
   const adjudication = finding.aiReview?.adjudication;
   const blocks = explanationBlocks(finding);
   const corroborators = [...new Set(members.flatMap((m) => m.finding.corroboratedBy ?? []))].filter((c) => c !== "ai");
-  return (
-    <div className="relative min-w-0 overflow-hidden rounded-3xl border-2 border-line bg-surface p-5 pl-6 shadow-warm sm:p-6 sm:pl-7">
-      {/* 심각도 색 띠(장식). 심각도는 배지의 글자·아이콘으로도 전달한다 */}
-      <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1.5 ${SEV_ACCENT[group.severity] ?? "bg-line-strong"}`} />
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={STATUS_TONE[statusKey]}>
-          <span aria-hidden="true">{FIX_STATUS_MARK[statusKey]}</span>
-          {statusLabel}
+  const extraBadges = (
+    <>
+      {any((f) => f.isAi) && <Badge tone="neutral">AI 분석</Badge>}
+      {any((f) => f.aiReview?.verdict === "confirmed") && <Badge tone="neutral">AI도 확인</Badge>}
+      {any((f) => f.aiReview?.verdict === "likely_false_positive" && !f.aiReview?.adjudication) && (
+        <Badge tone="neutral">AI: 오탐 가능성</Badge>
+      )}
+      {corroborators.map((c) => (
+        <Badge key={c} tone="neutral">
+          {CORROBORATOR_LABEL[c] ?? `${c}도 확인`}
         </Badge>
-        <SeverityBadge severity={group.severity} />
-        {any((f) => f.isAi) && <Badge tone="neutral">AI 분석</Badge>}
-        {any((f) => f.aiReview?.verdict === "confirmed") && <Badge tone="neutral">AI도 확인</Badge>}
-        {any((f) => f.aiReview?.verdict === "likely_false_positive" && !f.aiReview?.adjudication) && (
-          <Badge tone="neutral">AI: 오탐 가능성</Badge>
-        )}
-        {corroborators.map((c) => (
-          <Badge key={c} tone="neutral">
-            {CORROBORATOR_LABEL[c] ?? `${c}도 확인`}
-          </Badge>
-        ))}
-        {any((f) => Boolean(f.carriedOver)) && <Badge tone="neutral">이전 점검에서 이어옴</Badge>}
-      </div>
-      {agg?.breakdown && (
-        <p className="mt-2 break-words text-sm font-bold leading-relaxed text-ink">
-          <span className="sr-only">위치별 상태: </span>
-          {agg.breakdown}
-        </p>
-      )}
-      {statusNote && <p className="mt-2 break-words text-sm font-semibold leading-relaxed text-ink">{statusNote}</p>}
-      <h3 className="mt-3 break-words text-lg font-extrabold text-ink sm:text-xl">{finding.title}</h3>
-      {!single && (
-        <>
-          <p className="mt-1 text-base font-semibold leading-relaxed text-ink-subtle">같은 문제가 {members.length}곳에서 발견됐어요</p>
-          <FindingLocations locations={group.locations} className="mt-3" />
-        </>
-      )}
-
+      ))}
+      {any((f) => Boolean(f.carriedOver)) && <Badge tone="neutral">이전 점검에서 이어옴</Badge>}
+    </>
+  );
+  const locations = !single && <FindingLocations locations={group.locations} className="mt-3" />;
+  // 처음 점검 설명·수정 내용·재검증 근거. 재검증 뒤(compact)에는 "자세히 보기" 안으로 옮긴다.
+  const explanation = (
+    <>
       <div className="mt-4 space-y-4">
         {blocks.map((b) => (
           <div key={b.key} className={b.key === "fix" ? "rounded-2xl border-2 border-line bg-surface-warm p-4" : undefined}>
@@ -523,6 +647,36 @@ function FindingRow({ group, members }: { group: FindingGroup<FindingView>; memb
       {single && adjudication && <AdjudicationNote adjudication={adjudication} />}
 
       {single && (rep.hasJobItem || rep.verifyItem) && <FixOutcome {...outcomeProps(rep)} />}
+    </>
+  );
+  return (
+    <div className="relative min-w-0 overflow-hidden rounded-3xl border-2 border-line bg-surface p-5 pl-6 shadow-warm sm:p-6 sm:pl-7">
+      {/* 심각도 색 띠(장식). 심각도는 배지의 글자·아이콘으로도 전달한다 */}
+      <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1.5 ${SEV_ACCENT[group.severity] ?? "bg-line-strong"}`} />
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone={STATUS_TONE[statusKey]}>
+          <span aria-hidden="true">{FIX_STATUS_MARK[statusKey]}</span>
+          {statusLabel}
+        </Badge>
+        <SeverityBadge severity={group.severity} />
+        {!compact && extraBadges}
+      </div>
+      {agg?.breakdown && (
+        <p className="mt-2 break-words text-sm font-bold leading-relaxed text-ink">
+          <span className="sr-only">위치별 상태: </span>
+          {agg.breakdown}
+        </p>
+      )}
+      {!compact && statusNote && <p className="mt-2 break-words text-sm font-semibold leading-relaxed text-ink">{statusNote}</p>}
+      <h3 className="mt-3 break-words text-lg font-extrabold text-ink sm:text-xl">{finding.title}</h3>
+      {!single && (
+        <p className="mt-1 text-base font-semibold leading-relaxed text-ink-subtle">같은 문제가 {members.length}곳에서 발견됐어요</p>
+      )}
+      {compact && nextLine && (
+        <p className="mt-2 break-words text-base font-semibold leading-relaxed text-ink">{nextLine}</p>
+      )}
+      {!compact && locations}
+      {!compact && explanation}
 
       <button
         type="button"
@@ -531,7 +685,7 @@ function FindingRow({ group, members }: { group: FindingGroup<FindingView>; memb
         aria-controls={panelId}
         onClick={() => setOpen((v) => !v)}
       >
-        {open ? "접기" : single ? "자세히 보기 (코드·기술 정보)" : "자세히 보기 (위치별 코드·수정 결과)"}
+        {open ? "접기" : compact ? "자세히 보기" : single ? "자세히 보기 (코드·기술 정보)" : "자세히 보기 (위치별 코드·수정 결과)"}
         <span aria-hidden="true" className={`transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`}>
           ▾
         </span>
@@ -541,6 +695,16 @@ function FindingRow({ group, members }: { group: FindingGroup<FindingView>; memb
         hidden={!open}
         className="mt-3 min-w-0 space-y-3 rounded-2xl border-2 border-dashed border-line bg-surface-warm p-4 text-sm leading-relaxed text-ink-subtle"
       >
+        {compact && (
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">{extraBadges}</div>
+            {statusNote && statusNote !== nextLine && (
+              <p className="mt-2 break-words text-sm font-semibold leading-relaxed text-ink">{statusNote}</p>
+            )}
+            {locations}
+            {explanation}
+          </div>
+        )}
         {single ? (
           <MemberTech finding={finding} />
         ) : (
@@ -704,17 +868,7 @@ function FixOutcome({
   );
 }
 
-function FixResult({
-  job,
-  findings,
-  busy,
-  onVerify,
-}: {
-  job: PublicFixJob;
-  findings: FindingView[];
-  busy: "fix" | "verify" | null;
-  onVerify: () => void;
-}) {
+function FixResult({ job, findings }: { job: PublicFixJob; findings: FindingView[] }) {
   const failedItems = job.items.filter((it) => it.outcome !== "applied");
   // 고치지 못한 항목도 같은 취약점끼리 묶어 제목은 한 번, 위치는 목록으로 보여 준다.
   const findingById = new Map(findings.map((f) => [f.id, f]));
@@ -763,16 +917,16 @@ function FixResult({
         ? "코드 기준"
         : codeOnly === 0
           ? "공격 재현 테스트 실행"
-          : `코드 기준 ${codeOnly}개, 공격 재현 테스트 실행 ${vCounts.executed}개`;
-    confirmedLines.push({ mark: "✓", text: `해결 확인 ${vCounts.resolved}개 (${how})` });
+          : `코드 기준 ${codeOnly}건, 공격 재현 테스트 실행 ${vCounts.executed}건`;
+    confirmedLines.push({ mark: "✓", text: `해결 확인 ${vCounts.resolved}건 (${how})` });
   }
-  if (vCounts.resolvedAi > 0) confirmedLines.push({ mark: "✓", text: `AI가 코드를 읽고 해결로 판단 ${vCounts.resolvedAi}개` });
-  if (vCounts.still > 0) confirmedLines.push({ mark: "✕", text: `같은 문제가 아직 남아 있음 ${vCounts.still}개` });
-  if (vCounts.falsePositive > 0) confirmedLines.push({ mark: "−", text: `AI가 오탐으로 판정 ${vCounts.falsePositive}개` });
+  if (vCounts.resolvedAi > 0) confirmedLines.push({ mark: "✓", text: `해결 확인 · AI가 코드로 판단 ${vCounts.resolvedAi}건` });
+  if (vCounts.still > 0) confirmedLines.push({ mark: "✕", text: `문제 남음 ${vCounts.still}건` });
+  if (vCounts.falsePositive > 0) confirmedLines.push({ mark: "−", text: `실제 문제 아님으로 판단 ${vCounts.falsePositive}건` });
 
   const pendingLines: { mark: string; text: string }[] = [];
-  if (vCounts.disputed > 0) pendingLines.push({ mark: "?", text: `규칙 재검사와 AI 판단이 엇갈림 ${vCounts.disputed}개. 해당 항목의 바뀐 코드를 직접 확인해 주세요.` });
-  if (vCounts.check > 0) pendingLines.push({ mark: "?", text: `고쳐졌는지 결론을 내리지 못함 ${vCounts.check}개. 항목마다 무엇을 확인하지 못했는지 아래에 적어 두었어요.` });
+  if (vCounts.disputed > 0) pendingLines.push({ mark: "?", text: `확인 필요 ${vCounts.disputed}건: 규칙 재검사와 AI 판단이 엇갈려요. 해당 항목의 바뀐 코드를 직접 확인해 주세요.` });
+  if (vCounts.check > 0) pendingLines.push({ mark: "?", text: `확인 필요 ${vCounts.check}건: 고쳐졌는지 결론을 내리지 못했어요. 항목마다 무엇을 확인하지 못했는지 아래에 적어 두었어요.` });
   if (v?.errorMessage) pendingLines.push({ mark: "?", text: v.errorMessage });
   else if (v?.status === "failed")
     pendingLines.push({ mark: "?", text: `재검증을 끝내지 못해 고친 항목이 해결됐는지 아직 확인하지 못했어요. 잠시 후 ‘${REVERIFY_BUTTON_LABEL}’를 눌러 주세요.` });
@@ -794,9 +948,9 @@ function FixResult({
 
   const headline =
     job.status === "completed"
-      ? `${appliedItems.length}개 항목에 수정 내용을 적용했어요`
+      ? `수정 내용을 적용한 항목 ${appliedItems.length}건`
       : job.status === "partial"
-        ? `${job.items.length}개 중 ${appliedItems.length}개 항목에 수정 내용을 적용했어요`
+        ? `수정 내용을 적용한 항목 ${appliedItems.length}건 (전체 ${job.items.length}건 중)`
         : "수정 내용을 파일에 적용하지 못했어요";
 
   return (
@@ -815,13 +969,14 @@ function FixResult({
         )}
         {job.status !== "failed" && !v && (
           <p className="mt-2 text-base leading-relaxed text-ink">
-            고친 사본 파일에 적용까지 했어요. 문제가 해결됐는지는 아직 확인하지 않았어요. 아래 ‘{VERIFY_BUTTON_LABEL}’로 재검증해 주세요.
+            고친 사본 파일에 적용까지 했어요. 문제가 해결됐는지는 아직 확인하지 않았어요. 위의 ‘{VERIFY_BUTTON_LABEL}’ 버튼을 눌러 확인해 주세요.
           </p>
         )}
         {job.status !== "failed" && v && (
-          <p className="mt-2 text-base leading-relaxed text-ink">재검증 결과는 아래에 따로 정리했어요.</p>
+          <p className="mt-2 text-base leading-relaxed text-ink">재검증 결과는 맨 위에 정리했어요. 적용했다고 해서 해결된 것은 아니니 항목별 상태를 확인해 주세요.</p>
         )}
 
+        <MaybeFold fold={Boolean(v) && job.changedFiles.length > 0} summary="바꾼 파일과 코드 자세히 보기">
         {job.changedFiles.length > 0 && (
           <div className="mt-5">
             <h3 className="text-base font-bold text-ink">무엇을 바꿨나요</h3>
@@ -839,6 +994,7 @@ function FixResult({
         )}
 
         {job.changedFiles.length > 0 && <JobDiff jobId={job.id} />}
+        </MaybeFold>
 
         {job.requiredEnv.length > 0 && (
           <div className="mt-4 rounded-2xl border-2 border-[#f0d9a6] bg-warning-soft p-4 text-base leading-relaxed">
@@ -897,17 +1053,7 @@ function FixResult({
           </div>
         )}
 
-        {job.artifact && (
-          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-            <a href={job.artifact.downloadPath} download={job.artifact.fileName} className={buttonClassName({ variant: "secondary" })}>
-              고친 파일 내려받기
-              <span className="text-[13px] font-medium text-ink-subtle">({formatBytes(job.artifact.size)})</span>
-            </a>
-            <Button onClick={onVerify} disabled={busy !== null} aria-busy={busy === "verify"}>
-              {v ? REVERIFY_BUTTON_LABEL : VERIFY_BUTTON_LABEL}
-            </Button>
-          </div>
-        )}
+        {/* 다운로드·재검증 버튼은 맨 위 요약 바로 아래(FixActions)에 한 번만 둔다. */}
         {job.artifact && (
           <>
             <p className="mt-4 rounded-2xl border-2 border-[#c9def3] bg-info-soft p-3 text-base font-semibold leading-relaxed text-info">{GUIDANCE}</p>
@@ -918,7 +1064,12 @@ function FixResult({
         )}
       </Card>
 
+      {/* 재검증 요약은 맨 위 카드에서 보여 주므로, 여기의 자세한 내역은 접어 둔다. */}
       {v && v.status !== "running" && (
+        <details className="mt-4 min-w-0 rounded-3xl border-2 border-line bg-surface p-4 shadow-warm sm:p-5">
+          <summary className="flex min-h-11 cursor-pointer items-center break-words text-base font-extrabold text-ink hover:text-brand-800">
+            재검증 결과 자세히 보기 (확인된 것 · 아직 확인이 필요한 것)
+          </summary>
         <Card
           variant={v.status === "failed" ? "danger" : allBlocked ? "warm" : "default"}
           className={`relative mt-4 min-w-0 overflow-hidden p-5 sm:p-6 ${allBlocked ? "!border-[#bfe0c8]" : ""}`}
@@ -978,7 +1129,19 @@ function FixResult({
             항목별로 무엇을 확인했는지는 아래 목록의 ‘수정과 재검증 결과’에서 볼 수 있어요. 규칙 재검사가 기준이고, AI 판단은 규칙으로 볼 수 없는 항목을 판단하거나 규칙 결과를 교차 확인할 때 써요. 둘이 다르면 &ldquo;판단이 엇갈려요&rdquo;로 표시해요.
           </p>
         </Card>
+        </details>
       )}
     </section>
+  );
+}
+
+/** fold가 참이면 내용을 접힌 <details> 안에 둔다. 아니면 그대로 보여 준다. */
+function MaybeFold({ fold, summary, children }: { fold: boolean; summary: string; children: ReactNode }) {
+  if (!fold) return <>{children}</>;
+  return (
+    <details className="mt-5 min-w-0 rounded-2xl border-2 border-line bg-surface-warm p-4">
+      <summary className="flex min-h-11 cursor-pointer items-center break-words text-base font-bold text-ink hover:text-brand-800">{summary}</summary>
+      {children}
+    </details>
   );
 }
