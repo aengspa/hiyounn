@@ -97,7 +97,8 @@ export async function POST(req: NextRequest) {
     // 보안 스캔 방식(A/B/C). ZIP이 있으므로 소스 조건은 항상 충족된다.
     const rawMode = form.get("scanMode");
     const scanMode = rawMode == null || rawMode === "" ? null : parseScanMode(rawMode);
-    if (rawMode && scanMode === null) {
+    // 공개 웹사이트 점검(safe_active)은 더 이상 새로 만들 수 없다.
+    if ((rawMode && scanMode === null) || scanMode === "safe_active") {
       return ok({ error: "invalid_scan_mode" }, 400);
     }
     const testAccounts = parseTestAccounts(form.get("testAccounts"));

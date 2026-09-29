@@ -54,7 +54,8 @@ export default async function LandingPage() {
               만들어요
             </h1>
             <p className="mx-auto mt-4 max-w-xl break-keep text-lg leading-relaxed text-ink-subtle">
-              호이가 약한 곳을 찾아 쉽게 설명해드리고, 직접 고친 뒤 잘 막혔는지 한 번 더 확인해요.
+              호이가 약한 곳을 찾아 쉽게 설명해드리고, 
+              튼튼하게 고친 뒤에 잘 막혔는지 한 번 더 확인해요.
             </p>
 
             <HoiSpeech mood="welcome" size="lg" className="mt-6 justify-center">
@@ -114,8 +115,14 @@ export default async function LandingPage() {
         <p className="font-extrabold text-ink">
           코치코치 <span className="text-brand-800">호이</span>
         </p>
-        <p className="mx-auto mt-2 max-w-xl break-keep leading-relaxed">
-          본 서비스의 자동 점검 결과는 참고용 정보이며, 존재하는 모든 취약점과 보안 위험 탐지를 보장하지 않습니다. 본 서비스의 이용, 점검 결과에 따른 판단 및 조치, 그리고 배포로 인해 발생하는 결과에 대한 책임은 이용자에게 있습니다.
+        {/* 한 문장에 한 줄: 문장이 끝날 때만 줄을 바꾸고, 넓은 화면에서는 문장 중간에서 줄이 바뀌지 않게 한다. */}
+        <p className="mx-auto mt-2 break-keep leading-relaxed">
+          <span className="block lg:whitespace-nowrap">
+            본 서비스의 자동 점검 결과는 참고용 정보이며, 존재하는 모든 취약점과 보안 위험 탐지를 보장하지 않습니다.
+          </span>
+          <span className="block lg:whitespace-nowrap">
+            본 서비스의 이용, 점검 결과에 따른 판단 및 조치, 그리고 배포로 인해 발생하는 결과에 대한 책임은 이용자에게 있습니다.
+          </span>
         </p>
         <p className="mt-2 text-[13px] text-ink-muted">호이 캐릭터에 관한 권리는 고려대학교에 귀속됩니다.</p>
       </footer>

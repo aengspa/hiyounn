@@ -10,7 +10,7 @@ const navLink =
 
 /**
  * 공통 헤더(랜딩·대시보드). 화면 전체 폭을 쓰는 3칸 격자다.
- * 왼쪽 끝: 호이 이미지 + "호이 보안 코치" 전체가 홈("/") 링크. 가운데: 사용 방법 → 기능 소개.
+ * 왼쪽 끝: 호이 이미지 + "코치코치 호이" 전체가 홈("/") 링크. 가운데: 사용 방법 → 기능 소개.
  * 오른쪽 끝: 계정 버튼(로그인 또는 로그아웃·내 프로젝트).
  * 640px 미만에서는 앵커를 숨겨 320px에서도 가로 스크롤이 생기지 않게 한다.
  */
@@ -30,7 +30,7 @@ export async function TopNav() {
             <Hoi mood="welcome" size="sm" decorative />
           </span>
           <span className="truncate">
-            호이 <span className="text-brand-800">보안 코치</span>
+            코치코치 <span className="text-brand-800">호이</span>
           </span>
         </Link>
 

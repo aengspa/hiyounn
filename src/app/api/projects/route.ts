@@ -77,7 +77,8 @@ export async function POST(req: NextRequest) {
 
     // 보안 스캔 방식(A/B/C). 없으면 기존 동작을 유지한다.
     const scanMode = body.scanMode == null ? null : parseScanMode(body.scanMode);
-    if (body.scanMode != null && scanMode === null) {
+    // 공개 웹사이트 점검(safe_active)은 더 이상 새로 만들 수 없다.
+    if ((body.scanMode != null && scanMode === null) || scanMode === "safe_active") {
       return ok({ error: "invalid_scan_mode" }, 400);
     }
     const testAccounts = parseTestAccounts(body.testAccounts);

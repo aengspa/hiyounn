@@ -87,7 +87,7 @@ const TRUST_POINTS: Array<{ icon: Icon; title: string; body: string }> = [
 function SourcesPanel() {
   const stats = frameworkStats();
   return (
-    <div className="mt-5 space-y-5 rounded-3xl border-2 border-line bg-surface-warm p-4 sm:p-5">
+    <div className="space-y-5">
       <div>
         <h5 className="text-base font-extrabold text-ink">왜 믿고 맡길 수 있나요?</h5>
         <ul className="mt-3 grid gap-3 md:grid-cols-3">
@@ -191,7 +191,7 @@ function SampleFinding() {
   ];
 
   return (
-    <figure aria-label="점검 결과 예시" className="mt-5 overflow-hidden rounded-3xl border-2 border-line bg-surface shadow-warm">
+    <figure aria-label="점검 결과 예시" className="overflow-hidden rounded-3xl border-2 border-line bg-surface shadow-warm">
       <figcaption className="flex flex-wrap items-center gap-2 border-b-2 border-line bg-surface-warm px-4 py-3 sm:px-5">
         <span className="inline-flex rounded-full bg-ink px-2.5 py-0.5 text-[13px] font-bold text-surface">예시</span>
         <strong className="text-base font-extrabold text-ink">다른 사람의 데이터에 접근할 수 있어요</strong>
@@ -263,7 +263,7 @@ const STEPS: Step[] = [
   {
     icon: BookCheckIcon,
     title: "공개된 보안 기준으로 만든 규칙으로 1차 점검해요",
-    body: "OWASP, MITRE처럼 신뢰받는 기관이 공개한 보안 가이드라인을 바탕으로 만든 점검 규칙을 코드와 설정에 적용해요. 저희가 임의로 정한 기준이 아니에요. 어떤 기준에 근거했는지 출처를 함께 남겨 둬요.",
+    body: "OWASP, MITRE처럼 신뢰받는 기관이 공개한 보안 가이드라인을 바탕으로 만든 점검 규칙을 코드와 설정에 적용해요. 저희가 임의로 정한 기준이 아니에요. 어떤 기준에 근거했는지 출처를 함께 남겨 둬요. 아래를 펼치면 기준 목록과 원문 링크를 볼 수 있어요.",
     extra: "sources",
   },
   {
@@ -274,7 +274,7 @@ const STEPS: Step[] = [
   {
     icon: ChatIcon,
     title: "어디가, 어떻게, 왜 잘못됐는지 쉽게 알려드려요",
-    body: "찾아낸 문제는 어려운 보안 용어 대신, 어느 파일의 어디가 문제인지, 어떤 식으로 잘못됐는지, 그대로 두면 어떤 일이 생길 수 있는지를 차근차근 풀어서 정리해요. 아래는 결과 화면의 예시예요.",
+    body: "찾아낸 문제는 어려운 보안 용어 대신, 어느 파일의 어디가 문제인지, 어떤 식으로 잘못됐는지, 그대로 두면 어떤 일이 생길 수 있는지를 차근차근 풀어서 정리해요. 아래를 펼치면 결과 화면 예시를 볼 수 있어요.",
     extra: "sample",
   },
   {
@@ -373,8 +373,17 @@ export function ServiceIntro({ startHref = "/dashboard", className = "" }: Servi
                     <p className="text-sm font-extrabold text-brand-800">{i + 1}단계</p>
                     <h4 className="mt-1 break-keep text-lg font-extrabold text-ink sm:text-xl">{title}</h4>
                     <p className="mt-2 break-keep leading-relaxed text-ink-subtle">{body}</p>
-                    {extra === "sources" ? <SourcesPanel /> : null}
-                    {extra === "sample" ? <SampleFinding /> : null}
+                    {/* 세부 내용은 기본으로 접어 두고, 필요할 때 펼쳐 본다(네이티브 details: Enter/Space로 여닫기) */}
+                    {extra === "sources" ? (
+                      <Disclosure summary="근거로 삼은 공개 기준 자세히 보기" className="mt-5">
+                        <SourcesPanel />
+                      </Disclosure>
+                    ) : null}
+                    {extra === "sample" ? (
+                      <Disclosure summary="결과 화면 예시 보기" className="mt-5">
+                        <SampleFinding />
+                      </Disclosure>
+                    ) : null}
                   </div>
                 </li>
               );
