@@ -39,9 +39,9 @@ export function generateFix(finding: SecurityFinding): FixAttempt {
       findingId: finding.id,
       source: "deterministic",
       summary:
-        "Add an ownership check so the query only returns the record when it belongs to the logged-in user.",
+        "정보를 보여주기 전에 그 정보가 현재 로그인한 사람의 것인지 확인하도록 바꾸는 수정안이에요.",
       plainExplanation:
-        "This change adds an authorization check that confirms the requested data belongs to the currently logged-in user. If it doesn't, the app now returns 'Forbidden' instead of the other person's data.",
+        "지금 코드는 요청한 번호만 보고 정보를 찾아 돌려줘요. 이 수정안은 로그인한 사람의 정보일 때만 돌려주고, 다른 사람의 정보면 거절(403)하게 해요. 로그인한 사람이 자기 정보를 보는 흐름은 그대로 유지돼요. 적용한 뒤 자기 정보는 보이고, 다른 사람의 번호로 요청하면 거절되는지 확인해 주세요.",
       diffs,
       applied: false,
       createdAt: now(),
@@ -53,9 +53,9 @@ export function generateFix(finding: SecurityFinding): FixAttempt {
       id: id("fix"),
       findingId: finding.id,
       source: "deterministic",
-      summary: "Move the secret to a server-only environment variable and rotate it.",
+      summary: "코드에 직접 적힌 비밀키를 빼고, 서버 환경변수에서 읽도록 바꾸는 수정안이에요.",
       plainExplanation:
-        "This change removes the secret from your code and reads it from a server-only setting instead, so it is never exposed. You should also regenerate the old value so the leaked one stops working.",
+        "외부 서비스에 접속할 때 쓰는 비밀키가 코드에 직접 들어 있어요. 이 수정안은 키를 코드에서 빼고 서버 환경변수 SUPABASE_SERVICE_ROLE_KEY에서 읽게 해요. 기능이 전처럼 동작하려면 배포 서비스의 비밀 설정에 이 값을 넣어야 해요. 이미 공개된 키라면 코드만 바꿔서는 막을 수 없으니, 새 키를 발급하고 기존 키를 사용할 수 없게 해 주세요. 적용한 뒤 이 키를 쓰는 기능이 정상으로 동작하는지 확인해 주세요.",
       diffs: [
         {
           file: finding.location?.file ?? "src/lib/db.ts",
@@ -75,9 +75,9 @@ export function generateFix(finding: SecurityFinding): FixAttempt {
       id: id("fix"),
       findingId: finding.id,
       source: "deterministic",
-      summary: "Add standard security headers in next.config.js.",
+      summary: "모든 페이지 응답에 브라우저 보호 설정(보안 헤더)을 추가하는 수정안이에요.",
       plainExplanation:
-        "This change tells browsers how to protect your users by adding standard security headers to every response.",
+        "지금 설정 파일(next.config.js)에는 브라우저에 보내는 보호 설정이 없어요. 이 수정안은 다른 사이트가 내 페이지를 몰래 화면 안에 넣지 못하게 하는 설정 등 4가지를 모든 응답에 붙여요. 이 중 콘텐츠 보안 정책(Content-Security-Policy)은 내 사이트 밖의 스크립트·이미지·글꼴을 막아서, 외부 서비스를 쓰는 화면이 깨질 수 있어요. 적용한 뒤 주요 화면이 전처럼 보이고 동작하는지 확인해 주세요.",
       diffs: [
         {
           file: "next.config.js",
@@ -107,9 +107,9 @@ export function generateFix(finding: SecurityFinding): FixAttempt {
       id: id("fix"),
       findingId: finding.id,
       source: "deterministic",
-      summary: "Render user input as text instead of raw HTML (or sanitize it).",
+      summary: "사용자가 입력한 글을 화면에 그대로 실행하지 않고 글자로만 표시하도록 바꾸는 수정안이에요.",
       plainExplanation:
-        "이 변경은 사용자 입력을 HTML로 직접 넣지 않고 일반 텍스트로 렌더링합니다. 꼭 HTML이 필요하면 신뢰할 수 있는 정제 라이브러리를 거치도록 합니다.",
+        "지금 코드는 사용자가 입력한 내용을 HTML로 그대로 화면에 넣어요. 입력에 스크립트가 섞여 있으면 글을 보는 사람의 브라우저에서 실행될 수 있어요. 이 수정안은 입력을 글자로만 표시해서, 글 내용은 그대로 보이고 태그는 실행되지 않게 해요. 굵은 글씨 같은 HTML 서식이 꼭 필요하다면 믿을 수 있는 정리 도구(sanitize 라이브러리)를 거친 뒤 넣어야 해요. 적용한 뒤 글이 전처럼 보이는지, <b> 같은 태그를 입력하면 글자 그대로 보이는지 확인해 주세요.",
       diffs: [
         {
           file,
@@ -134,11 +134,11 @@ export function generateFix(finding: SecurityFinding): FixAttempt {
       findingId: finding.id,
       source: "deterministic",
       summary: isEval
-        ? "Remove dynamic code/command execution and use a safe alternative."
-        : "Use parameterized queries instead of string concatenation.",
+        ? "요청으로 들어온 값을 코드로 실행하지 않고, 데이터로만 읽도록 바꾸는 수정안이에요."
+        : "데이터베이스 조회문에 입력값을 직접 이어 붙이지 않고, 값으로만 따로 전달하도록 바꾸는 수정안이에요.",
       plainExplanation: isEval
-        ? "이 변경은 입력값으로 코드를 실행하는 위험한 부분을 제거하고, 안전한 처리 방식으로 바꿉니다."
-        : "이 변경은 쿼리에 입력값을 직접 붙이지 않고, 파라미터로 전달해 인젝션을 막습니다.",
+        ? "지금 코드는 요청에 들어온 값을 프로그램 코드처럼 실행해요(eval 등). 누군가 이 값에 코드를 넣어 보내면 서버에서 그대로 실행될 수 있어요. 이 수정안은 값을 실행하지 않고 JSON 데이터로만 읽게 해요. JSON 형식이 아닌 값을 보내던 기능은 오류가 날 수 있으니, 적용한 뒤 평소 보내는 값이 정상으로 처리되는지 확인해 주세요."
+        : "지금 코드는 사용자가 보낸 값을 데이터베이스 조회문(SQL)에 글자 그대로 이어 붙여요. 값에 조회문 일부를 섞어 보내면 의도하지 않은 조회가 실행될 수 있어요(SQL 인젝션). 이 수정안은 값을 조회문과 분리해 따로 전달해요(파라미터 바인딩). 조회 결과는 전과 같아야 해요. 적용한 뒤 평소 검색이 그대로 되는지, 작은따옴표(')가 들어간 값도 오류 없이 처리되는지 확인해 주세요.",
       diffs: [
         {
           file,
@@ -165,9 +165,9 @@ export function generateFix(finding: SecurityFinding): FixAttempt {
       id: id("fix"),
       findingId: finding.id,
       source: "deterministic",
-      summary: "Normalize the path and confine it to a base directory (and whitelist the file name).",
+      summary: "요청한 파일 이름에서 폴더 경로를 떼어 내고, 허용한 폴더(uploads) 안의 파일만 읽도록 바꾸는 수정안이에요.",
       plainExplanation:
-        "이 변경은 사용자가 준 파일 이름을 정규화한 뒤, 허용된 폴더 밖으로 벗어나지 않는지 확인합니다. 벗어나면 요청을 거부합니다.",
+        "지금 코드는 사용자가 보낸 파일 이름을 그대로 경로에 붙여 파일을 읽어요. 이름에 ../ 같은 경로를 넣으면 허용한 폴더 밖의 파일까지 읽힐 수 있어요. 이 수정안은 파일 이름만 남기고, 최종 위치가 uploads 폴더 밖이면 거절(403)해요. uploads 폴더에 바로 들어 있는 파일을 받는 흐름은 그대로예요. 하위 폴더의 파일을 받던 기능이 있다면 동작이 바뀌니, 적용한 뒤 평소 받던 파일이 그대로 내려받아지는지 확인해 주세요.",
       diffs: [
         {
           file,
@@ -193,9 +193,9 @@ export function generateFix(finding: SecurityFinding): FixAttempt {
       id: id("fix"),
       findingId: finding.id,
       source: "deterministic",
-      summary: "Return only whitelisted fields; strip sensitive fields from the response.",
+      summary: "응답에 필요한 정보(id, email, fullName)만 골라 보내도록 바꾸는 수정안이에요.",
       plainExplanation:
-        "이 변경은 응답에 필요한 필드만 골라 담아, 비밀번호 해시 같은 민감한 값이 밖으로 나가지 않게 합니다.",
+        "지금 코드는 데이터베이스에서 읽은 사용자 정보를 통째로 응답에 담아요. 그 안에 비밀번호 해시나 토큰 같은 값이 있으면 요청한 사람에게 그대로 전달될 수 있어요. 이 수정안은 화면에 필요한 값만 골라 보내요. 적용한 뒤 이 정보를 쓰는 화면이 전처럼 보이는지 확인해 주세요. 빠진 값 때문에 비어 보이는 곳이 있으면, 그 값이 민감하지 않은지 확인한 뒤 목록에 직접 추가해 주세요.",
       diffs: [
         {
           file,
@@ -216,9 +216,9 @@ export function generateFix(finding: SecurityFinding): FixAttempt {
       id: id("fix"),
       findingId: finding.id,
       source: "deterministic",
-      summary: "Add a server-side role check to admin-only routes.",
+      summary: "관리자 기능을 실행하기 전에 요청한 사람이 관리자인지 서버에서 확인하도록 바꾸는 수정안이에요.",
       plainExplanation:
-        "이 변경은 관리자 전용 경로에 서버측 역할(role) 검사를 추가합니다. 관리자가 아니면 403으로 거부해, 일반 사용자가 관리자 기능을 쓰지 못하게 합니다.",
+        "지금 코드는 관리자용 주소로 들어온 요청을 누가 보냈는지 확인하지 않고 처리해요. 이 수정안은 로그인 정보(세션)의 역할이 admin인 사람만 통과시키고, 그 외에는 거절(403)해요. 관리자가 기능을 쓰는 흐름은 그대로 유지돼요. getSession이 프로젝트에 실제로 있는 함수인지 확인하고, 없으면 지금 쓰는 로그인 확인 방식으로 바꿔 주세요. 적용한 뒤 관리자 계정은 기능을 쓸 수 있고 일반 계정은 거절되는지 확인해 주세요.",
       diffs: [
         {
           file: finding.location?.file ?? "src/app/api/admin/users/route.ts",
@@ -244,9 +244,9 @@ export function generateFix(finding: SecurityFinding): FixAttempt {
       id: id("fix"),
       findingId: finding.id,
       source: "deterministic",
-      summary: "Set HttpOnly, Secure, and SameSite on session cookies.",
+      summary: "로그인 상태를 저장하는 쿠키에 보호 설정 세 가지(HttpOnly, Secure, SameSite)를 추가하는 수정안이에요.",
       plainExplanation:
-        "이 변경은 세션 쿠키에 보호 속성을 추가합니다. 스크립트가 못 읽게(HttpOnly), HTTPS에서만 전송되게(Secure), 다른 사이트 요청엔 안 실리게(SameSite) 합니다.",
+        "지금 로그인 쿠키에는 보호 설정이 없어요. 이 수정안은 페이지의 스크립트가 쿠키를 읽지 못하게 하고(HttpOnly), 암호화된 연결(HTTPS)에서만 보내며(Secure), 다른 사이트에서 시작된 요청에는 쿠키가 실리지 않게 해요(SameSite). 로그인·로그아웃 흐름은 그대로예요. HTTPS가 아닌 주소에서는 Secure 설정 때문에 로그인이 유지되지 않을 수 있어요. 적용한 뒤 배포한 사이트에서 로그인이 유지되는지 확인해 주세요.",
       diffs: [
         {
           file: finding.location?.file ?? "src/lib/authActions.ts",
@@ -271,9 +271,9 @@ export function generateFix(finding: SecurityFinding): FixAttempt {
       id: id("fix"),
       findingId: finding.id,
       source: "deterministic",
-      summary: "Add rate limiting / lockout to the login endpoint.",
+      summary: "로그인을 짧은 시간에 너무 많이 시도하면 잠시 거절하도록 바꾸는 수정안이에요.",
       plainExplanation:
-        "이 변경은 로그인 시도 횟수를 IP·계정 단위로 제한해, 연속 실패가 일정 횟수를 넘으면 잠시 차단(429)합니다. 자동화된 비밀번호 대입을 막습니다.",
+        "지금 로그인 주소는 시도 횟수에 제한이 없어, 프로그램으로 비밀번호를 계속 바꿔 넣어 볼 수 있어요. 이 수정안은 같은 접속 주소(IP)에서 1분에 5번을 넘게 시도하면 잠시 거절(429)해요. 평소처럼 몇 번 로그인하는 흐름에는 영향이 없어요. 이 예시는 서버 메모리에 횟수를 세서, 서버가 여러 대이거나 다시 시작되면 횟수가 따로 세어져요. src/middleware.ts가 이미 있다면 기존 내용과 합쳐야 해요. 적용한 뒤 정상 로그인이 되는지, 6번째 시도부터 거절되는지 확인해 주세요.",
       diffs: [
         {
           file: "src/middleware.ts",
@@ -302,9 +302,9 @@ export function generateFix(finding: SecurityFinding): FixAttempt {
       id: id("fix"),
       findingId: finding.id,
       source: "deterministic",
-      summary: "Return identical responses for valid and invalid accounts (and uniform timing).",
+      summary: "로그인에 실패했을 때 가입된 이메일인지 드러나지 않도록 같은 안내 문구를 보여 주는 수정안이에요.",
       plainExplanation:
-        "이 변경은 로그인 실패 시 계정이 있든 없든 똑같은 일반 메시지와 상태코드를 반환하도록 통일합니다. 응답 시간 차이도 없애기 위해, 계정이 없을 때도 더미 비밀번호 검증을 수행합니다.",
+        "지금 코드는 '가입되지 않은 이메일'과 '비밀번호가 틀림'을 다르게 알려 줘요. 이 차이로 어떤 이메일이 가입돼 있는지 알아낼 수 있어요. 이 수정안은 두 경우 모두 같은 문구로 답하고, 계정이 없을 때도 비밀번호 확인을 한 번 해서 응답 시간 차이도 줄여요. 올바른 이메일과 비밀번호로 로그인하는 흐름은 그대로예요. DUMMY_HASH 값이 프로젝트에 정의돼 있는지 확인하고, 적용한 뒤 정상 로그인과 실패 안내가 모두 제대로 나오는지 확인해 주세요.",
       diffs: [
         {
           file: finding.location?.file ?? "src/lib/authActions.ts",
@@ -329,9 +329,9 @@ export function generateFix(finding: SecurityFinding): FixAttempt {
       id: id("fix"),
       findingId: finding.id,
       source: "deterministic",
-      summary: "Redirect all HTTP to HTTPS and enable HSTS.",
+      summary: "브라우저가 이 사이트에 항상 암호화된 연결(HTTPS)로만 접속하도록 설정을 추가하는 수정안이에요.",
       plainExplanation:
-        "이 변경은 모든 평문(HTTP) 요청을 HTTPS로 돌리고, 브라우저가 항상 HTTPS로만 접속하도록 HSTS 헤더를 추가합니다.",
+        "이 수정안은 브라우저에 '이 사이트는 앞으로 HTTPS로만 접속하라'는 설정(HSTS 헤더)을 보내게 해요. 암호화되지 않은 주소(http://)로 들어온 요청을 HTTPS로 옮기는 설정은 이 코드만으로는 되지 않아요. 호스팅 서비스(예: Vercel, Nginx) 설정에서 HTTP를 HTTPS로 옮기는 기능을 직접 켜 주세요. 하위 도메인까지 적용되는 옵션이 들어 있어서, 모든 하위 도메인이 HTTPS를 지원해야 해요. 적용한 뒤 사이트와 하위 도메인이 모두 HTTPS로 열리는지 확인해 주세요.",
       diffs: [
         {
           file: "next.config.js",
@@ -358,9 +358,9 @@ export function generateFix(finding: SecurityFinding): FixAttempt {
       id: id("fix"),
       findingId: finding.id,
       source: "deterministic",
-      summary: "Block sensitive paths and disable debug routes in production.",
+      summary: "밖에서 열리면 안 되는 주소(.env, .git, /debug)로 온 요청을 없는 페이지(404)로 보내는 수정안이에요.",
       plainExplanation:
-        "이 변경은 .env, .git 같은 민감 경로 접근을 차단하고, 디버그 라우트를 프로덕션에서 끄는 리다이렉트/거부 규칙을 추가합니다.",
+        "설정 파일(.env), 코드 기록(.git), 디버그 화면이 밖에서 열리면 비밀값이나 내부 정보가 보일 수 있어요. 이 수정안은 next.config.js에 이 주소들을 404 페이지로 돌리는 규칙을 추가해요. 다른 페이지 흐름에는 영향이 없어요. 디버그 기능 자체를 끄는 것은 아니니, 배포 환경에서 꺼져 있는지 따로 확인해 주세요. 적용한 뒤 배포한 사이트에서 /.env, /.git/config, /debug 주소를 열어 내용이 보이지 않는지 확인해 주세요.",
       diffs: [
         {
           file: "next.config.js",
@@ -386,9 +386,9 @@ export function generateFix(finding: SecurityFinding): FixAttempt {
       id: id("fix"),
       findingId: finding.id,
       source: "deterministic",
-      summary: "Enable RLS and add an owner-only policy on the table.",
+      summary: "데이터베이스 profiles 표에 행 단위 접근 규칙(RLS)을 켜고, 자기 행만 읽을 수 있게 하는 수정안이에요.",
       plainExplanation:
-        "This change turns on access rules for your database table so each person can only see their own rows.",
+        "지금 profiles 표에는 누가 어떤 행을 읽을 수 있는지 정하는 규칙이 켜져 있지 않아요. 이 수정안은 표에 행 단위 접근 규칙(Row Level Security)을 켜고, user_id가 로그인한 사람과 같은 행만 읽히게 해요. 이 SQL은 Supabase의 SQL 편집기에서 직접 실행해야 적용돼요. 규칙을 켜면 읽기 외의 저장·수정·삭제도 따로 규칙을 만들기 전까지 거절돼요. 적용한 뒤 자기 정보는 보이고 다른 사람의 행은 보이지 않는지, 저장 기능이 계속 되는지 확인해 주세요.",
       diffs: [
         {
           file: "supabase/policies.sql",
@@ -409,10 +409,15 @@ export function generateFix(finding: SecurityFinding): FixAttempt {
     id: id("fix"),
     findingId: finding.id,
     source: "deterministic",
-    summary: finding.remediation ?? "Apply the recommended remediation.",
-    plainExplanation:
-      finding.remediation ??
-      "Follow the recommended remediation steps for this finding.",
+    summary:
+      finding.remediation ?? "이 항목은 정해진 자동 수정 규칙이 없어 코드 변경안을 만들지 않았어요.",
+    plainExplanation: [
+      "이 항목은 정해진 자동 수정 규칙이 없어 코드 변경안을 만들지 않았어요.",
+      finding.remediation
+        ? `수정 방향: ${finding.remediation}`
+        : "점검 결과의 설명을 참고해 문제가 된 코드를 직접 고쳐 주세요.",
+      "고친 뒤 다시 점검해서 같은 문제가 남아 있는지 확인해 주세요.",
+    ].join(" "),
     diffs: [],
     applied: false,
     createdAt: now(),
@@ -426,7 +431,8 @@ export function generateFix(finding: SecurityFinding): FixAttempt {
 
 import { isConfigured, completeJson } from "@/lib/ai/llmClient";
 
-const FIX_SYSTEM_PROMPT = `당신은 시니어 보안 엔지니어입니다.
+/** 테스트에서 JSON 필드 이름이 그대로인지 확인할 수 있게 내보낸다. */
+export const FIX_SYSTEM_PROMPT = `당신은 시니어 보안 엔지니어입니다.
 주어진 취약점에 대한 코드 수정안을 제안합니다.
 반드시 아래 JSON 하나만 출력하세요.
 
@@ -438,7 +444,22 @@ const FIX_SYSTEM_PROMPT = `당신은 시니어 보안 엔지니어입니다.
   "after": "수정 후 코드"
 }
 
-규칙: 최소한의 변경만 제안하고, 실제 동작하는 코드를 제시하세요.`;
+규칙: 최소한의 변경만 제안하고, 실제 동작하는 코드를 제시하세요.
+
+[summary와 plainExplanation 작성법]
+- 이 단계는 수정안을 "제안"하는 단계입니다. 파일에 적용하지도, 다시 검사하지도 않았습니다.
+  "해결했어요", "막았어요", "고쳤어요", "안전해졌어요"처럼 결과를 단정하지 말고
+  "~하도록 바꾸는 수정안이에요", "~하게 해요"처럼 쓰세요.
+- summary: 무엇을 어떻게 바꾸는지 한 문장.
+  예: "정보를 보여주기 전에 그 정보가 현재 로그인한 사람의 것인지 확인하도록 바꾸는 수정안이에요."
+- plainExplanation: 짧은 문장 3~5개로, 아래 순서대로 씁니다.
+  1) 무엇을 바꾸는지  2) 왜 바꾸는지(지금 코드의 어떤 처리 때문인지)
+  3) 정상 사용 흐름을 어떻게 유지하는지(동작이 바뀌는 부분이 있으면 그것도)
+  4) 적용한 뒤 사용자가 직접 확인할 것(실제 사용자 행동으로. 예: "로그인한 사람이 자기 정보를 볼 수 있는지 확인해 주세요.")
+- 수정에 환경변수나 배포 설정이 필요하면 그 이름과, 사용자가 설정에 직접 넣어야 한다는 점을 plainExplanation에 씁니다.
+- 주어진 근거만으로 안전한 코드 변경을 만들 수 없으면 before와 after를 빈 문자열로 두고,
+  plainExplanation에 왜 지금 정보만으로는 고칠 수 없는지, 어떤 파일이나 정보가 더 필요한지,
+  사용자가 설정(예: 배포 서비스의 비밀 설정)에서 직접 바꿔야 하는 부분이 있는지 씁니다.`;
 
 interface AiFixRaw {
   summary?: string;
@@ -497,10 +518,10 @@ export async function generateFixSmart(
       id: id("fix"),
       findingId: finding.id,
       source: "llm",
-      summary: parsed.summary || finding.remediation || "AI가 제안한 수정안입니다.",
+      summary: parsed.summary || finding.remediation || "AI가 제안한 수정안이에요. 아직 파일에 적용하지 않았어요.",
       plainExplanation:
         parsed.plainExplanation ||
-        "이 변경은 발견된 보안 문제를 해결하기 위한 것입니다.",
+        "AI가 이 수정안에 대한 설명을 보내지 않았어요. 변경 전·후 코드를 직접 확인하고, 적용한 뒤 다시 점검해서 같은 문제가 남았는지 확인해 주세요.",
       diffs:
         before || after
           ? [

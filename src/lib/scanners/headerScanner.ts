@@ -28,6 +28,14 @@ const REQUIRED_HEADERS: { header: string; label: string }[] = [
   { header: "strict-transport-security", label: "Strict-Transport-Security" },
 ];
 
+/** 빠진 헤더마다 브라우저가 무엇을 해 주는 설정인지 쉬운 말로. */
+const HEADER_PLAIN_KO: Record<string, string> = {
+  "Content-Security-Policy": "허락한 곳의 스크립트만 실행하게 하는 설정(Content-Security-Policy)",
+  "X-Frame-Options": "다른 사이트가 이 화면을 몰래 틀 안에 넣어 보여 주지 못하게 하는 설정(X-Frame-Options)",
+  "X-Content-Type-Options": "파일 종류를 브라우저가 멋대로 짐작해 실행하지 않게 하는 설정(X-Content-Type-Options)",
+  "Strict-Transport-Security": "다음 방문부터 항상 암호화된 연결(HTTPS)로만 접속하게 하는 설정(Strict-Transport-Security)",
+};
+
 const CORS_TEST_ORIGIN = "https://verification.invalid";
 
 interface LiveObservation {
@@ -345,7 +353,7 @@ export class HeaderScanner implements SecurityScanner {
       const cfg = context.files["next.config.js"];
       if (/headers\(\)\s*{[^}]*return\s*\[\s*\]/s.test(cfg)) {
         missing.push(...REQUIRED_HEADERS.map((h) => h.label));
-        rawHeaderDump = "Detected empty headers() in next.config.js";
+        rawHeaderDump = "next.config.js의 headers()가 빈 목록을 돌려줘요.";
       }
     }
 
@@ -362,28 +370,30 @@ export class HeaderScanner implements SecurityScanner {
         {
           id: id("ev"),
           kind: "scanner_output",
-          label: "보안 헤더/CORS 스캐너 출력",
+          label: "보안 헤더 점검 결과",
           content: `누락된 헤더:\n- ${missing.join("\n- ")}`,
         },
       ];
 
+      const missingPlain = missing.map((label) => HEADER_PLAIN_KO[label] ?? label).join(", ");
+
       findings.push({
         id: id("finding"),
         scanId: "",
-        title: "사이트에 기본적인 브라우저 보호 설정이 빠져 있습니다",
+        title: "브라우저에 이 사이트를 지키는 방법을 알려 주는 설정이 빠져 있어요",
         severity: "medium",
         category: "Security Headers",
         owasp: "A05 – Security Misconfiguration",
         cwe: "CWE-693",
         cvss: 5.3,
-        description: `누락된 HTTP 보안 헤더: ${missing.join(", ")}.`,
+        description: `응답에 없는 HTTP 보안 헤더: ${missing.join(", ")}.`,
         humanReadableImpact:
-          "브라우저에게 사용자를 어떻게 보호할지 알려주는 설정이 빠져 있어, 일부 공격이 더 쉬워집니다.",
-        whyItMatters:
-          "이 설정이 없으면 공격자가 스크립트를 주입하거나 방문자의 브라우저를 속이기가 더 쉬워집니다.",
+          "브라우저가 스스로 해 줄 수 있는 보호 동작 일부를 하지 않아요. 그래서 다른 사이트가 이 화면을 몰래 끼워 넣거나, 허락하지 않은 스크립트가 실행되는 공격을 브라우저가 막아 주지 못할 수 있어요.",
+        whyItMatters: headers
+          ? `배포된 사이트(${context.deploymentUrl})에 실제로 요청을 보내 응답을 확인했어요. 응답에 다음 설정이 없었어요: ${missingPlain}.`
+          : `코드에서 확인했어요: next.config.js의 headers()가 빈 목록을 돌려줘서 다음 설정이 하나도 붙지 않아요: ${missingPlain}. 호스팅 서비스에서 따로 붙이고 있는지는 확인하지 않았어요.`,
         evidence,
-        remediation:
-          "프레임워크 설정(예: Next.js headers())이나 호스팅 제공자에서 누락된 보안 헤더를 추가하세요.",
+        remediation: `next.config.js의 headers()나 호스팅 서비스 설정에서 빠진 항목(${missing.join(", ")})을 응답에 추가해 주세요. 예를 들어 X-Content-Type-Options: nosniff, X-Frame-Options: DENY를 넣을 수 있어요. Content-Security-Policy는 사이트가 불러오는 스크립트 주소를 확인한 뒤 값을 정해 주세요.`,
         status: "detected",
         simulated: false,
         verificationKey: `headers:${context.projectId}`,
@@ -400,28 +410,28 @@ export class HeaderScanner implements SecurityScanner {
         findings.push({
           id: id("finding"),
           scanId: "",
-          title: "다른 웹사이트가 사용자의 로그인으로 API를 호출할 수 있습니다",
+          title: "다른 웹사이트가 로그인한 사람 대신 이 API를 부를 수 있게 열려 있어요",
           severity: "high",
           category: "CORS",
           owasp: "A05 – Security Misconfiguration",
           cwe: "CWE-942",
           cvss: 7.1,
           description:
-            "Access-Control-Allow-Origin이 '*'이면서 Access-Control-Allow-Credentials가 'true'로 설정되어 있습니다.",
+            "Access-Control-Allow-Origin이 '*'이면서 Access-Control-Allow-Credentials가 'true'로 설정되어 있어요.",
           humanReadableImpact:
-            "다른 웹사이트가 로그인한 사용자의 세션을 이용해 몰래 당신의 백엔드에 요청을 보낼 수 있습니다.",
+            "사용자가 로그인한 상태로 악성 사이트를 열면, 그 사이트가 사용자의 로그인 정보를 실어 이 API에 요청하고 응답을 읽을 수 있어요.",
           whyItMatters:
-            "악성 사이트가 사용자의 기존 로그인을 타고 들어와 사용자 데이터를 읽어낼 수 있습니다.",
+            "배포된 사이트에 실제로 요청을 보내 응답을 확인했어요. 응답이 '모든 사이트의 요청 허용(Access-Control-Allow-Origin: *)'과 '로그인 정보도 함께 보내기 허용(Access-Control-Allow-Credentials: true)'을 동시에 켜고 있어요. 다른 사이트에서 실제로 데이터를 읽어 보는 시험은 하지 않았어요.",
           evidence: [
             {
               id: id("ev"),
               kind: "http_response",
-              label: "CORS 헤더",
+              label: "다른 사이트의 요청 허용 설정(CORS 헤더)",
               content: `access-control-allow-origin: ${acao}\naccess-control-allow-credentials: ${acac}`,
             },
           ],
           remediation:
-            "와일드카드 origin과 credentials를 함께 쓰지 마세요. 신뢰하는 특정 origin만 허용하세요.",
+            "Access-Control-Allow-Origin에 '*' 대신 이 API를 불러도 되는 내 사이트 주소만 적어 주세요. 로그인 정보가 필요 없는 API라면 Access-Control-Allow-Credentials를 꺼 주세요.",
           status: "detected",
           simulated: false,
           verificationKey: `cors:${context.projectId}`,

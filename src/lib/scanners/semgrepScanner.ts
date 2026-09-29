@@ -51,19 +51,71 @@ interface SemgrepHit {
   cwe?: string;
 }
 
-const CLASS_TEXT: Record<string, { title: string; impact: string }> = {
-  sqli: { title: "데이터베이스 쿼리에 입력값이 직접 조립됩니다 (SQL 인젝션)", impact: "공격자가 쿼리 구조를 바꿔 데이터를 훔치거나 지울 수 있습니다." },
-  cmd: { title: "입력값으로 시스템 명령이나 코드가 실행됩니다 (인젝션)", impact: "공격자가 서버에서 원하는 명령을 실행할 수 있습니다." },
-  xss: { title: "사용자 입력이 그대로 화면에 삽입될 수 있습니다 (XSS)", impact: "공격자의 스크립트가 방문자 브라우저에서 실행될 수 있습니다." },
-  path: { title: "사용자 입력이 파일 경로로 그대로 사용됩니다 (경로 트래버설)", impact: "허용된 폴더 밖의 파일이 읽히거나 바뀔 수 있습니다." },
-  ssrf: { title: "사용자 입력 URL로 서버가 요청을 보냅니다 (SSRF)", impact: "공격자가 서버를 통해 내부 서비스에 접근할 수 있습니다." },
-  redirect: { title: "사용자 입력으로 다른 사이트로 이동시킵니다 (오픈 리다이렉트)", impact: "피싱 사이트로 사용자를 보내는 데 악용될 수 있습니다." },
-  jwt: { title: "토큰 서명을 제대로 검증하지 않습니다", impact: "공격자가 만든 토큰으로 다른 사용자인 척할 수 있습니다." },
-  crypto: { title: "약한 암호화 방식을 씁니다", impact: "암호화된 데이터가 풀리거나 위조될 수 있습니다." },
-  random: { title: "보안 값을 예측 가능한 난수로 만듭니다", impact: "공격자가 토큰이나 비밀번호 재설정 값을 맞힐 수 있습니다." },
-  deser: { title: "신뢰할 수 없는 데이터를 역직렬화합니다", impact: "공격자가 서버에서 코드를 실행할 수 있습니다." },
-  proto: { title: "프로토타입 오염이 가능합니다", impact: "앱 전체 객체의 동작이 공격자 뜻대로 바뀔 수 있습니다." },
-  secret: { title: "비밀 값이 코드에 직접 적혀 있습니다", impact: "코드를 볼 수 있는 누구나 이 값으로 시스템에 접근할 수 있습니다." },
+/**
+ * 문제 종류별 쉬운 안내. 제목은 findingMerge.issueClass의 키워드 분류가 같은 종류로
+ * 나오도록 골랐다(CWE가 없는 Semgrep 결과는 제목으로 분류된다).
+ */
+export const SEMGREP_CLASS_TEXT: Record<string, { title: string; impact: string; remediation: string }> = {
+  sqli: {
+    title: "사용자가 보낸 값으로 데이터베이스 쿼리를 직접 만들고 있어요 (SQL 인젝션)",
+    impact: "누군가 입력값에 쿼리 조각을 섞어 보내면 저장된 데이터가 밖으로 새거나 지워질 수 있어요.",
+    remediation: "값을 SQL 문장에 직접 이어 붙이지 말고, 자리 표시자(? 또는 $1)를 쓰고 값은 따로 넘기는 방식(파라미터 바인딩)으로 바꿔 주세요.",
+  },
+  cmd: {
+    title: "입력값으로 서버에서 코드나 명령이 실행될 수 있어요 (코드·커맨드 인젝션)",
+    impact: "누군가 값을 조작해 보내면 서버에서 원하지 않는 명령이나 코드가 실행될 수 있어요.",
+    remediation: "eval이나 셸 명령에 입력값을 넣지 말아 주세요. 명령이 꼭 필요하면 execFile처럼 명령과 값을 따로 넘기고, 허용할 값의 목록을 정해 주세요.",
+  },
+  xss: {
+    title: "사용자가 입력한 글이 화면에서 코드처럼 실행될 수 있어요 (XSS)",
+    impact: "누군가 심어 둔 스크립트가 이 화면을 여는 사람의 브라우저에서 실행될 수 있어요.",
+    remediation: "사용자가 입력한 글을 HTML로 넣지 말고 글자로만 표시하도록 바꿔 주세요. 꼭 HTML이 필요하면 DOMPurify 같은 검증된 도구로 위험한 태그를 지운 뒤 넣어 주세요.",
+  },
+  path: {
+    title: "사용자가 보낸 값이 파일 경로로 그대로 쓰일 수 있어요 (경로 트래버설)",
+    impact: "허용한 폴더 밖에 있는 서버 파일을 읽거나 바꿀 수 있어요.",
+    remediation: "path.resolve로 경로를 정리한 뒤 허용한 폴더 안인지(startsWith) 확인하고, 아니면 거절해 주세요.",
+  },
+  ssrf: {
+    title: "사용자가 준 주소로 서버가 대신 요청을 보내요 (SSRF)",
+    impact: "누군가 서버를 거쳐 밖에서는 닿지 않는 내부 서비스에 요청을 보낼 수 있어요.",
+    remediation: "서버가 요청을 보낼 수 있는 주소를 허용 목록으로 정하고, 그 밖의 주소나 내부 주소(localhost, 사설 IP)는 거절해 주세요.",
+  },
+  redirect: {
+    title: "사용자가 준 주소로 방문자를 다른 사이트로 보낼 수 있어요 (오픈 리다이렉트)",
+    impact: "이 사이트 주소처럼 보이는 링크로 사람들을 가짜 사이트에 보내는 데 쓰일 수 있어요.",
+    remediation: "이동할 주소를 내 사이트 안의 경로나 허용 목록에 있는 주소로만 받도록 바꿔 주세요.",
+  },
+  jwt: {
+    title: "로그인 토큰의 서명을 제대로 확인하지 않아요",
+    impact: "누군가 직접 만든 토큰으로 다른 사용자인 척 로그인할 수 있어요.",
+    remediation: "토큰을 쓸 때 decode가 아니라 verify로 서명을 확인하고, 허용할 알고리즘을 정해 주세요.",
+  },
+  crypto: {
+    title: "쉽게 풀리는 약한 암호화 방식을 쓰고 있어요",
+    impact: "암호화한 데이터가 풀리거나 다른 사람이 위조할 수 있어요.",
+    remediation: "MD5, SHA-1, DES 같은 오래된 방식 대신 AES-GCM이나 SHA-256 이상을 쓰고, 비밀번호 저장에는 bcrypt나 Argon2를 써 주세요.",
+  },
+  random: {
+    title: "보안에 쓰는 값을 예측 가능한 난수로 만들어요",
+    impact: "누군가 토큰이나 비밀번호 재설정 값을 맞힐 수 있어요.",
+    remediation: "Math.random 대신 crypto.randomBytes나 crypto.randomUUID로 값을 만들어 주세요.",
+  },
+  deser: {
+    title: "믿을 수 없는 데이터를 객체로 되살리고 있어요 (역직렬화)",
+    impact: "누군가 조작한 데이터를 보내 서버에서 코드가 실행되게 할 수 있어요.",
+    remediation: "바깥에서 온 데이터는 JSON.parse처럼 데이터만 읽는 방식으로 처리하고, 코드까지 되살리는 라이브러리는 쓰지 말아 주세요.",
+  },
+  proto: {
+    title: "바깥 값으로 모든 객체의 기본 동작을 바꿀 수 있어요 (프로토타입 오염)",
+    impact: "앱 곳곳의 객체가 다른 사람이 정한 대로 동작하게 될 수 있어요.",
+    remediation: "객체를 합치거나 값을 넣을 때 __proto__, constructor, prototype 같은 키는 거절해 주세요.",
+  },
+  secret: {
+    title: "비밀키가 코드에 직접 들어 있어요",
+    impact: "코드를 볼 수 있는 사람은 누구나 이 값으로 연결된 서비스에 접속할 수 있어요.",
+    remediation: "비밀키를 코드에서 빼고 배포 서비스의 비밀 설정(환경변수)에 저장해 주세요. 이미 공개된 키라면 새 키를 발급하고 기존 키는 사용할 수 없게 해야 해요.",
+  },
 };
 
 function mapSeverity(sev: string, cls: string | null): SecurityFinding["severity"] {
@@ -148,24 +200,29 @@ function cachedRun(bin: string, files: Record<string, string>, configs: string[]
 
 function toFinding(h: SemgrepHit, files: Record<string, string>): SecurityFinding {
   const cls = issueClass({ cwe: h.cwe, title: `${h.checkId} ${h.message}`, category: "" });
-  const text = cls ? CLASS_TEXT[cls] : undefined;
+  const text = cls ? SEMGREP_CLASS_TEXT[cls] : undefined;
   const lineText = (files[h.file].split("\n")[h.line - 1] ?? "").trim().slice(0, 300);
+  const shortRule = h.checkId.split(".").pop();
   return {
     id: id("finding"),
     scanId: "",
-    title: text?.title ?? `Semgrep 규칙에 걸린 코드가 있어요 (${h.checkId.split(".").pop()})`,
+    title: text?.title ?? `Semgrep 규칙에 걸린 코드가 있어요 (${shortRule})`,
     severity: mapSeverity(h.severity, cls),
     category: "Semgrep",
     cwe: h.cwe,
     description: `Semgrep ${h.checkId}: ${h.message}`,
-    humanReadableImpact: text?.impact ?? h.message,
-    whyItMatters: text?.impact ?? h.message,
+    // Semgrep 메시지는 영어라 화면 설명에는 쓰지 않고 근거(Semgrep 출력)에만 남긴다.
+    humanReadableImpact:
+      text?.impact ?? "Semgrep 규칙이 이 줄을 보안 문제가 생길 수 있는 코드로 표시했어요. 어떤 문제인지는 근거의 Semgrep 규칙 설명(영어)에 적혀 있어요.",
+    whyItMatters: `코드에서 확인했어요: 공개 점검 규칙 모음(Semgrep)의 ${shortRule} 규칙이 이 줄에 걸렸어요. 실제로 문제가 생기는지는 실행해 확인하지 않았어요.`,
     location: { file: h.file, line: h.line },
     evidence: [
       { id: id("ev"), kind: "source_code", label: `${h.file}:${h.line}`, content: lineText, language: "typescript" },
-      { id: id("ev"), kind: "scanner_output", label: "Semgrep 출력", content: `규칙: ${h.checkId}\n메시지: ${h.message}` },
+      { id: id("ev"), kind: "scanner_output", label: "Semgrep 출력(규칙 설명은 영어)", content: `규칙: ${h.checkId}\n메시지: ${h.message}` },
     ],
-    remediation: h.message,
+    remediation:
+      text?.remediation ??
+      "근거에 있는 Semgrep 규칙 설명(영어)을 보고 이 줄을 고친 뒤 다시 점검해 주세요. 어떻게 고칠지 정하기 어렵다면 이 규칙 이름으로 공식 문서를 찾아보세요.",
     status: "detected",
     simulated: false,
     verificationKey: `semgrep:${h.checkId}:${h.file}:${h.line}`,

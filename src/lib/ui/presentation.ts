@@ -201,13 +201,13 @@ export interface FindingSummary {
   message: string;
 }
 
-export const RESOLVED_FINDING_TITLE = "잘 막았어요! 한 단계 더 튼튼해졌어요";
+export const RESOLVED_FINDING_TITLE = "잘 막았어요. 한 단계 더 튼튼해졌어요";
 
 const FINDING_MESSAGE: Record<FindingStatus, string> = {
   detected: "확인이 필요한 곳이에요. 아래 설명을 보고 차근차근 고쳐봐요.",
   verified: "실제로 문제가 생기는 걸 확인했어요. 수정안을 만들어 같이 고쳐요.",
   fixing: "지금 고치는 중이에요. 준비되면 다음 단계를 알려드릴게요.",
-  fixed: "수정을 적용했어요. 다시 확인해서 잘 막히는지 봐요.",
+  fixed: "수정 내용을 적용했어요. 문제가 해결됐는지 다시 확인해 주세요.",
   verification_failed: "아직 완전히 막히지 않았어요. 수정안을 다시 살펴보고 한 번 더 확인해요.",
   regression_failed: "기존 기능 하나가 달라졌어요. 수정안을 같이 다시 살펴봐요.",
   resolved: "같은 공격을 다시 해 보고, 기존 기능도 그대로인지 확인했어요.",

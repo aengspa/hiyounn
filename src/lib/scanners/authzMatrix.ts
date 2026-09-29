@@ -27,7 +27,7 @@ Output exactly one JSON object:
   "admin": "required" | "none" | "n/a" | "unknown",
   "ownership": "checked" | "missing" | "n/a" | "unknown",
   "mutates": true | false,
-  "notes": "한국어 한 문장(선택)"
+  "notes": "한국어 한 문장(선택): 어떤 코드에서 로그인·관리자·소유자 확인을 찾았는지 또는 찾지 못했는지"
 } ] }
 
 How to decide (follow middleware through app.use mounts and imports in the project map):
@@ -98,39 +98,60 @@ interface GapRule {
   title: string;
   cwe: string;
   severity: (e: RouteAuthzEntry) => SecurityFinding["severity"];
-  impact: string;
+  /** 누구에게 어떤 일이 생길 수 있는지(humanReadableImpact). */
+  impact: (e: RouteAuthzEntry) => string;
+  /** 어떤 코드 처리 때문에 그렇게 판단했는지 + 확인하지 못한 조건(whyItMatters). */
+  why: string;
   remediation: string;
 }
+
+/** 표 값(기술 값)을 사용자용 설명으로 바꾼다. 원래 값은 증거 항목에 그대로 남긴다. */
+const CHECK_LABEL: Record<string, string> = {
+  required: "있음",
+  checked: "있음",
+  none: "없음",
+  missing: "없음",
+  public: "로그인 없이 쓰도록 만든 기능",
+  "n/a": "해당 없음",
+  unknown: "코드로 확인하지 못함",
+};
+const checkLabel = (v: string) => CHECK_LABEL[v] ?? v;
 
 const GAP_RULES: GapRule[] = [
   {
     key: "no-auth-mutation",
     // "public"(로그인 없이 쓰도록 만든 흐름)은 빈틈이 아니다. 여기에 로그인을 붙이면 기능이 깨진다.
     applies: (e) => e.mutates && e.auth === "none",
-    title: "로그인 없이 데이터를 바꿀 수 있어요",
+    title: "로그인하지 않아도 데이터를 바꿀 수 있는지 확인이 필요해요",
     cwe: "CWE-306",
     severity: () => "high",
-    impact: "로그인하지 않은 사람도 이 요청으로 데이터를 만들거나 바꾸거나 지울 수 있어요.",
-    remediation: "이 라우트에 로그인 확인 미들웨어를 붙이고, 확인되지 않은 요청은 401로 거절하세요.",
+    impact: () => "로그인하지 않은 사람도 이 요청으로 데이터를 만들거나 바꾸거나 지울 수 있어요.",
+    why: "이 요청은 데이터를 바꾸는데, 연결된 코드에서 로그인한 사람만 통과시키는 처리를 찾지 못했어요. 코드에서 확인한 결과이고, 코드에 없는 배포 설정 등에서 로그인을 확인한다면 문제가 아닐 수 있어요.",
+    remediation: "이 요청을 처리하기 전에 로그인했는지 확인하는 코드(로그인 확인 미들웨어)를 붙여 주세요. 로그인하지 않은 요청은 401 응답으로 거절하도록 바꿔 주세요.",
   },
   {
     key: "no-admin-check",
     applies: (e) => e.admin === "none",
-    title: "관리자 확인 없이 관리자 기능을 쓸 수 있어요",
+    title: "관리자가 아니어도 관리자 기능을 쓸 수 있는지 확인이 필요해요",
     cwe: "CWE-285",
     severity: (e) => (e.mutates ? "critical" : "high"),
-    impact: "일반 사용자가 관리자만 써야 하는 기능(사용자 삭제 등)을 실행할 수 있어요.",
-    remediation: "관리자 권한 확인(예: requireAdmin)을 이 라우트에 붙이고, 권한이 없으면 403으로 거절하세요.",
+    impact: (e) => `관리자가 아닌 사용자도 관리자용 요청(${e.method} ${e.path})을 실행할 수 있어요.`,
+    why: "관리자용 기능으로 보이는 요청인데, 요청한 사람이 관리자인지 확인하는 코드를 찾지 못했어요. 코드에서 확인한 결과이고, 코드에 없는 설정에서 관리자를 확인한다면 문제가 아닐 수 있어요.",
+    remediation: "이 요청을 처리하기 전에 요청한 사람이 관리자인지 확인하는 코드(예: requireAdmin)를 붙여 주세요. 관리자가 아니면 403 응답으로 거절하도록 바꿔 주세요.",
   },
   {
     key: "no-ownership-check",
     // 관리자 기능은 소유자가 아니라 관리자 확인이 기준이다(그 빈틈은 no-admin-check가 잡는다).
     applies: (e) => e.ownership === "missing" && (e.admin === "n/a" || e.admin === "unknown"),
-    title: "다른 사용자의 데이터에 접근할 수 있어요 (소유자 확인 누락)",
+    title: "다른 사람의 정보를 보거나 바꿀 수 있는지 확인이 필요해요",
     cwe: "CWE-639",
     severity: (e) => (e.mutates ? "critical" : "high"),
-    impact: "id만 바꾸면 다른 사용자의 데이터를 보거나 바꿀 수 있어요.",
-    remediation: "조회한 객체의 소유자가 현재 로그인 사용자와 같은지 확인하거나, 조회 조건에 현재 사용자를 넣으세요.",
+    impact: (e) =>
+      e.mutates
+        ? "요청에 들어가는 id 값만 바꾸면 다른 사람의 정보를 바꾸거나 지울 수 있어요."
+        : "요청에 들어가는 id 값만 바꾸면 다른 사람의 정보를 볼 수 있어요.",
+    why: "요청에 들어온 id로 정보 하나를 골라 다루는데, 그 정보가 현재 로그인한 사람의 것인지 확인하는 부분(소유자 확인)을 찾지 못했어요.",
+    remediation: "정보를 보여 주거나 바꾸기 전에 그 정보가 현재 로그인한 사람의 것인지 확인하도록 바꿔 주세요. 예를 들어 조회 조건에 현재 로그인한 사용자의 id를 함께 넣을 수 있어요.",
   },
 ];
 
@@ -148,9 +169,9 @@ export function findingsFromAuthzMatrix(entries: RouteAuthzEntry[]): SecurityFin
         category: "Broken Access Control",
         owasp: "A01 – Broken Access Control",
         cwe: rule.cwe,
-        description: `권한 확인 표: ${e.method} ${e.path} (로그인 ${e.auth}, 관리자 ${e.admin}, 소유자 확인 ${e.ownership}).${e.notes ? ` ${e.notes}` : ""}`,
-        humanReadableImpact: rule.impact,
-        whyItMatters: rule.impact,
+        description: `${e.method} ${e.path} 요청에서 코드로 확인한 내용: 로그인 확인 ${checkLabel(e.auth)}, 관리자 확인 ${checkLabel(e.admin)}, 정보 주인 확인 ${checkLabel(e.ownership)}.${e.notes ? ` ${e.notes}` : ""}`,
+        humanReadableImpact: rule.impact(e),
+        whyItMatters: rule.why,
         location: { file: e.file, line: e.line },
         evidence: [
           { id: id("ev"), kind: "source_code", label: `${e.file}:${e.line}`, content: e.snippet, language: "typescript" },
@@ -158,7 +179,7 @@ export function findingsFromAuthzMatrix(entries: RouteAuthzEntry[]): SecurityFin
             id: id("ev"),
             kind: "scanner_output",
             label: "라우트 권한 확인 표",
-            content: `라우트: ${e.method} ${e.path}\n로그인: ${e.auth}\n관리자: ${e.admin}\n소유자 확인: ${e.ownership}\n데이터 변경: ${e.mutates ? "예" : "아니오"}${e.notes ? `\n메모: ${e.notes}` : ""}`,
+            content: `라우트: ${e.method} ${e.path}\n로그인 확인: ${checkLabel(e.auth)} (${e.auth})\n관리자 확인: ${checkLabel(e.admin)} (${e.admin})\n정보 주인 확인: ${checkLabel(e.ownership)} (${e.ownership})\n데이터 변경: ${e.mutates ? "예" : "아니오"}${e.notes ? `\n메모: ${e.notes}` : ""}`,
           },
         ],
         remediation: rule.remediation,

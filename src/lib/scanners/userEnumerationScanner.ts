@@ -137,7 +137,7 @@ export class UserEnumerationScanner implements SecurityScanner {
       {
         id: id("ev"),
         kind: "http_request",
-        label: "프로브 A (없는 계정) / 프로브 B (있을 법한 계정)",
+        label: "보낸 요청 A(없는 계정) / B(있을 법한 계정)",
         content: `POST ${url}\nA: ${PROBE_A.email}\nB: ${PROBE_B.email}\n(둘 다 잘못된 비밀번호 — 비파괴)`,
       },
       {
@@ -149,7 +149,7 @@ export class UserEnumerationScanner implements SecurityScanner {
       {
         id: id("ev"),
         kind: "scanner_output",
-        label: "사용자 열거 판정 근거",
+        label: "두 응답이 달랐던 부분",
         content: `구분 가능 신호:\n- ${verdict.reasons.join("\n- ")}`,
       },
     ];
@@ -158,20 +158,19 @@ export class UserEnumerationScanner implements SecurityScanner {
       {
         id: id("finding"),
         scanId: "",
-        title: "로그인 응답으로 가입된 이메일을 알아낼 수 있습니다",
+        title: "로그인 응답만 보고 가입된 이메일인지 알아낼 수 있어요",
         severity: "medium",
         category: "User Enumeration",
         owasp: "A07 – Identification and Authentication Failures",
         cwe: "CWE-204",
         cvss: 5.3,
-        description: `로그인 응답이 계정 존재 여부에 따라 다릅니다: ${verdict.reasons.join(", ")}.`,
+        description: `로그인 응답이 계정이 있는지에 따라 달라요: ${verdict.reasons.join(", ")}.`,
         humanReadableImpact:
-          "공격자가 어떤 이메일이 가입되어 있는지 응답 차이로 알아내, 표적 피싱이나 비밀번호 대입 공격의 대상을 좁힐 수 있습니다.",
-        whyItMatters:
-          "가입 여부가 노출되면 이후 공격(피싱·크리덴셜 스터핑)이 훨씬 수월해집니다.",
+          "누군가 여러 이메일을 넣어 보며 어떤 이메일이 가입돼 있는지 알아낼 수 있어요. 알아낸 이메일은 비밀번호 대입이나 사칭 메일에 쓰일 수 있어요.",
+        whyItMatters: `없는 이메일과 있을 법한 이메일(${PROBE_B.email})에 모두 틀린 비밀번호를 넣어 로그인 요청을 실제로 보내 봤어요. 두 응답이 달랐어요: ${verdict.reasons.join(", ")}. ${PROBE_B.email}이 실제로 가입된 계정인지는 확인하지 않았어요.`,
         evidence,
         remediation:
-          "로그인·비밀번호 찾기 응답을 계정 존재 여부와 무관하게 동일한 일반 메시지·동일 상태코드로 통일하고, 응답 시간도 균일화(더미 해시 검증)하세요.",
+          "로그인과 비밀번호 찾기에서 이메일이 있든 없든 같은 안내 문구와 같은 상태 코드를 돌려주세요. 없는 이메일일 때도 비밀번호 확인과 비슷한 시간이 걸리도록 맞춰 주세요.",
         status: "verified",
         simulated: false,
         verificationKey: `enum:${context.projectId}`,

@@ -500,7 +500,7 @@ export class DependencyScanner implements SecurityScanner {
         {
           id: id("ev"),
           kind: "scanner_output",
-          label: "OSV.dev 조회 결과",
+          label: "공개 보안 문제 목록(OSV.dev) 조회 결과",
           content: r.vulns
             .map(
               (v) =>
@@ -521,21 +521,20 @@ export class DependencyScanner implements SecurityScanner {
       findings.push({
         id: id("finding"),
         scanId: "",
-        title: "알려진 취약점이 있는 라이브러리를 사용 중입니다",
+        // 제목에 패키지 이름을 넣지 않는다(이름의 단어가 findingMerge의 문제 종류 분류를 바꿀 수 있음).
+        title: "프로젝트에서 사용하는 외부 도구의 현재 버전에 알려진 보안 문제가 있어요",
         severity: maxCvss >= 9 ? "critical" : maxCvss >= 7 ? "high" : maxCvss > 0 ? "medium" : "medium",
         category: "Vulnerable Dependencies",
         owasp: "A06 – Vulnerable and Outdated Components",
         cwe: "CWE-1035",
         cvss: maxCvss || undefined,
-        description: `${r.name}@${r.version}에 알려진 취약점이 있습니다 (OSV: ${ids}).`,
-        humanReadableImpact:
-          "사용 중인 라이브러리에 공개적으로 알려진 보안 취약점이 있어, 공격자가 그 결함을 노릴 수 있습니다.",
-        whyItMatters:
-          "공격자는 알려진 취약점이 있는 라이브러리 버전을 쓰는 앱을 자동으로 찾아다닙니다.",
+        description: `${r.name}@${r.version}에 알려진 보안 문제가 있어요 (OSV: ${ids}).`,
+        humanReadableImpact: `${r.name} ${r.version} 버전에 공개된 보안 문제가 ${r.vulns.length}건 있어요. 이 프로젝트가 문제가 된 기능을 쓰고 있다면, 누군가 이 알려진 문제를 노려 공격할 수 있어요.`,
+        whyItMatters: `공개 보안 문제 목록(OSV.dev)을 조회해 ${r.name} ${r.version} 버전이 영향을 받는다고 확인했어요 (${ids}). 이 프로젝트 코드가 문제가 된 기능을 실제로 쓰는지, 실제로 악용될 수 있는지는 확인하지 않았어요.`,
         evidence,
         remediation: fixed
-          ? `${r.name}을(를) ${fixed} 이상으로 업데이트하세요.`
-          : `${r.name}을(를) 취약점이 해결된 최신 버전으로 업데이트하세요.`,
+          ? `${r.name}을(를) ${fixed} 이상 버전으로 올린 뒤, 앱이 평소처럼 동작하는지 확인해 주세요.`
+          : `${r.name}에 문제가 고쳐진 새 버전이 있는지 확인해 올려 주세요. 아직 고쳐진 버전이 없다면 다른 도구로 바꿀지 검토해 주세요.`,
         status: "detected",
         simulated: false, // 실제 OSV 조회 결과
         verificationKey: `dep:${r.name}`,
@@ -554,26 +553,25 @@ export class DependencyScanner implements SecurityScanner {
         findings.push({
           id: id("finding"),
           scanId: "",
-          title: "알려진 취약점이 있는 라이브러리를 사용 중입니다 (오프라인 판정)",
+          title: "프로젝트에서 사용하는 외부 도구의 현재 버전에 알려진 보안 문제가 있어요 (인터넷 조회 없이 판정)",
           severity: known.cvss >= 7 ? "high" : "medium",
           category: "Vulnerable Dependencies",
           owasp: "A06 – Vulnerable and Outdated Components",
           cwe: "CWE-1035",
           cvss: known.cvss,
-          description: `${known.pkg}@${installed} 버전이 패치 버전 ${known.vulnerableBelow}보다 낮습니다 (OSV 조회 실패 — 오프라인 목록으로 판정).`,
-          humanReadableImpact:
-            "사용 중인 라이브러리가 알려진 취약점이 있는 오래된 버전입니다.",
+          description: `${known.pkg}@${installed} 버전이 문제가 고쳐진 버전 ${known.vulnerableBelow}보다 낮아요 (OSV 조회 실패 — 내장 목록으로 판정).`,
+          humanReadableImpact: `${known.pkg} ${installed} 버전은 보안 문제가 고쳐진 ${known.vulnerableBelow} 버전보다 낮아요. 이 프로젝트가 문제가 된 기능을 쓰고 있다면, 누군가 이 알려진 문제를 노려 공격할 수 있어요.`,
           whyItMatters:
-            "네트워크가 없어 OSV.dev 실시간 조회에 실패했고, 최소한의 오프라인 목록으로만 판정했습니다. 온라인에서 다시 스캔하면 더 정확합니다.",
+            "공개 보안 문제 목록(OSV.dev)에 연결하지 못해, 미리 넣어 둔 짧은 목록과 버전만 비교했어요. 이 프로젝트에서 실제로 악용될 수 있는지는 확인하지 않았어요. 인터넷에 연결된 상태로 다시 점검하면 더 정확해요.",
           evidence: [
             {
               id: id("ev"),
               kind: "scanner_output",
-              label: "의존성 스캐너 출력 (오프라인 폴백)",
+              label: "버전 비교 결과 (인터넷 조회 없이 판정)",
               content: `패키지: ${known.pkg}\n설치됨: ${installed}\n패치 버전: ${known.vulnerableBelow}\n참고: ${known.osvId}`,
             },
           ],
-          remediation: `${known.pkg}을(를) ${known.vulnerableBelow} 이상으로 업데이트하세요.`,
+          remediation: `${known.pkg}을(를) ${known.vulnerableBelow} 이상 버전으로 올린 뒤, 앱이 평소처럼 동작하는지 확인해 주세요.`,
           status: "detected",
           simulated: true, // OSV 실패 시 폴백 — 실제 조회 아님
           verificationKey: `dep:${known.pkg}`,

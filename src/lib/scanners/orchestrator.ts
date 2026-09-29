@@ -34,6 +34,18 @@ import { assertRegisteredRule, assertRegisteredTool, assertTierAllowed, assertNo
 import type { SecurityRule } from "@/lib/rules/types";
 import { ASVS5_STATIC_SIGNALS } from "@/lib/rules/asvs5Catalog";
 
+/** 확인하지 못한 검사 이유에 보여 줄 선행 조건의 쉬운 이름. */
+const PREREQUISITE_KO: Record<string, string> = {
+  source_checkout: "올린 코드",
+  authorized_test_deployment: "주인임을 확인한 배포 주소",
+  linked_baas_project: "연결된 데이터베이스 서비스(Supabase·Firebase) 정보",
+  test_user_a: "시험용 계정 A",
+  test_user_b: "시험용 계정 B",
+  object_owned_by_a: "계정 A가 가진 시험용 데이터",
+  object_owned_by_b: "계정 B가 가진 시험용 데이터",
+  admin_session: "시험용 관리자 계정",
+};
+
 const UNTESTED_CATEGORIES = ["Complex Business Logic", "Social Engineering", "DDoS", "Internal Infrastructure", "Advanced Supply Chain Attacks"];
 
 /** Existing scanners support only these exact checks; new declaration-only checks stay gaps. */
@@ -101,7 +113,7 @@ export class SecurityOrchestrator {
     for (const rule of getRules()) {
       if (!MODE_INCLUDES[modeForContext(context)].includes(rule.mode)) continue;
       if (rule.mode === "A" && !Object.keys(context.files).length) {
-        for (const check of rule.checks) coverageGaps.push({ ruleId: rule.id, checkId: check.id, reason: "소스가 없어 정적 점검을 수행하지 못했습니다." });
+        for (const check of rule.checks) coverageGaps.push({ ruleId: rule.id, checkId: check.id, reason: "올린 코드가 없어 코드 점검을 하지 못했어요." });
         continue;
       }
       if (!selectorMatches(rule.selector, context)) continue;
@@ -126,12 +138,12 @@ export class SecurityOrchestrator {
     }
     for (const check of rule.checks) {
       let reason = gateReason;
-      if (check.when && !conditionMatches(check.when, context)) reason ||= "체크의 실행 조건에 필요한 입력이 없습니다.";
+      if (check.when && !conditionMatches(check.when, context)) reason ||= "이 검사에 필요한 정보가 없어 하지 않았어요.";
       const missing = (rule.prerequisites[check.method] ?? []).filter((p) => prereq.missing.includes(p));
-      if (missing.length) reason ||= `선행 조건 부족: ${missing.join(", ")}`;
+      if (missing.length) reason ||= `준비되지 않은 것이 있어 하지 않았어요: ${missing.map((p) => PREREQUISITE_KO[p] ?? p).join(", ")}`;
       const internalDemoCheck = context.isUserProject === false && rule.id === "WEB-002";
-      if (rule.mode !== "A" && !internalDemoCheck && !context.ownershipVerified) reason ||= "DNS/파일 토큰으로 검증된 대상 소유권이 필요합니다.";
-      if (!supportsNewToolCheck(check) && !legacyChecks.has(`${rule.id}/${check.id}`)) reason ||= "현재 구현에서 이 체크를 실행하지 못합니다.";
+      if (rule.mode !== "A" && !internalDemoCheck && !context.ownershipVerified) reason ||= "사이트 주인임을 확인(DNS 또는 파일 확인 값)하지 않아 실제 사이트에 요청을 보내는 검사는 하지 않았어요.";
+      if (!supportsNewToolCheck(check) && !legacyChecks.has(`${rule.id}/${check.id}`)) reason ||= "아직 이 검사를 실행하는 기능이 없어 하지 않았어요.";
       if (reason) gaps.push({ ruleId: rule.id, checkId: check.id, reason });
       else selected.push({ ruleId: rule.id, ruleVersion: rule.version, componentId: context.projectId, checkId: check.id,
         toolId: check.toolId, tier: rule.execution.tier, prerequisiteStatus: "READY" });

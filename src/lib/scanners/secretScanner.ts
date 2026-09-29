@@ -169,6 +169,27 @@ export function ruleForFinding(finding: SecurityFinding): SecretRule | undefined
   return RULES.find((rule) => scannerOutput?.includes(`규칙: ${rule.name}`));
 }
 
+/** 화면에 보여 줄 비밀값 종류(규칙 이름은 기술 정보로 근거에 그대로 남긴다). */
+const SECRET_KIND_KO: Record<string, string> = {
+  "Stripe live secret key": "Stripe 결제 비밀키",
+  "OpenAI API key": "OpenAI API 키",
+  "AWS access key ID": "AWS 접속 키",
+  "GitHub token": "GitHub 접속 토큰",
+  "Slack token": "Slack 접속 토큰",
+  "Google API key": "Google API 키",
+  "Private key block": "서명·암호화에 쓰는 개인 키",
+  "Supabase service role / secret key": "Supabase 관리자 키",
+  "Hardcoded database password": "데이터베이스 비밀번호",
+  "Generic hardcoded credential": "비밀키나 토큰으로 보이는 값",
+};
+
+function secretTitle(ruleName: string, isEnvFile: boolean): string {
+  if (isEnvFile) return "비밀값이 적힌 .env 파일이 코드와 함께 들어 있어요";
+  if (ruleName === "Hardcoded database password") return "데이터베이스 비밀번호가 코드에 직접 들어 있어요";
+  if (ruleName === "Private key block") return "서명·암호화에 쓰는 개인 키가 코드에 직접 들어 있어요";
+  return "외부 서비스에 접속할 때 쓰는 비밀키가 코드에 직접 들어 있어요";
+}
+
 export class SecretScanner implements SecurityScanner {
   readonly name = "secret-scanner";
   readonly displayName = "Secret scanning";
@@ -200,34 +221,33 @@ export class SecretScanner implements SecurityScanner {
         {
           id: id("ev"),
           kind: "scanner_output",
-          label: "비밀정보 스캐너 출력",
+          label: "비밀키 찾기 결과 (값은 가려서 보여 드려요)",
           content: `규칙: ${rule.name}\n파일: ${file}\n줄: ${lineNumber}\n일치: ${shortMask(raw)}`,
           masked: true,
         },
       ];
 
       const isEnvFile = file.endsWith(".env");
+      const kind = SECRET_KIND_KO[rule.name] ?? "비밀값";
 
       findings.push({
         id: id("finding"),
         scanId: "",
-        title: isEnvFile
-          ? "비밀번호가 커밋된 파일에 저장되어 있습니다"
-          : "비밀 키가 코드에 직접 적혀 있습니다",
+        title: secretTitle(rule.name, isEnvFile),
         severity: "critical",
         category: rule.category,
         owasp: "A07 – Identification and Authentication Failures",
         cwe: "CWE-798",
         cvss: 9.1,
-        description: `규칙 "${rule.name}"이(가) ${file} 파일 ${lineNumber}번째 줄에서 일치했습니다.`,
+        description: `규칙 "${rule.name}"이(가) ${file} 파일 ${lineNumber}번째 줄에서 일치했어요.`,
         humanReadableImpact:
-          "데이터베이스나 백엔드를 여는 비밀 값이, 코드를 볼 수 있는 사람이면 누구나 읽을 수 있는 곳에 적혀 있습니다.",
-        whyItMatters:
-          "이 파일을 보는 사람(동료, 유출된 저장소, 브라우저 번들 등) 누구나 이 비밀 값으로 모든 데이터를 읽거나 바꿀 수 있습니다.",
+          "코드를 볼 수 있는 사람은 누구나 이 값을 복사해 쓸 수 있어요. 이 값으로 연결된 서비스에 이 프로젝트인 것처럼 접속해 데이터를 보거나 바꿀 수 있어요.",
+        whyItMatters: `코드에서 확인했어요: ${file} ${lineNumber}번째 줄에 ${kind} 형식의 값이 직접 적혀 있어요. 이 값이 지금 실제로 쓰이는 키인지, 이미 밖으로 공개됐는지는 확인하지 않았어요.`,
         location: { file, line: lineNumber },
         evidence,
-        remediation:
-          "비밀 값을 서버에서만 접근 가능한 환경변수로 옮기고, 노출된 값은 재발급(rotate)하세요.",
+        remediation: isEnvFile
+          ? "이 파일의 비밀값은 배포 서비스의 비밀 설정(환경변수)에 저장하고, .env 파일은 .gitignore에 넣어 코드와 함께 올리지 않도록 해 주세요. 이미 공개된 키라면 새 키를 발급하고 기존 키는 사용할 수 없게 해야 해요."
+          : "비밀키를 코드에서 빼고 배포 서비스의 비밀 설정(환경변수)에 저장한 뒤, 코드에서는 그 설정을 읽어 쓰도록 바꿔 주세요. 이미 공개된 키라면 새 키를 발급하고 기존 키는 사용할 수 없게 해야 해요.",
         status: "detected",
         simulated: false,
         verificationKey: `secret:${file}:${lineNumber}`,

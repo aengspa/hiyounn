@@ -9,7 +9,13 @@ import {
   runScan,
   NotAuthorizedError,
 } from "@/lib/store/store";
-import { isStale, loadFixJob, readFixJobArtifact, startFixAll } from "@/lib/fixjobs/fixAllService";
+import {
+  APPLIED_UNVERIFIED_REASON,
+  isStale,
+  loadFixJob,
+  readFixJobArtifact,
+  startFixAll,
+} from "@/lib/fixjobs/fixAllService";
 import type { generateLlmFileFix } from "@/lib/remediation/llmFileFix";
 import type { FixAttempt } from "@/lib/domain/types";
 import { LIMITS } from "@/lib/config/limits";
@@ -110,6 +116,15 @@ describe("startFixAll", () => {
     expect(job.requiredEnv?.map((e) => e.name)).toEqual(["API_KEY", "APP_TOKEN"]);
     expect(unzipped["HOI-SECURITY-FIX-SUMMARY.md"]).toContain("반영 전에 설정할 환경변수 (2개)");
     expect(unzipped["HOI-SECURITY-FIX-SUMMARY.md"]).toContain("- API_KEY (src/a.ts)");
+
+    // Applied but not re-verified: the wording says so and never claims the problem is solved.
+    const claimsSolved = /해결했어요|해결됐어요|막았어요|안전해졌어요/;
+    for (const item of job.items) {
+      expect(item.reason).toBe(APPLIED_UNVERIFIED_REASON);
+      expect(`${item.reason} ${item.summary} ${item.plainExplanation}`).not.toMatch(claimsSolved);
+    }
+    expect(unzipped["HOI-SECURITY-FIX-SUMMARY.md"]).toContain("재검증 전");
+    expect(unzipped["HOI-SECURITY-FIX-SUMMARY.md"]).not.toMatch(claimsSolved);
 
     // Findings are never marked resolved by fixing.
     const after = await getFindingsForScan(ctx.scan.id, ctx.user.id);

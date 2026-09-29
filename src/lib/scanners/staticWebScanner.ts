@@ -94,6 +94,11 @@ const SENSITIVE_FIELDS = [
   "credit_card",
 ];
 
+// 두 XSS 신호는 같은 문제이므로 제목·영향 문구를 같이 쓴다.
+const XSS_TITLE = "사용자가 입력한 글이 화면에서 코드처럼 실행될 수 있어요 (XSS)";
+const XSS_IMPACT =
+  "누군가 심어 둔 스크립트가 이 화면을 여는 사람의 브라우저에서 실행될 수 있어요. 그러면 화면 내용이 바뀌거나 그 사람의 로그인 상태가 다른 사람에게 넘어갈 수 있어요.";
+
 const SIGNALS: Signal[] = [
   // ── WEB-003 XSS ──────────────────────────────────────────────
   {
@@ -105,13 +110,12 @@ const SIGNALS: Signal[] = [
     cwe: "CWE-79",
     cvss: 6.8,
     category: "Cross-Site Scripting",
-    title: "사용자 입력이 그대로 화면에 삽입될 수 있습니다 (XSS)",
-    humanReadableImpact:
-      "사용자가 입력한 값이 안전하게 처리되지 않고 페이지에 그대로 들어가면, 공격자가 심어둔 스크립트가 방문자의 브라우저에서 실행될 수 있습니다.",
+    title: XSS_TITLE,
+    humanReadableImpact: XSS_IMPACT,
     whyItMatters:
-      "공격자가 다른 사용자의 세션을 탈취하거나 화면을 조작할 수 있습니다.",
+      "코드에서 확인했어요: 이 줄은 HTML을 화면에 직접 넣는 코드(innerHTML, dangerouslySetInnerHTML, document.write 중 하나)이고, 같은 줄에 바깥에서 들어온 값이 섞여 있어요. 그 값이 실제로 사용자 입력인지, 앞에서 걸러지는지는 확인하지 못했어요.",
     remediation:
-      "HTML을 직접 삽입하지 말고 텍스트로 렌더링하거나, 신뢰할 수 있는 정제(sanitize) 라이브러리로 처리하세요.",
+      "사용자가 입력한 글을 HTML로 넣지 말고 글자로만 표시하도록 바꿔 주세요(예: textContent 사용, React에서는 {값} 형태로 출력). 꼭 HTML을 보여 줘야 한다면 DOMPurify 같은 검증된 도구로 위험한 태그를 지운 뒤 넣어 주세요.",
     isVulnerable: (line) => looksDynamic(line), // 동적 값이 들어갈 때만 취약으로 본다
   },
 
@@ -126,13 +130,12 @@ const SIGNALS: Signal[] = [
     cwe: "CWE-79",
     cvss: 6.8,
     category: "Cross-Site Scripting",
-    title: "사용자 입력이 그대로 화면에 삽입될 수 있습니다 (XSS)",
-    humanReadableImpact:
-      "사용자가 입력한 값이 안전하게 처리되지 않고 페이지에 그대로 들어가면, 공격자가 심어둔 스크립트가 방문자의 브라우저에서 실행될 수 있습니다.",
+    title: XSS_TITLE,
+    humanReadableImpact: XSS_IMPACT,
     whyItMatters:
-      "공격자가 다른 사용자의 세션을 탈취하거나 화면을 조작할 수 있습니다.",
+      "코드에서 확인했어요: 서버가 HTML 응답을 만들 때 요청으로 받은 값(req.query 등)을 그대로 이어 붙이고 있어요. 이 줄에서는 특수문자를 글자로 바꿔 주는 처리(이스케이프)를 찾지 못했어요.",
     remediation:
-      "응답 HTML에 넣기 전에 값을 HTML 이스케이프하거나, 템플릿 엔진의 자동 이스케이프를 사용하세요.",
+      "응답 HTML에 넣기 전에 값의 <, >, \", ', & 같은 특수문자를 글자로 바꿔(HTML 이스케이프) 주세요. 템플릿 엔진을 쓴다면 자동 이스케이프가 켜진 출력 방식으로 넣어 주세요.",
     isVulnerable: (line) =>
       /(?:\+|\$\{)/.test(line) &&
       /\breq\.(?:query|params|body|cookies|headers)\b|\brequest\.|searchParams/.test(line) &&
@@ -153,13 +156,13 @@ const SIGNALS: Signal[] = [
     cwe: "CWE-89",
     cvss: 9.1,
     category: "Injection",
-    title: "데이터베이스 쿼리에 입력값이 직접 조립됩니다 (SQL 인젝션)",
+    title: "사용자가 보낸 값으로 데이터베이스 쿼리를 직접 만들고 있어요 (SQL 인젝션)",
     humanReadableImpact:
-      "사용자 입력을 그대로 붙여 쿼리를 만들면, 공격자가 쿼리 구조를 바꿔 데이터를 훔치거나 지울 수 있습니다.",
+      "누군가 입력값에 쿼리 조각을 섞어 보내면 데이터베이스가 원래 의도와 다른 일을 할 수 있어요. 그러면 저장된 데이터가 밖으로 새거나 지워질 수 있어요.",
     whyItMatters:
-      "데이터베이스 전체가 읽히거나 손상될 수 있는 매우 심각한 취약점입니다.",
+      "코드에서 확인했어요: SQL 문장을 만들 때 문자열 이어 붙이기(+)나 ${...} 끼워 넣기로 값을 직접 넣고 있어요. 그 값이 실제로 사용자 입력에서 오는지는 주변 코드까지 확인하지 못했어요.",
     remediation:
-      "문자열을 붙이지 말고 파라미터 바인딩(prepared statement)을 사용하세요.",
+      "값을 SQL 문장에 직접 이어 붙이지 말고, 자리 표시자(? 또는 $1)를 쓰고 값은 따로 넘기는 방식(파라미터 바인딩)으로 바꿔 주세요.",
     isVulnerable: (line) => /(?:SELECT|INSERT|UPDATE|DELETE|WHERE)/i.test(line) && sqlStringIsBuilt(line),
   },
 
@@ -173,13 +176,13 @@ const SIGNALS: Signal[] = [
     cwe: "CWE-94",
     cvss: 8.8,
     category: "Injection",
-    title: "코드/명령이 동적으로 실행됩니다 (코드·커맨드 인젝션)",
+    title: "입력값으로 서버에서 코드나 명령이 실행될 수 있어요 (코드·커맨드 인젝션)",
     humanReadableImpact:
-      "입력값으로 코드나 시스템 명령을 만들어 실행하면, 공격자가 서버에서 임의 코드를 실행할 수 있습니다.",
+      "누군가 값을 조작해 보내면 서버에서 원하지 않는 코드나 시스템 명령이 실행될 수 있어요. 그러면 서버의 파일과 데이터를 다른 사람이 마음대로 다룰 수 있게 돼요.",
     whyItMatters:
-      "서버가 완전히 장악될 수 있습니다.",
+      "코드에서 확인했어요: eval, new Function, exec, execSync 중 하나를 쓰는 줄에 바깥에서 들어온 값이 섞여 있어요. 그 값이 실제로 사용자 입력인지는 주변 코드까지 확인하지 못했어요.",
     remediation:
-      "eval/new Function/exec 사용을 제거하고, 안전한 API나 인자 배열 기반 실행으로 대체하세요.",
+      "eval과 new Function은 지우고 필요한 동작을 일반 함수로 직접 작성해 주세요. 시스템 명령이 꼭 필요하면 exec 대신 execFile처럼 명령과 값을 따로 넘기고, 허용할 값의 목록을 정해 그 밖의 값은 거절해 주세요.",
     isVulnerable: (line) => looksDynamic(line),
   },
 
@@ -197,13 +200,13 @@ const SIGNALS: Signal[] = [
     cwe: "CWE-22",
     cvss: 7.5,
     category: "Path Traversal",
-    title: "사용자 입력이 파일 경로로 그대로 사용됩니다 (경로 트래버설)",
+    title: "사용자가 보낸 값이 파일 경로로 그대로 쓰일 수 있어요 (경로 트래버설)",
     humanReadableImpact:
-      "사용자가 준 값을 검증 없이 파일 경로로 쓰면, 공격자가 '../' 같은 값으로 서버의 다른 파일(설정·비밀 파일 등)을 읽어낼 수 있습니다.",
+      "누군가 '../' 같은 값을 보내면 허용한 폴더 밖에 있는 서버 파일(설정 파일 등)을 읽거나 바꿀 수 있어요.",
     whyItMatters:
-      "허용된 폴더 밖의 파일이 노출되어 시스템 정보나 비밀 값이 유출될 수 있습니다.",
+      "코드에서 확인했어요: 파일을 읽거나 쓰는 코드에 바깥에서 들어온 값이 경로로 들어가요. 바로 위 몇 줄에서 경로를 정리한 뒤 허용한 폴더 안인지 확인하는 처리를 찾지 못했어요.",
     remediation:
-      "경로를 정규화(path.normalize/resolve)한 뒤 기준 디렉터리 안에 있는지 확인하고(startsWith), 파일명은 화이트리스트로 제한하세요.",
+      "path.resolve로 경로를 정리한 뒤, 결과가 허용한 폴더 경로로 시작하는지(startsWith) 확인하고 아니면 거절해 주세요. 가능하면 파일 이름을 허용 목록이나 영문·숫자 형식으로만 받도록 제한해 주세요.",
     // 판정은 taintedPathInput(창 단위)에서 수행 — 입력이 다른 줄에서 흐를 수 있음.
   },
 
@@ -219,13 +222,15 @@ const SIGNALS: Signal[] = [
     cwe: "CWE-213",
     cvss: 6.5,
     category: "Excessive Data Exposure",
-    title: "API 응답에 민감한 필드가 그대로 포함될 수 있습니다",
+    // 제목에 "비밀"·"경로" 같은 단어를 넣지 않는다(findingMerge의 문제 종류 분류가 바뀜).
+    title: "API 응답에 민감한 값이 함께 나갈 수 있어요",
     humanReadableImpact:
-      "응답에서 비밀번호 해시 같은 민감한 필드를 걸러내지 않으면, 그 값이 외부로 노출됩니다.",
+      "응답을 받는 사람이 비밀번호 해시나 토큰처럼 보여 주면 안 되는 값을 볼 수 있어요.",
+    // 실제 필드 이름은 scanFile에서 덧붙인다.
     whyItMatters:
-      "노출된 해시·토큰·개인정보가 공격에 재사용될 수 있습니다.",
+      "코드에서 확인했어요: 응답을 보내는 줄 근처에 민감한 필드 이름이 있어요. 그 필드가 실제로 응답에 담기는지는 실행해 보지 않아 확인하지 못했어요.",
     remediation:
-      "응답 전 필요한 필드만 명시적으로 선택(화이트리스트)하고, 민감 필드는 제거하세요.",
+      "응답에는 화면에 꼭 필요한 필드만 골라 담아 주세요. 비밀번호 해시나 토큰 같은 값은 응답 객체에서 빼 주세요.",
   },
 
   // ── WEB-014 IDOR (static signal) ─────────────────────────────
@@ -241,13 +246,13 @@ const SIGNALS: Signal[] = [
     cwe: "CWE-639",
     cvss: 8.1,
     category: "Broken Object Level Authorization",
-    title: "다른 사용자의 데이터에 접근할 수 있습니다 (IDOR)",
+    title: "다른 사람의 정보를 볼 수 있는지 확인이 필요해요 (IDOR)",
     humanReadableImpact:
-      "id로 리소스를 조회하면서 그 리소스가 요청한 사용자의 것인지 확인하지 않으면, 공격자가 id만 바꿔 다른 사용자의 데이터를 열람·수정할 수 있습니다.",
+      "로그인한 사람이 주소나 요청에 담긴 번호(id)만 바꿔서 다른 사람의 정보를 보거나 바꿀 수 있어요.",
     whyItMatters:
-      "인증은 통과했더라도 '내 것'인지 확인하지 않으면 남의 개인정보가 그대로 노출됩니다. 이 앱이 탐지하는 대표적인 취약점입니다.",
+      "코드에서 확인했어요: 번호(id)로 정보 하나를 찾아 돌려주는데, 요청한 정보가 로그인한 사람의 것인지 확인하는 부분을 근처 코드에서 찾지 못했어요. 다른 파일에서 확인하고 있는지와 실제로 다른 사람의 정보가 보이는지는 실행해 확인하지 않았어요.",
     remediation:
-      "조회한 리소스의 소유자(ownerId/userId 등)가 현재 로그인 사용자와 일치하는지 검사하고, 아니면 403을 반환하세요.",
+      "정보를 보여 주기 전에 그 정보가 현재 로그인한 사람의 것인지 확인하도록 바꿔 주세요. 예를 들어 정보의 주인(ownerId, userId)이 로그인한 사람의 id와 다르면 403 응답으로 거절해 주세요.",
     // 판정은 hasOwnershipCheck(창 단위)에서 수행.
   },
 ];
@@ -375,10 +380,15 @@ function scanFile(file: string, content: string): SecurityFinding[] {
         {
           id: id("ev"),
           kind: "scanner_output",
-          label: "정적 분석 스캐너 출력",
+          label: "코드 점검 결과",
           content: scannerDetail,
         },
       ];
+
+      const whyItMatters =
+        sig.kind === "expose"
+          ? `${sig.whyItMatters} 찾은 필드 이름: ${exposedFields.join(", ")}.`
+          : sig.whyItMatters;
 
       out.push({
         id: id("finding"),
@@ -389,9 +399,9 @@ function scanFile(file: string, content: string): SecurityFinding[] {
         owasp: sig.owasp,
         cwe: sig.cwe,
         cvss: sig.cvss,
-        description: `${sig.ruleTitleKo} 신호가 ${file} ${lineNo}번째 줄에서 발견되었습니다.`,
+        description: `${sig.ruleTitleKo} 신호를 ${file} ${lineNo}번째 줄에서 찾았어요. 코드 모양으로 찾은 결과라 실행해 확인하지는 않았어요.`,
         humanReadableImpact: sig.humanReadableImpact,
-        whyItMatters: sig.whyItMatters,
+        whyItMatters,
         location: { file, line: lineNo },
         evidence,
         remediation: sig.remediation,
@@ -417,8 +427,12 @@ function stillVulnerableFor(
   baselineContent: string | undefined
 ): boolean {
   const file = finding.location?.file ?? "";
+  // 같은 신호인지는 verificationKey의 종류(xss/inj/…)와 CWE로 가린다. 제목으로 비교하면
+  // 안내 문구를 바꿨을 때 예전에 저장된 항목이 "사라짐"으로 잘못 판정된다.
+  // (종류+CWE 묶음은 이전의 제목+CWE 묶음과 같다.)
+  const kindOf = (f: SecurityFinding) => (f.verificationKey ?? "").split(":")[0];
   const hits = scanFile(file, fixedContent)
-    .filter((f) => f.title === finding.title && f.cwe === finding.cwe)
+    .filter((f) => kindOf(f) === kindOf(finding) && f.cwe === finding.cwe)
     .map((f) => ({ line: f.location?.line ?? 0, text: f.evidence.find((e) => e.kind === "source_code")?.content ?? "" }));
   return stillPresentAfterFix({
     hits,

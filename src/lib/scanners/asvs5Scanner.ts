@@ -126,7 +126,7 @@ function findingFromMatch(
     {
       id: id("ev"),
       kind: "scanner_output",
-      label: "OWASP ASVS 5.0 정적 분석",
+      label: "코드 모양 점검 결과 (OWASP ASVS 5.0)",
       content: `규칙: ${signal.ruleId}\nASVS: ${sections}\n파일: ${file}\n줄: ${match.line}`,
     },
   ];
@@ -140,9 +140,9 @@ function findingFromMatch(
     owasp: `OWASP ASVS ${ASVS_VERSION} ${sections}`,
     cwe: signal.cwe,
     cvss: signal.cvss,
-    description: `${signal.titleKo} 위험 신호가 ${file} ${match.line}번째 줄에서 발견되었습니다. 정적 신호이므로 주변 데이터 흐름을 함께 검토해야 합니다.`,
+    description: `${signal.titleKo} 위험 신호를 ${file} ${match.line}번째 줄에서 찾았어요. 코드 모양으로 찾은 결과라 주변 데이터 흐름을 함께 봐야 해요.`,
     humanReadableImpact: signal.impact,
-    whyItMatters: signal.impact,
+    whyItMatters: `코드에서 확인했어요: ${file} ${match.line}번째 줄이 '${signal.titleKo}' 문제에서 자주 보이는 코드 모양과 같아요. 주변 코드에서 이미 막고 있는지, 실제로 문제가 생기는지는 실행해 확인하지 않았어요.`,
     location: { file, line: match.line },
     evidence,
     remediation: signal.remediation,

@@ -23,6 +23,7 @@ import {
   type ActiveLlmProvider,
   type LlmProvider,
 } from "@/lib/ai/llmConfig";
+import { USER_FRIENDLY_STYLE } from "@/lib/ai/userFriendlyStyle";
 
 export type { LlmProvider };
 
@@ -81,6 +82,11 @@ export interface LlmCallOptions {
   purpose?: string;
   /** 서버 보안 서문을 붙이지 않을 때만 false (범용 생성기). */
   guard?: boolean;
+  /**
+   * 사용자용 설명 공통 지침(USER_FRIENDLY_STYLE)을 붙이지 않을 때만 false.
+   * guard가 false면 이 지침도 붙이지 않는다.
+   */
+  userFacing?: boolean;
 }
 
 /**
@@ -113,6 +119,19 @@ If evidence is incomplete, return unknown or a coverage gap.
 Return only JSON matching the requested response schema.
 `;
 
+/**
+ * 실제로 보낼 system 프롬프트를 만든다.
+ * 순서: 보안 서문 → 사용자용 설명 공통 지침 → 작업별 지시(응답 스키마 포함).
+ * 작업별 지시가 마지막에 와서 응답 스키마가 가장 구체적인 지시로 남는다.
+ */
+export function buildSystemPrompt(opts: Pick<LlmCallOptions, "system" | "guard" | "userFacing">): string {
+  if (opts.guard === false) return opts.system;
+  const parts = [SECURITY_PREAMBLE];
+  if (opts.userFacing !== false) parts.push(USER_FRIENDLY_STYLE);
+  parts.push(opts.system);
+  return parts.join("\n\n");
+}
+
 interface ProviderResponse {
   status: number;
   text: string;
@@ -136,7 +155,7 @@ export async function callLlm(opts: LlmCallOptions): Promise<LlmCallResult> {
   const key = cfg.apiKey;
   const correlationId = randomUUID();
   const purpose = opts.purpose ?? "general";
-  const system = opts.guard === false ? opts.system : `${SECURITY_PREAMBLE}\n\n${opts.system}`;
+  const system = buildSystemPrompt(opts);
   const temperature = opts.temperature ?? 0.1;
   const json = opts.json ?? true;
 

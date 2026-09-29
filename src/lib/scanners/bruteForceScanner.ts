@@ -116,7 +116,7 @@ export class BruteForceScanner implements SecurityScanner {
       {
         id: id("ev"),
         kind: "http_request",
-        label: "연속 로그인 시도(합성 계정, 잘못된 비밀번호)",
+        label: "보낸 로그인 요청(가짜 테스트 계정, 틀린 비밀번호)",
         content: `POST ${url} × ${attempts.length} (비파괴)`,
       },
       {
@@ -130,7 +130,7 @@ export class BruteForceScanner implements SecurityScanner {
       {
         id: id("ev"),
         kind: "scanner_output",
-        label: "무차별 대입 방어 판정",
+        label: "판단 근거",
         content: `${attempts.length}회 연속 실패에도 429/잠금/지연 등 방어 신호가 관측되지 않음.`,
       },
     ];
@@ -139,20 +139,19 @@ export class BruteForceScanner implements SecurityScanner {
       {
         id: id("finding"),
         scanId: "",
-        title: "로그인에 무차별 대입(비밀번호 자동 시도) 방어가 없습니다",
+        title: "로그인에서 비밀번호를 계속 틀려도 막히지 않아요",
         severity: "medium",
         category: "Authentication",
         owasp: "A07 – Identification and Authentication Failures",
         cwe: "CWE-307",
         cvss: 5.3,
-        description: `${attempts.length}회 연속 로그인 실패에도 레이트 리밋/계정 잠금이 관측되지 않았습니다.`,
+        description: `${attempts.length}회 연속 로그인 실패에도 요청 제한(레이트 리밋)이나 계정 잠금이 보이지 않았어요.`,
         humanReadableImpact:
-          "공격자가 자동화 도구로 비밀번호를 무제한 반복 시도해 계정을 탈취할 수 있습니다.",
-        whyItMatters:
-          "레이트 리밋·잠금이 없으면 크리덴셜 스터핑·무차별 대입 공격에 그대로 노출됩니다.",
+          "누군가 프로그램으로 비밀번호를 끝없이 바꿔 넣어 보며 다른 사람의 계정에 로그인을 시도할 수 있어요.",
+        whyItMatters: `가짜 테스트 계정으로 틀린 비밀번호를 ${attempts.length}번 연달아 보내 봤어요. 요청 제한(429 응답), 잠금 안내, 응답 지연 중 어떤 것도 보이지 않았어요. 실제 사용자 계정으로는 시도하지 않았어요.`,
         evidence,
         remediation:
-          "로그인 실패에 IP+계정 단위 레이트 리밋과 지수 백오프/잠금을 적용하고, 임계치 초과 시 CAPTCHA를 요구하세요.",
+          "같은 계정이나 같은 접속 주소(IP)에서 로그인에 계속 실패하면 잠시 막거나 기다리게 해 주세요(요청 제한). 여러 번 실패한 뒤에는 CAPTCHA 같은 추가 확인을 요구해 주세요.",
         status: "verified",
         simulated: false,
         verificationKey: `brute:${context.projectId}`,

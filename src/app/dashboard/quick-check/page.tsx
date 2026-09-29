@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useRef, useState } from "react";
 import Link from "next/link";
@@ -252,7 +252,7 @@ function QuickResults({ result }: { result: QuickResult }) {
         {notCovered.length > 0 ? (
           <ul className="mt-3 grid gap-2 text-sm leading-relaxed text-ink-subtle sm:grid-cols-2">
             {notCovered.map((item) => (
-              <li key={item} className="rounded-2xl border border-line bg-surface-warm px-3 py-2">• {item}</li>
+              <li key={item} className="break-words rounded-2xl border border-line bg-surface-warm px-3 py-2">• {item}</li>
             ))}
           </ul>
         ) : (
@@ -290,18 +290,12 @@ function FindingCard({ finding, index }: { finding: SecurityFinding; index: numb
           </p>
         )}
 
-        <div>
-          <h4 className="text-sm font-bold text-brand-800">어떤 영향이 있을까요?</h4>
-          <p className="mt-1 break-keep leading-relaxed text-ink">{finding.humanReadableImpact}</p>
-          {finding.whyItMatters && <p className="mt-2 text-sm leading-relaxed text-ink-subtle">{finding.whyItMatters}</p>}
-        </div>
-
-        {finding.remediation && (
-          <div className="rounded-2xl border border-line bg-surface-warm p-4">
-            <h4 className="font-bold text-ink">이렇게 고쳐보세요</h4>
-            <p className="mt-1 break-keep text-sm leading-relaxed text-ink-subtle">{finding.remediation}</p>
+        {explanationBlocks(finding).map((b) => (
+          <div key={b.key} className={b.key === "fix" ? "rounded-2xl border-2 border-line bg-surface-warm p-4" : undefined}>
+            <h4 className="text-sm font-bold text-brand-800">{b.label}</h4>
+            <p className="mt-1 whitespace-pre-line break-words text-base leading-relaxed text-ink">{b.text}</p>
           </div>
-        )}
+        ))}
 
         <TechnicalDetails>
           <dl className="grid gap-3 text-sm sm:grid-cols-2">
@@ -330,6 +324,26 @@ function FindingCard({ finding, index }: { finding: SecurityFinding; index: numb
       </div>
     </Card>
   );
+}
+
+/**
+ * 항목 설명 세 칸(영향 → 판단 이유 → 바꿀 점). 규칙 항목 중에는 영향과 이유에
+ * 같은 문장을 넣어 둔 것이 있어, 앞 칸과 같은 문장은 건너뛴다.
+ */
+function explanationBlocks(f: SecurityFinding): { key: string; label: string; text: string }[] {
+  const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+  const candidates = [
+    { key: "impact", label: "어떤 일이 생길 수 있나요", text: f.humanReadableImpact ?? "" },
+    { key: "why", label: "왜 이렇게 판단했나요", text: f.whyItMatters ?? "" },
+    { key: "fix", label: "이렇게 바꿔 주세요", text: f.remediation ?? "" },
+  ];
+  const out: typeof candidates = [];
+  for (const c of candidates) {
+    if (!norm(c.text)) continue;
+    if (out.some((prev) => norm(prev.text) === norm(c.text))) continue;
+    out.push(c);
+  }
+  return out;
 }
 
 function TechnicalRow({ label, value }: { label: string; value: string }) {

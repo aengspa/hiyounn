@@ -44,9 +44,9 @@ export function EditDiff({ edits }: { edits: { file: string; before: string; aft
         const d = fileDiff(e.before, e.after, 2);
         return (
           <figure key={i} className="overflow-hidden rounded-2xl border-2 border-line bg-surface">
-            <figcaption className="flex items-center justify-between border-b border-line px-3 py-1.5 text-xs text-ink-muted">
-              <span className="break-all font-mono">{e.file}</span>
-              <span>
+            <figcaption className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-1.5 text-xs text-ink-muted">
+              <span className="min-w-0 break-all font-mono">{e.file}</span>
+              <span className="shrink-0">
                 <span className="text-danger">−{d.removed}</span> <span className="text-success">+{d.added}</span>
               </span>
             </figcaption>

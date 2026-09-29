@@ -91,13 +91,13 @@ export class AuthorizationScanner implements SecurityScanner {
       {
         id: id("ev"),
         kind: "http_request",
-        label: "공격 요청 (사용자 A가 사용자 B의 데이터를 요청)",
+        label: "보낸 요청 (사용자 A로 로그인해 사용자 B의 정보를 요청)",
         content: formatRequest(ATTACK_REQUEST),
       },
       {
         id: id("ev"),
         kind: "http_response",
-        label: "공격 응답",
+        label: "받은 응답",
         content: formatResponse(attackResponse),
       },
       {
@@ -114,22 +114,25 @@ export class AuthorizationScanner implements SecurityScanner {
       {
         id: id("finding"),
         scanId: "",
-        title: "다른 사용자의 개인정보에 접근할 수 있습니다",
+        title: attackSucceeded
+          ? "로그인한 사람이 다른 사람의 정보를 볼 수 있어요"
+          : "다른 사람의 정보를 볼 수 있는지 확인이 필요해요",
         severity: "critical",
         category: "Broken Access Control",
         owasp: "A01 – Broken Access Control",
         cwe: "CWE-639",
         cvss: 8.6,
         description:
-          "GET /api/users/:id 엔드포인트가 요청한 사용자의 것인지 확인하지 않고, URL의 id에 해당하는 데이터를 그대로 반환합니다 (IDOR).",
+          "GET /api/users/:id 엔드포인트가 요청한 사용자의 것인지 확인하지 않고, URL의 id에 해당하는 데이터를 그대로 돌려줘요 (IDOR).",
         humanReadableImpact:
-          "로그인한 사용자가 주소의 사용자 ID를 바꾸기만 하면 다른 사람의 개인정보를 볼 수 있습니다.",
-        whyItMatters:
-          "공격자가 다른 사용자의 이메일, 전화번호, 주문 내역 같은 개인정보를 읽어낼 수 있습니다.",
+          "로그인한 사람이 주소의 사용자 번호만 바꾸면 다른 사람의 정보를 볼 수 있어요.",
+        whyItMatters: attackSucceeded
+          ? "코드에서 요청한 정보가 로그인한 사람의 것인지 확인하는 부분을 찾지 못했어요. 데모 앱에 사용자 A로 로그인해 사용자 B의 정보(/api/users/102)를 실제로 요청해 봤더니 B의 정보가 그대로 돌아왔어요."
+          : "코드에서 요청한 정보가 로그인한 사람의 것인지 확인하는 부분을 찾지 못했어요. 데모 앱에 실제로 요청해 봤을 때는 다른 사람의 정보가 돌아오지 않아서, 실제로 문제가 생기는지는 확정하지 못했어요.",
         location: { file: HANDLER_FILE, line: HANDLER_VULNERABLE_LINE },
         evidence,
         remediation:
-          "요청한 데이터가 로그인한 사용자의 것일 때에만 반환하도록 권한 검사를 추가하세요.",
+          "정보를 보여 주기 전에 그 정보가 현재 로그인한 사람의 것인지 확인하도록 바꿔 주세요. 주인이 다르면 403 응답으로 거절해 주세요.",
         status: attackSucceeded ? "verified" : "detected",
         simulated: false,
         verificationKey: `idor:${HANDLER_FILE}`,

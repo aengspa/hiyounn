@@ -114,28 +114,36 @@ export class TlsScanner implements SecurityScanner {
       {
         id: id("ev"),
         kind: "http_request",
-        label: "HTTP 프로브(평문 접근)",
+        label: "암호화되지 않은 주소(http://)로 접속해 본 결과",
         content: `GET ${toOrigin(base, "http")}\n관측: ${obs.httpNote}`,
       },
       {
         id: id("ev"),
         kind: "http_response",
-        label: "HTTPS 응답(HSTS)",
+        label: "암호화된 주소(https://)의 응답",
         content: `GET ${toOrigin(base, "https")}\n관측: ${obs.httpsNote}`,
       },
       {
         id: id("ev"),
         kind: "configuration",
-        label: "TLS 강제 점검 결과",
+        label: "확인한 문제",
         content: `문제:\n- ${problems.join("\n- ")}`,
       },
     ];
+
+    const plaintextAllowed = obs.httpRedirectsToHttps === false;
+    const observed = [
+      plaintextAllowed && "http:// 주소로 접속했을 때 https:// 주소로 옮겨 주지 않았어요.",
+      obs.hstsPresent === false && "https:// 응답에 '앞으로 항상 HTTPS로 접속하라'고 알려 주는 설정(Strict-Transport-Security)이 없었어요.",
+    ].filter(Boolean);
 
     return [
       {
         id: id("finding"),
         scanId: "",
-        title: "사이트가 안전하지 않은 연결(HTTP)을 허용합니다",
+        title: plaintextAllowed
+          ? "암호화되지 않은 주소(http://)로 접속해도 암호화된 주소로 옮겨 주지 않아요"
+          : "브라우저에 항상 암호화된 연결을 쓰라고 알려 주는 설정이 없어요",
         severity: "medium",
         category: "Transport Security",
         owasp: "A05 – Security Misconfiguration",
@@ -143,12 +151,11 @@ export class TlsScanner implements SecurityScanner {
         cvss: 5.9,
         description: `TLS 강제 점검에서 문제가 발견되었습니다: ${problems.join(", ")}.`,
         humanReadableImpact:
-          "연결이 암호화되지 않으면 같은 네트워크의 공격자가 사용자의 데이터나 세션을 가로챌 수 있습니다.",
-        whyItMatters:
-          "로그인 정보·세션 쿠키가 평문으로 오갈 수 있고, 중간자 공격에 노출됩니다.",
+          "암호화되지 않은 연결로 접속하면, 같은 와이파이처럼 같은 네트워크에 있는 사람이 주고받는 내용을 엿보거나 바꿀 수 있어요. 로그인 정보나 쿠키도 여기에 포함될 수 있어요.",
+        whyItMatters: `배포된 사이트에 실제로 요청을 보내 확인했어요. ${observed.join(" ")}`,
         evidence,
         remediation:
-          "모든 HTTP 요청을 HTTPS로 리다이렉트하고, HSTS(Strict-Transport-Security) 헤더를 설정하세요.",
+          "호스팅 서비스나 서버 설정에서 http:// 요청을 모두 https:// 주소로 옮기도록(리다이렉트) 켜 주세요. 그리고 응답에 Strict-Transport-Security 헤더(예: max-age=31536000)를 추가해 주세요.",
         status: "verified",
         simulated: false,
         verificationKey: `tls:${context.projectId}`,

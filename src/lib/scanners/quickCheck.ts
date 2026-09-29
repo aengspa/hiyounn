@@ -32,11 +32,11 @@ export interface QuickCheckResult {
 }
 
 const NOT_COVERED = [
-  "의존성/라이브러리 취약점(CVE)",
-  "여러 파일에 걸친 데이터 흐름",
-  "Git 이력·비밀정보 커밋 기록",
-  "배포/런타임 동작(DAST)",
-  "실제 공격 재현·검증",
+  "프로젝트가 쓰는 외부 도구(라이브러리)의 알려진 보안 문제(CVE)",
+  "여러 파일을 거쳐 전달되는 값의 흐름",
+  "예전에 저장소에 올렸다가 지운 비밀키 기록(Git 이력)",
+  "배포된 사이트가 실제로 어떻게 동작하는지(DAST)",
+  "실제로 요청을 보내 문제가 생기는지 확인하는 시험",
 ];
 
 function decorate(f: SecurityFinding): SecurityFinding {

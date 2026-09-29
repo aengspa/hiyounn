@@ -21,13 +21,13 @@ export function supportsNewToolCheck(check: Check): boolean {
 }
 
 export async function executeNewToolCheck(runtime: RuleToolRuntime, check: Check): Promise<ToolResult> {
-  if (!supportsNewToolCheck(check)) return gap(`구현되지 않은 체크: ${check.toolId}/${check.id}`);
+  if (!supportsNewToolCheck(check)) return gap(`아직 만들지 않은 검사라 하지 않았어요: ${check.toolId}/${check.id}`);
   try {
     if (["package_provenance_checker", "llm_integration_analyzer"].includes(check.toolId)) return await executeSourceTool(runtime, check);
     if (["baas_access_probe", "jwt_tamper_probe"].includes(check.toolId)) return await executeAccountTool(runtime, check);
     return await executeDeployedTool(runtime, check);
   } catch (error) {
-    if (error instanceof SyntaxError) return gap("도구 입력/응답 JSON을 해석하지 못했습니다.");
-    return gap(error instanceof Error ? error.message : "도구 실행 실패 — 점검하지 못했습니다.");
+    if (error instanceof SyntaxError) return gap("받은 데이터(JSON)의 형식을 읽지 못해 이 검사는 끝내지 못했어요.");
+    return gap(error instanceof Error ? error.message : "검사 도구를 실행하지 못해 이 검사는 하지 않았어요.");
   }
 }

@@ -80,6 +80,46 @@ export function mergeVerdicts(
   aiStatus: FixJobVerification["aiStatus"],
   exploit?: ExploitCheck
 ): ReverifyItem {
+  return withInconclusiveNote(mergeWithExploit(finding, rule, ai, aiStatus, exploit));
+}
+
+/**
+ * 결론을 못 낸 항목에 붙이는 사용자용 설명. 무엇을 확인하지 못했고 무엇이 필요한지 쓴다.
+ * 원인이 다른 경우(AI 호출 실패, 근거 부족, 답 없음 등)는 서로 다른 문장으로 둔다.
+ */
+export const INCONCLUSIVE_NOTES: Record<string, string> = {
+  ai_failed:
+    "AI 재검토를 끝내지 못해서 이 항목이 고쳐졌는지 확인하지 못했어요. 이 항목은 규칙으로 다시 검사할 수 없어요. 잠시 후 재검증을 다시 실행해 주세요.",
+  ai_not_available:
+    "이 항목은 규칙으로 다시 검사할 수 없고, AI 재검토도 설정되어 있지 않아 확인하지 못했어요. 바뀐 코드를 직접 확인하거나 AI를 설정한 뒤 재검증해 주세요.",
+  dep_recheck_unavailable:
+    "수정본의 외부 도구 버전을 공개된 보안 문제 목록(OSV)에서 다시 조회하지 못했어요. 그래서 알려진 문제가 없는 버전으로 바뀌었는지 아직 확인하지 못했어요.",
+  rule_unavailable: "이 항목을 다시 검사할 규칙을 수정본에 적용하지 못해 고쳐졌는지 확인하지 못했어요. 바뀐 코드를 직접 확인해 주세요.",
+  no_answer: "AI가 이 항목에 대한 답을 주지 않아 고쳐졌는지 확인하지 못했어요. 재검증을 다시 실행해 주세요.",
+  ai_inconclusive: "AI가 수정본 코드만으로는 고쳐졌는지 판단하지 못했어요. 바뀐 코드를 직접 확인해 주세요.",
+  evidence_not_verified:
+    "AI가 근거로 든 코드를 수정본 파일에서 그대로 찾지 못해 AI 판단을 반영하지 않았어요. 이 항목이 고쳐졌는지는 아직 확인하지 못했어요.",
+  file_not_sent:
+    "문제가 있던 파일이 한 번에 검토할 수 있는 양을 넘어 AI에게 보내지 못했어요. 그래서 이 항목은 확인하지 못했어요. 해당 파일의 바뀐 부분을 직접 확인해 주세요.",
+  no_reviewable_file:
+    "문제가 있던 파일을 수정본에서 찾지 못해 이 항목은 확인하지 못했어요. 파일이 옮겨지거나 지워졌는지 확인해 주세요.",
+  internal_error: "재검증 도중 서버에서 문제가 생겨 이 항목이 고쳐졌는지 확인하지 못했어요. 재검증을 다시 실행해 주세요.",
+};
+
+/** 판정·방법·원인 코드는 그대로 두고, 설명이 비어 있는 미결 항목에만 안내 문장을 채운다. */
+function withInconclusiveNote(item: ReverifyItem): ReverifyItem {
+  if (item.verdict !== "inconclusive" || item.summary || !item.reasonCode) return item;
+  const note = INCONCLUSIVE_NOTES[item.reasonCode];
+  return note ? { ...item, summary: note } : item;
+}
+
+function mergeWithExploit(
+  finding: SecurityFinding,
+  rule: ReverifyItem | undefined,
+  ai: ReverifyItem | undefined,
+  aiStatus: FixJobVerification["aiStatus"],
+  exploit?: ExploitCheck
+): ReverifyItem {
   const merged = mergeRuleAndAi(finding, rule, ai, aiStatus);
   if (!exploit) return merged;
   const withExploit = { ...merged, exploit };
@@ -157,17 +197,21 @@ Most findings ask "is it fixed?". A finding with "question": "is_vulnerability" 
 rule-based finding that was flagged as a likely false positive: decide whether the
 reported code is actually exploitable at all.
 
+"originalEvidence" is only the code quoted when the problem was first reported. It is not
+the full previous file. If it is empty, do not describe what the code looked like before
+the fix; describe only what you can see in currentFiles.
+
 For EVERY finding id in the input, return one result. Output exactly one JSON object:
 {
   "results": [
     {
       "findingId": "the exact id from input",
       "verdict": "fixed_in_source" | "still_present" | "not_vulnerable" | "inconclusive",
-      "summary": "한국어 2~3문장. 해결됐다면 어떤 코드가 공격을 막는지, 남아 있다면 어떤 코드가 왜 아직 위험한지, 오탐이라면 왜 공격이 불가능한지 구체적으로.",
+      "summary": "한국어 2~4문장. 아래 [summary 작성법]을 따른다.",
       "evidence": [
         { "role": "mitigation" | "vulnerable_code" | "safe_code", "file": "exact file name from currentFiles",
           "snippet": "text copied character-for-character from that file (at least one full line)",
-          "explanation": "한국어 설명" }
+          "explanation": "한국어 1문장. 이 코드가 무엇을 하는지, 그래서 왜 이 판정의 근거가 되는지." }
       ]
     }
   ]
@@ -179,7 +223,28 @@ Rules:
 - not_vulnerable only for "is_vulnerability" findings, with at least one "safe_code" or "mitigation"
   snippet showing why untrusted input cannot reach the dangerous operation.
 - If the relevant file is not in currentFiles or evidence is unclear, use "inconclusive" and say why in summary.
-- Do not invent ids, files or code.`;
+- Do not invent ids, files or code.
+
+[summary 작성법]
+summary는 다음 순서로, 한 문장에 한 가지씩 쓴다.
+1) 원래 어떤 문제였는지: title·description을 쉬운 말로 한 문장.
+2) 수정본 코드에서 확인한 보호 처리, 또는 아직 부족한 부분.
+3) 같은 문제가 수정본에 남아 있는지에 대한 판단.
+4) 추가로 고치거나 실제로 실행해서 확인해야 할 것.
+코드만 읽은 판단이다. "실제로 막혔어요", "정상 작동해요"처럼 실행 결과를 확정하는 말은 쓰지 않는다.
+
+verdict별로 쓸 내용:
+- fixed_in_source: 어떤 코드가 어떤 보호 처리를 하는지 쓴다. 실제 서비스에서도 막히는지는
+  실행해서 확인해야 한다고 덧붙인다.
+  예: "코드에 요청한 정보의 주인을 확인하는 처리가 있어요. 실제 서비스에서도 다른 사람의 정보를 볼 수 없게 되었는지는 실행해 확인해야 해요."
+- still_present: 어떤 보호 처리가 아직 없거나 부족한지, 다음에 무엇을 바꿔야 하는지 쓴다.
+- not_vulnerable: 제공된 코드의 어떤 처리 때문에 신고된 문제가 일어나지 않는지 쓴다.
+  이 코드 범위에 대한 판단으로만 쓰고, 프로젝트 전체가 안전하다고 넓혀 말하지 않는다.
+- inconclusive: 무엇을 확인하지 못했는지, 판단하려면 어떤 파일이나 정보가 더 필요한지 쓴다.
+  필요한 파일이 omittedFiles에 있으면 그 파일 이름을 적는다. "검증 실패", "판단 불가"로만 끝내지 않는다.
+
+evidence[].explanation은 판정 이름(예: "완화 코드", "취약 코드")을 반복하지 않는다.
+인용한 코드가 무엇을 하고, 그래서 왜 이 판정을 뒷받침하는지 쓴다.`;
 
 export interface ReverifyOptions {
   limits?: Limits;
@@ -293,7 +358,11 @@ export function validateLlmResult(
   if (verdict === "inconclusive") {
     return { ...base, summary, evidence: [...vulnerable, ...mitigation], reasonCode: "ai_inconclusive" };
   }
-  return { ...base, summary, evidence: [...vulnerable, ...mitigation], reasonCode: "evidence_not_verified" };
+  // AI가 결론을 말했더라도 근거가 확인되지 않았다는 사실을 먼저 알린다(해결로 읽히지 않게).
+  const unverified = summary
+    ? `${INCONCLUSIVE_NOTES.evidence_not_verified} AI가 남긴 설명: ${summary}`
+    : INCONCLUSIVE_NOTES.evidence_not_verified;
+  return { ...base, summary: unverified, evidence: [...vulnerable, ...mitigation], reasonCode: "evidence_not_verified" };
 }
 
 /** 규칙 재검사 결과를 사람이 읽을 문장으로. 비밀값·의존성은 스캐너 설명을 그대로 쓴다. */
@@ -301,10 +370,28 @@ function ruleSummaryText(finding: SecurityFinding, fixed: boolean, detail: strin
   const key = finding.verificationKey ?? "";
   if (key.startsWith("secret:") || key.startsWith("dep:")) return (detail ?? "").slice(0, MAX_RESULTS_TEXT);
   const original = finding.evidence.find((e) => e.kind === "source_code")?.content.trim().slice(0, 160);
-  const where = original ? ` (원래 코드: \`${original}\`)` : "";
+  // 화면에서 "규칙 재검사" 제목 아래에 보이므로 문장 앞에 같은 말을 다시 붙이지 않는다.
+  const where = original ? ` 처음 문제로 잡힌 코드는 \`${original}\` 부분이에요.` : "";
   return fixed
-    ? `규칙 재검사: 원래 문제가 된 위험 신호가 수정본에서 더 이상 잡히지 않아요${where}.`
-    : `규칙 재검사: 같은 위험 신호가 수정본에 아직 남아 있어요${where}.`;
+    ? `같은 규칙으로 수정본 코드를 다시 검사했더니, 처음 문제로 잡힌 위험한 코드가 더 이상 발견되지 않았어요.${where} 코드만 검사한 결과라서 실제 서비스에서도 막히는지는 실행해 확인해야 해요.`
+    : `같은 규칙으로 수정본 코드를 다시 검사했더니, 처음 문제로 잡힌 위험한 코드가 아직 남아 있어요.${where} 이 부분을 다시 고친 뒤 재검증해 주세요.`;
+}
+
+/**
+ * AI 재검토 실패 안내. 실패 원인(형식이 잘못된 답 / 호출 실패)을 구분하고,
+ * 무엇을 확인하지 못했는지와 다음 행동을 함께 쓴다. 성공처럼 읽히지 않게 한다.
+ */
+export function aiFailureMessage(errorCode: string | undefined, hasRuleResults: boolean): string {
+  const cause =
+    errorCode === "ai_invalid_response"
+      ? "AI 답변을 알아볼 수 없는 형식으로 받아서 AI 재검토를 끝내지 못했어요."
+      : errorCode === "ai_timeout"
+        ? "AI 답변이 제한 시간 안에 오지 않아 AI 재검토를 끝내지 못했어요."
+        : "AI에 재검토를 요청하지 못해서 AI 재검토를 끝내지 못했어요.";
+  const scope = hasRuleResults
+    ? " 규칙으로 다시 검사할 수 있는 항목만 결과에 반영했어요. 나머지 항목은 고쳐졌는지 아직 확인하지 못했어요."
+    : " 그래서 고친 항목들이 해결됐는지 아직 확인하지 못했어요.";
+  return `${cause}${scope} 잠시 후 재검증을 다시 실행해 주세요.`;
 }
 
 /** 규칙 스캐너로 수정본을 다시 검사. 판단할 수 없으면 undefined. */
@@ -348,7 +435,7 @@ export async function reverifyFixJob(
     throw new AppError(409, "fix_in_progress", "수정이 아직 끝나지 않았어요. 끝난 뒤에 재검증해 주세요.");
   }
   if (!job.resultVersionId || !job.resultContentHash) {
-    throw new AppError(409, "no_fixed_version", "적용된 수정이 없어 재검증할 수정본이 없어요.");
+    throw new AppError(409, "no_fixed_version", "아직 파일에 적용된 수정이 없어서 다시 확인할 코드가 없어요. 먼저 수정을 적용해 주세요.");
   }
   const prev = job.verification;
   if (prev?.status === "running" && clock() - Date.parse(prev.startedAt) < limits.staleJobMs) {
@@ -357,7 +444,7 @@ export async function reverifyFixJob(
 
   const version = await getSourceVersion(job.resultVersionId, ownerId);
   if (version.contentHash !== job.resultContentHash || version.fixJobId !== job.id) {
-    throw new AppError(409, "source_integrity_mismatch", "수정본이 기록과 달라 재검증할 수 없어요. 전체 수정을 다시 실행해 주세요.");
+    throw new AppError(409, "source_integrity_mismatch", "저장된 수정본이 수정할 때 기록한 내용과 달라서 재검증을 멈췄어요. 전체 수정을 다시 실행한 뒤 재검증해 주세요.");
   }
   const project = await getProject(job.projectId, ownerId);
   const allFindings = await getFindingsForScan(job.scanId, ownerId);
@@ -507,10 +594,7 @@ export async function reverifyFixJob(
             if (e instanceof LlmError && e.correlationId) verification.llmCorrelationId = e.correlationId;
           }
           if (verification.aiStatus === "failed") {
-            verification.errorMessage =
-              ruleItems.size > 0
-                ? "AI 재검증을 완료하지 못했어요. 규칙으로 확인한 결과만 반영했어요."
-                : "AI 재검증을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.";
+            verification.errorMessage = aiFailureMessage(verification.errorCode, ruleItems.size > 0);
             for (const f of ask) aiItems.delete(f.id);
           }
         }
@@ -536,7 +620,10 @@ export async function reverifyFixJob(
       await runPool(candidates, 3, async (f) => {
         const remaining = limits.verifyTimeBudgetMs - (clock() - startedMs);
         if (remaining < 15_000) {
-          exploits.set(f.id, { status: "not_run", detail: "시간 한도 때문에 공격 재현 테스트를 실행하지 못했어요." });
+          exploits.set(f.id, {
+            status: "not_run",
+            detail: "재검증 제한 시간이 얼마 남지 않아, 같은 방식으로 다시 시도해 보는 테스트(공격 재현 테스트)는 실행하지 못했어요.",
+          });
           return;
         }
         const t = await gen({ finding: f, files: baseRedacted, projectMap, timeoutMs: Math.min(45_000, remaining - 10_000) });
@@ -545,7 +632,10 @@ export async function reverifyFixJob(
           return;
         }
         if (t.kind === "error") {
-          exploits.set(f.id, { status: "error", detail: "AI가 공격 재현 테스트를 만들지 못했어요." });
+          exploits.set(f.id, {
+            status: "error",
+            detail: "AI가 같은 방식으로 다시 시도해 보는 테스트(공격 재현 테스트)를 만들지 못해서, 실행으로는 확인하지 못했어요.",
+          });
           return;
         }
         exploits.set(f.id, await run({ testCode: t.code, attack: t.attack, baseFiles: baseRedacted, fixedFiles: fixedRedacted, timeoutMs: limits.exploitRunTimeoutMs }));
@@ -563,12 +653,14 @@ export async function reverifyFixJob(
     console.error(`[reverify] job ${job.id} failed: ${e instanceof Error ? e.name : typeof e}`);
     verification.status = "failed";
     verification.errorCode = verification.errorCode ?? "internal_error";
-    verification.errorMessage = "재검증 중 문제가 생겨 끝내지 못했어요. 다시 시도해 주세요.";
+    verification.errorMessage =
+      "재검증 도중 서버에서 문제가 생겨 끝내지 못했어요. 그래서 고친 항목들이 해결됐는지 아직 확인하지 못했어요. 잠시 후 재검증을 다시 실행해 주세요.";
     verification.items = findings.map((f) => ({
       findingId: f.id,
       title: f.title,
       severity: f.severity,
       verdict: "inconclusive" as const,
+      summary: INCONCLUSIVE_NOTES.internal_error,
       evidence: [],
       reasonCode: "internal_error",
     }));

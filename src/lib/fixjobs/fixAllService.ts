@@ -66,15 +66,15 @@ const AI_BLOCKING_ERRORS = new Set(["auth_failed", "not_configured"]);
 function aiErrorReason(code: string): string {
   switch (code) {
     case "auth_failed":
-      return "AI 키가 올바르지 않거나 권한이 없어 수정안을 받지 못했어요. 관리자에게 AI 설정 확인을 요청해 주세요.";
+      return "AI 키가 올바르지 않거나 권한이 없어 AI 수정 기능에 연결하지 못했어요. 그래서 이 항목의 수정안을 만들지 못했고, 파일은 바뀌지 않았어요. 서비스 관리자에게 AI 키 설정을 확인해 달라고 요청해 주세요.";
     case "not_configured":
-      return "AI 설정이 없어 수정안을 받지 못했어요.";
+      return "AI 수정 기능이 설정돼 있지 않아 이 항목의 수정안을 만들지 못했어요. 파일은 바뀌지 않았어요. 점검 결과의 수정 방법을 보고 직접 고치거나, 관리자에게 AI 설정을 요청해 주세요.";
     case "rate_limited":
-      return "AI 요청 한도에 걸렸어요. 잠시 후 다시 시도해 주세요.";
+      return "AI 요청이 몰려 사용 한도에 걸렸어요. 이 항목의 수정안을 만들지 못했고, 파일은 바뀌지 않았어요. 몇 분 뒤 다시 시도해 주세요.";
     case "timeout":
-      return "AI 수정안을 기다리다 시간이 초과됐어요. 다시 시도해 주세요.";
+      return "AI가 정해진 시간 안에 수정안을 보내지 않았어요. 파일은 바뀌지 않았어요. 잠시 후 다시 시도해 주세요.";
     default:
-      return "AI 수정안을 받지 못했어요. 잠시 후 다시 시도해 주세요.";
+      return "AI 수정안을 받지 못했어요. 파일은 바뀌지 않았어요. 잠시 후 다시 시도해 주세요.";
   }
 }
 
@@ -92,6 +92,14 @@ const MAX_RETRY_ATTEMPTS = 5;
 
 export const FIX_GUIDANCE =
   "받은 파일을 프로젝트에 반영해주세요. 공개한 웹사이트도 적용하려면 다시 배포해야 해요.";
+
+/**
+ * 수정본에 적용은 했지만 재검증 전인 항목의 안내. 해결 여부는 재검증이 정하므로
+ * 여기서는 "해결했다"고 말하지 않는다.
+ */
+export const APPLIED_UNVERIFIED_REASON = "수정 내용을 적용했어요. 문제가 해결됐는지 다시 확인해 주세요.";
+const ALREADY_APPLIED_REASON =
+  "앞 항목의 수정으로 이 부분도 이미 바뀌었어요. 문제가 해결됐는지 다시 확인해 주세요.";
 
 export interface FixAllRequest {
   ownerId: string;
@@ -117,6 +125,9 @@ export interface FixAllResult {
 }
 
 const CLIENT_KEY = /^[A-Za-z0-9_-]{8,128}$/;
+
+const STALE_JOB_MESSAGE =
+  "수정 작업이 제한 시간 안에 끝나지 않아 중단됐어요. 원본 코드는 그대로예요. 전체 수정을 다시 실행해 주세요.";
 
 function iso(ms: number): string {
   return new Date(ms).toISOString();
@@ -195,7 +206,7 @@ async function resolveKey(
         ...job,
         status: "failed",
         errorCode: "timeout",
-        errorMessage: "수정 작업이 제한 시간 안에 끝나지 않았어요. 다시 시도해 주세요.",
+        errorMessage: STALE_JOB_MESSAGE,
         updatedAt: iso(nowMs),
         completedAt: iso(nowMs),
       };
@@ -203,7 +214,11 @@ async function resolveKey(
     }
     if (job.status !== "failed" || !allowRetry) return { existing: job };
   }
-  throw new AppError(429, "too_many_retries", "같은 수정을 너무 많이 다시 시도했어요. 잠시 후 다시 점검한 뒤 시도해 주세요.");
+  throw new AppError(
+    429,
+    "too_many_retries",
+    "같은 수정을 여러 번 다시 시도했지만 계속 끝내지 못했어요. 잠시 후 다시 점검해서 최신 결과로 수정을 시작해 주세요."
+  );
 }
 
 export async function startFixAll(req: FixAllRequest, opts: FixAllOptions = {}): Promise<FixAllResult> {
@@ -242,7 +257,7 @@ export async function startFixAll(req: FixAllRequest, opts: FixAllOptions = {}):
         ...itemBase(f),
         outcome: "skipped" as const,
         reasonCode: "item_limit",
-        reason: `한 번에 ${limits.fixAllMaxItems}개까지만 고칠 수 있어 이번에는 다루지 않았어요.`,
+        reason: `한 번에 ${limits.fixAllMaxItems}개까지만 고칠 수 있어 이번에는 다루지 않았어요. 심각한 항목부터 먼저 처리했어요. 이번 수정본을 반영하고 다시 점검한 뒤 남은 항목을 고쳐 주세요.`,
       })),
     ],
     changedFiles: [],
@@ -261,7 +276,7 @@ export async function startFixAll(req: FixAllRequest, opts: FixAllOptions = {}):
     const t = clock();
     job.status = "failed";
     job.errorCode = "internal_error";
-    job.errorMessage = "수정 중 문제가 생겨 작업을 끝내지 못했어요. 다시 시도해 주세요.";
+    job.errorMessage = "수정 중 예상하지 못한 문제가 생겨 작업을 끝내지 못했어요. 원본 코드는 그대로예요. 다시 시도해 주세요.";
     job.updatedAt = iso(t);
     job.completedAt = iso(t);
     console.error(`[fix-all] job ${job.id} failed: ${e instanceof Error ? e.name : typeof e}`);
@@ -307,7 +322,8 @@ async function processJob(job: FixJob, ctx: ProcessCtx): Promise<void> {
           ...itemBase(finding),
           outcome: "skipped",
           reasonCode: "time_budget",
-          reason: "처리 시간 한도에 닿아 이번에는 다루지 못했어요. 남은 항목은 다시 시도해 주세요.",
+          reason:
+            "한 번의 수정 작업에 쓸 수 있는 시간을 다 써서 이 항목은 다루지 못했어요. 이 항목의 파일은 바뀌지 않았어요. 이번 수정본을 반영하고 다시 점검한 뒤 남은 항목을 고쳐 주세요.",
         };
       } else {
         item = await fixOne(finding, working, base, {
@@ -364,7 +380,7 @@ async function processJob(job: FixJob, ctx: ProcessCtx): Promise<void> {
       console.error(`[fix-all] artifact save failed for ${job.id}: ${e instanceof Error ? e.name : typeof e}`);
       job.status = "failed";
       job.errorCode = "artifact_save_failed";
-      job.errorMessage = "수정한 파일을 저장하지 못했어요. 다시 시도해 주세요.";
+      job.errorMessage = "수정한 파일을 저장하지 못해 내려받을 파일을 만들지 못했어요. 원본 코드는 그대로예요. 다시 시도해 주세요.";
     }
   }
 
@@ -372,7 +388,7 @@ async function processJob(job: FixJob, ctx: ProcessCtx): Promise<void> {
     if (applied === 0) {
       job.status = "failed";
       job.errorCode = "nothing_applied";
-      job.errorMessage = "자동으로 고칠 수 있는 항목이 없었어요. 항목별 이유를 확인해 주세요.";
+      job.errorMessage = "자동으로 적용한 수정이 하나도 없어요. 파일은 바뀌지 않았어요. 항목마다 적힌 이유와 해야 할 일을 확인해 주세요.";
     } else if (applied === job.items.length) {
       job.status = "completed";
     } else {
@@ -424,10 +440,10 @@ async function fixOne(
       reasonCode: "disputed_at_scan",
       reason:
         finding.aiReview.adjudication?.verdict === "not_vulnerable"
-          ? `AI가 코드 근거를 확인해 실제 취약점이 아니라고 판정해서 고치지 않았어요. ${finding.aiReview.adjudication.reason}`.trim()
+          ? `AI가 근거 코드를 확인해 실제 문제가 아니라고 판정해서 코드를 바꾸지 않았어요. ${finding.aiReview.adjudication.reason}`.trim()
           : `규칙은 문제로 봤지만 AI는 실제 문제가 아닐 가능성이 높다고 봐서 자동으로 고치지 않았어요${
               finding.aiReview.reason ? ` (${finding.aiReview.reason})` : ""
-            }. 코드를 보고 판단해 주세요.`,
+            }. 문제가 없는 코드를 바꾸면 정상 기능이 깨질 수 있어서예요. 코드를 직접 보고 고칠지 판단해 주세요.`,
     };
   }
 
@@ -437,7 +453,8 @@ async function fixOne(
       ...head,
       outcome: "unsupported",
       reasonCode: "no_auto_fix",
-      reason: "이 항목은 규칙으로 안전하게 고칠 수 없고, AI 수정도 설정돼 있지 않아요. 설명을 보고 직접 고쳐 주세요.",
+      reason:
+        "이 항목은 정해진 규칙으로 안전하게 고칠 방법이 없고, AI 수정 기능도 설정돼 있지 않아 수정안을 만들지 않았어요. 점검 결과의 수정 방법을 보고 직접 고친 뒤 다시 점검해 주세요.",
     };
   }
   if (o.ai.blocked) {
@@ -449,7 +466,8 @@ async function fixOne(
       ...head,
       outcome: "unsupported",
       reasonCode: "no_file_location",
-      reason: "고칠 파일 위치를 알 수 없는 항목이라 자동으로 고치지 않았어요. 설정이나 배포 환경에서 확인해 주세요.",
+      reason:
+        "이 항목은 문제가 된 파일 위치가 없어 코드를 자동으로 고치지 않았어요. 서버 설정이나 배포 환경처럼 코드 밖에서 생긴 문제일 수 있어요. 점검 결과의 설명을 보고 해당 설정을 직접 확인해 주세요.",
     };
   }
   if (working[file].length > o.llmFileChars) {
@@ -457,7 +475,7 @@ async function fixOne(
       ...head,
       outcome: "unsupported",
       reasonCode: "file_too_large_for_ai",
-      reason: `파일이 너무 길어(${o.llmFileChars.toLocaleString("ko-KR")}자 초과) AI에 보내지 않았어요. 직접 고쳐 주세요.`,
+      reason: `이 파일은 ${o.llmFileChars.toLocaleString("ko-KR")}자보다 길어서 AI에 보내지 않았어요. 일부만 잘라 보내면 잘못된 수정안이 나올 수 있어서예요. 문제가 된 부분을 직접 고치거나, 파일을 더 작은 파일 여러 개로 나눈 뒤 다시 점검해 주세요.`,
       files: [file],
     };
   }
@@ -492,7 +510,10 @@ async function fixOne(
       ...head,
       outcome: "unsupported",
       reasonCode: "ai_declined",
-      reason: scrubPlaceholders(res.reason || "코드만 바꿔서는 안전하게 고칠 수 없는 항목이에요."),
+      reason: scrubPlaceholders(
+        res.reason ||
+          "AI가 이 파일만 바꿔서는 안전하게 고칠 수 없다고 판단했어요. 다른 파일이나 배포 설정을 함께 바꿔야 할 수 있어요. 점검 결과의 설명을 보고 필요한 부분을 직접 확인해 주세요."
+      ),
       llmCorrelationId: res.correlationId,
     };
   }
@@ -501,7 +522,8 @@ async function fixOne(
       ...head,
       outcome: "apply_failed",
       reasonCode: "ai_invalid_fix",
-      reason: "AI 수정안이 실제 파일 내용과 맞지 않아 적용하지 않았어요.",
+      reason:
+        "AI가 보낸 수정안을 실제 파일 내용에 정확히 맞출 수 없어 적용하지 않았어요. 엉뚱한 곳을 바꾸지 않으려고 멈춘 거예요. 파일은 바뀌지 않았어요. 다시 시도하거나 직접 고쳐 주세요.",
       llmCorrelationId: res.correlationId,
     };
   }
@@ -565,18 +587,20 @@ function appliedItem(
     files: changedFiles.length > 0 ? changedFiles : [...new Set(fix.diffs.map((d) => d.file))],
     summary: fix.summary,
     plainExplanation: rotate
-      ? `${fix.plainExplanation} 이미 노출된 키는 코드만 바꿔서는 막을 수 없어요. 새 키로 교체해 주세요.`
+      ? `${fix.plainExplanation} 이미 공개된 키라면 코드만 바꿔서는 막을 수 없어요. 새 키를 발급하고 기존 키는 사용할 수 없게 해 주세요.`
       : fix.plainExplanation,
     // 같은 수정이 앞 항목에서 이미 적용된 경우도 applied다(파일은 한 번만 바뀜).
     reasonCode: changedFiles.length === 0 ? "same_fix_already_applied" : undefined,
+    // 적용했지만 재검증 전: 해결됐다고 말하지 않는다.
+    reason: changedFiles.length === 0 ? ALREADY_APPLIED_REASON : APPLIED_UNVERIFIED_REASON,
     edits,
   };
 }
 
 const OUTCOME_LABEL: Record<FixJobItem["outcome"], string> = {
   applied: "수정 적용(재검증 전)",
-  apply_failed: "수정 실패",
-  unsupported: "자동 수정 불가",
+  apply_failed: "적용하지 못함",
+  unsupported: "자동으로 못 고침(직접 수정 필요)",
   skipped: "이번에 다루지 않음",
 };
 
@@ -591,7 +615,8 @@ function summaryText(job: FixJob, project: Project, base: SourceVersion, result:
     ``,
     FIX_GUIDANCE,
     ``,
-    `이 파일들은 아직 재검증 전이에요. 반영 전에 직접 확인하고, 재검증 결과도 함께 확인해 주세요.`,
+    `이 파일들에 수정 내용을 적용했어요. 아직 재검증 전이라 문제가 해결됐는지는 확인되지 않았어요.`,
+    `반영하기 전에 바뀐 코드를 직접 확인하고, 호이의 재검증 결과도 함께 확인해 주세요.`,
     ``,
     ...(job.requiredEnv && job.requiredEnv.length > 0
       ? [
@@ -628,7 +653,7 @@ export async function loadFixJob(
     ...job,
     status: "failed",
     errorCode: "timeout",
-    errorMessage: "수정 작업이 제한 시간 안에 끝나지 않았어요. 다시 시도해 주세요.",
+    errorMessage: STALE_JOB_MESSAGE,
     updatedAt: iso(t),
     completedAt: iso(t),
   };

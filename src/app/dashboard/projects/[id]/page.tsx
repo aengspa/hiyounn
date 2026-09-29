@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/ui";
@@ -16,12 +16,22 @@ import { formatKstDateTime } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
+/** 파일에 적용한 것과 해결 확인(재검증)은 다르다. 여기서는 적용 상태만 말한다. */
 const JOB_LABEL: Record<string, string> = {
-  running: "고치는 중이에요",
-  completed: "모두 고쳤어요",
-  partial: "일부 고쳤어요",
-  failed: "고치지 못했어요",
+  running: "수정안을 만드는 중이에요",
+  completed: "모든 항목에 수정 적용",
+  partial: "일부 항목에 수정 적용",
+  failed: "수정 적용 못 함",
 };
+
+function jobSummary(job: { status: string; verification?: { status: string } }): string {
+  const base = JOB_LABEL[job.status] ?? "";
+  if (!base || job.status === "running" || job.status === "failed") return base;
+  if (job.verification?.status === "completed") return `${base} · 재검증함`;
+  if (job.verification?.status === "running") return `${base} · 재검증 중`;
+  if (job.verification?.status === "failed") return `${base} · 재검증 못 끝냄`;
+  return `${base} · 재검증 전`;
+}
 
 /** 프로젝트 상세: 점검 시작 버튼 + "점검 기록" 목록 하나. */
 export default async function ProjectPage({ params }: { params: { id: string } }) {
@@ -93,7 +103,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
                         </p>
                         <p className="mt-1 text-sm font-semibold text-ink-subtle">
                           확인할 부분 {scan.findingIds.length}개
-                          {latestJob ? ` · ${JOB_LABEL[latestJob.status] ?? ""}` : ""}
+                          {latestJob && jobSummary(latestJob) ? ` · ${jobSummary(latestJob)}` : ""}
                         </p>
                       </div>
                     </div>

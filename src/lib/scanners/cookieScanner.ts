@@ -85,25 +85,32 @@ export class CookieScanner implements SecurityScanner {
       {
         id: id("ev"),
         kind: "http_response",
-        label: "관측된 Set-Cookie (값 마스킹)",
+        label: "받은 쿠키 설정(Set-Cookie, 값은 가림)",
         content: insecure.map((c) => c.raw).join("\n"),
         masked: true,
       },
       {
         id: id("ev"),
         kind: "configuration",
-        label: "쿠키 속성 점검",
+        label: "빠진 쿠키 설정",
         content: insecure
           .map((c) => `${c.name}: 누락 → ${c.missing.join(", ")}`)
           .join("\n"),
       },
     ];
 
+    const missingAll = new Set(insecure.flatMap((c) => c.missing));
+    const effects = [
+      missingAll.has("HttpOnly") && "화면에서 실행되는 스크립트가 쿠키를 읽어 갈 수 있어요(HttpOnly 없음).",
+      missingAll.has("Secure") && "암호화되지 않은 연결(http://)에서도 쿠키가 전송될 수 있어요(Secure 없음).",
+      missingAll.has("SameSite") && "다른 사이트에서 보낸 요청에도 쿠키가 함께 실려 갈 수 있어요(SameSite 없음).",
+    ].filter(Boolean);
+
     return [
       {
         id: id("finding"),
         scanId: "",
-        title: "세션 쿠키에 보안 속성이 빠져 있습니다",
+        title: "사이트가 보내는 쿠키에 브라우저 보호 설정이 빠져 있어요",
         severity: "medium",
         category: "Session Management",
         owasp: "A05 – Security Misconfiguration",
@@ -112,13 +119,13 @@ export class CookieScanner implements SecurityScanner {
         description: `세션 쿠키에 보안 속성이 누락되었습니다: ${insecure
           .map((c) => `${c.name}(${c.missing.join("/")})`)
           .join(", ")}.`,
-        humanReadableImpact:
-          "쿠키에 보호 속성이 없으면 스크립트가 세션 쿠키를 훔치거나(HttpOnly 없음), 평문 연결로 새어나가거나(Secure 없음), 다른 사이트 요청에 실려 나갈 수 있습니다(SameSite 없음).",
-        whyItMatters:
-          "세션 쿠키 탈취는 곧 계정 탈취로 이어집니다.",
+        humanReadableImpact: `${effects.join(" ")} 이 쿠키가 로그인 유지에 쓰인다면, 쿠키를 가져간 사람이 그 사용자로 로그인한 것처럼 행동할 수 있어요.`,
+        whyItMatters: `배포된 사이트에 실제로 요청을 보내 받은 쿠키 설정을 확인했어요. ${insecure
+          .map((c) => `${c.name} 쿠키에 ${c.missing.join(", ")} 설정이 없어요.`)
+          .join(" ")} 이 쿠키가 로그인 유지에 쓰이는지는 확인하지 않았어요.`,
         evidence,
         remediation:
-          "세션 쿠키에 HttpOnly, Secure, SameSite(Lax 또는 Strict) 속성을 모두 설정하세요.",
+          "쿠키를 만들 때 HttpOnly, Secure, SameSite=Lax(또는 Strict) 설정을 모두 붙여 주세요. 로그인 기능을 라이브러리로 만들었다면 그 라이브러리의 쿠키 옵션에서 이 값을 켤 수 있어요.",
         status: "verified",
         simulated: false,
         verificationKey: `cookie:${context.projectId}`,

@@ -32,6 +32,16 @@ const SENSITIVE_PATHS: { path: string; label: string }[] = [
   { path: "/debug", label: "디버그 라우트" },
 ];
 
+/** 화면 설명용 쉬운 이름(근거에는 위 label을 그대로 쓴다). */
+const PATH_PLAIN_KO: Record<string, string> = {
+  "/.env": "비밀값이 담기는 환경변수 파일(.env)",
+  "/.git/config": "코드 저장소 설정(.git)",
+  "/.git/HEAD": "코드 저장소 정보(.git)",
+  "/config.json": "설정 파일",
+  "/server-status": "서버 상태 페이지",
+  "/debug": "개발용 디버그 화면",
+};
+
 /** URL의 origin(스킴+호스트+포트)만 취해 경로를 붙인다. */
 function toProbeUrl(base: string, path: string): string | null {
   try {
@@ -93,7 +103,7 @@ export class ExposedEndpointScanner implements SecurityScanner {
       {
         id: id("ev"),
         kind: "http_request",
-        label: "점검한 경로",
+        label: "요청한 주소",
         content: exposed
           .map((o) => `GET ${o.path}`)
           .join("\n"),
@@ -101,7 +111,7 @@ export class ExposedEndpointScanner implements SecurityScanner {
       {
         id: id("ev"),
         kind: "http_response",
-        label: "노출 응답(상태코드)",
+        label: "응답 상태",
         content: exposed
           .map((o) => `${o.path} → HTTP ${o.status} (${o.label})`)
           .join("\n"),
@@ -109,7 +119,7 @@ export class ExposedEndpointScanner implements SecurityScanner {
       {
         id: id("ev"),
         kind: "scanner_output",
-        label: "노출 경로 프로브 출력",
+        label: "열려 있는 주소",
         content: `노출된 경로 ${exposed.length}개:\n- ${exposed
           .map((o) => `${o.path} (${o.label})`)
           .join("\n- ")}`,
@@ -120,22 +130,23 @@ export class ExposedEndpointScanner implements SecurityScanner {
       {
         id: id("finding"),
         scanId: "",
-        title: "민감한 파일/관리 경로가 외부에 노출되어 있습니다",
+        // findingMerge의 문제 종류 분류가 바뀌지 않도록 "경로"라는 단어를 제목에 유지한다.
+        title: "외부에서 열리면 안 되는 파일이나 관리용 경로가 열려 있어요",
         severity: "high",
         category: "Security Misconfiguration",
         owasp: "A05 – Security Misconfiguration",
         cwe: "CWE-489",
         cvss: 7.5,
-        description: `외부에서 접근 가능한 민감 경로가 발견되었습니다: ${exposed
+        description: `외부에서 접근 가능한 민감 경로를 찾았어요: ${exposed
           .map((o) => o.path)
           .join(", ")}.`,
-        humanReadableImpact:
-          "설정 파일이나 소스 저장소, 디버그 페이지가 외부에 열려 있으면 공격자가 내부 정보를 그대로 열람할 수 있습니다.",
-        whyItMatters:
-          "노출된 비밀 값·경로·버전 정보가 다음 공격의 발판이 됩니다.",
+        humanReadableImpact: `누구나 이 주소로 들어가 ${[...new Set(exposed.map((o) => PATH_PLAIN_KO[o.path] ?? o.label))].join(", ")} 같은 내부 정보를 볼 수 있어요. 여기에 비밀값이나 서버 정보가 들어 있다면 다음 공격에 쓰일 수 있어요.`,
+        whyItMatters: `배포된 사이트에 실제로 요청을 보내 확인했어요. 다음 주소가 정상 응답(2xx)을 돌려줬어요: ${exposed
+          .map((o) => o.path)
+          .join(", ")}. 응답 내용은 저장하지 않았으니, 실제로 민감한 내용이 보이는지는 직접 열어 확인해 주세요.`,
         evidence,
         remediation:
-          "이 경로들이 외부에서 접근되지 않도록 배포/호스팅 설정에서 차단하고, 디버그 라우트는 프로덕션에서 비활성화하세요.",
+          "호스팅 설정이나 서버에서 이 주소들에 대한 요청을 거절하도록 막아 주세요. .env 파일이나 .git 폴더는 배포 파일에 넣지 말고, 디버그 기능은 운영 환경에서 꺼 주세요. 비밀값이 담긴 파일이 열려 있었다면 그 비밀값은 새로 발급해 주세요.",
         status: "verified", // 실제 관측으로 노출을 확인
         simulated: false,
         verificationKey: `exposed:${context.projectId}`,

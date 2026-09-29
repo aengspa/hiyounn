@@ -4,6 +4,7 @@ import type {
   SecurityFinding,
   Severity,
 } from "@/lib/domain/types";
+import { toTestStatus } from "@/lib/domain/types";
 import { now } from "@/lib/util";
 import { isConfigured, completeJson } from "@/lib/ai/llmClient";
 
@@ -24,18 +25,31 @@ const SEVERITY_LABEL: Record<Severity, string> = {
   low: "낮음",
 };
 
-const REPORT_SYSTEM_PROMPT = `당신은 시니어 보안 엔지니어입니다.
-보안 스캔 결과를 개발자가 이해하기 쉽게 한국어로 요약합니다.
+const REPORT_SYSTEM_PROMPT = `당신은 보안 점검 결과를 요약 보고서로 정리하는 보안 엔지니어입니다.
+입력으로 받은 점검 범위와 발견 목록만 근거로 한국어 보고서를 씁니다.
 반드시 아래 JSON 하나만 출력하세요.
 
 {
-  "summary": "전체 상황을 한 문단으로 요약(한국어). 과장 없이 사실 기반.",
-  "highlights": ["가장 중요한 발견 3~5개를 짧은 문장으로"],
-  "recommendation": "지금 무엇부터 해야 하는지 한두 문장(한국어)"
+  "summary": "이번 점검 결과와 확인 범위 요약(2~4문장)",
+  "highlights": ["중요한 문제와 가능한 영향(항목당 한 문장, 3~5개)"],
+  "recommendation": "먼저 할 수정과 그 뒤에 확인할 내용(1~3문장)"
 }
 
-규칙: 발견 목록에 근거하여 사실만 쓰고, 없는 취약점을 지어내지 마세요.
-심각도가 높은 항목을 우선 언급하세요.`;
+[필드별 역할]
+- summary: 발견한 문제 수와 심각도, 이번에 확인한 범위와 확인하지 못한 범위를 쉬운 말로 요약한다.
+  실제 요청으로 확인한 항목과 코드·설정에서 찾은 의심 신호가 섞여 있으면 둘을 구분해서 쓴다.
+- highlights: 심각도가 높은 항목부터 고른다. 기술 분류명(예: IDOR, XSS)을 나열하지 말고,
+  어떤 문제가 있고 그 때문에 어떤 일이 생길 수 있는지 한 문장으로 쓴다.
+  가능한 영향은 발견 목록의 설명에 있는 범위 안에서만 쓴다.
+- recommendation: 가장 먼저 고칠 항목과 구체적인 행동을 쓰고, 이어서 수정 후 무엇을 다시 확인할지 쓴다.
+  "보안을 강화하세요"처럼 추상적인 말로 끝내지 않는다.
+
+[작업 규칙]
+- 발견 목록에 없는 문제, 기능, 피해를 지어내지 않는다.
+- 의심 신호로 표시된 항목을 공격이 성공한 것처럼 쓰지 않는다.
+- 심각도를 낮추거나 높여서 표현하지 않는다.
+- 발견이 없으면 highlights는 빈 배열로 둔다. summary에는 "이번에 확인한 범위에서는 문제를 찾지 못했다"는 사실과
+  확인하지 못한 범위를 함께 쓴다. "완전히 안전해요", "배포해도 돼요"처럼 안전을 보장하는 표현은 쓰지 않는다.`;
 
 interface RawReport {
   summary?: string;
@@ -49,6 +63,33 @@ function countBySeverity(findings: SecurityFinding[]): Record<Severity, number> 
   return c;
 }
 
+/** 실제 요청·재현으로 확인한 항목인지(아니면 코드·설정에서 찾은 의심 신호). */
+function isConfirmed(f: SecurityFinding): boolean {
+  return (f.testStatus ?? toTestStatus(f.status)) === "CONFIRMED";
+}
+
+/** 설명의 첫 문장만(보고서 한 줄 요약용). */
+function firstSentence(text: string | undefined, max = 140): string {
+  const t = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!t) return "";
+  const m = t.match(/^.*?[.!?](?=\s|$)/);
+  const s = m ? m[0] : t;
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
+/** 확인한 범위·확인하지 못한 범위를 한두 문장으로. */
+function scopeSentence(scope: ScanScope): string {
+  const tested = scope.testedCategories.length;
+  const untested = scope.untestedCategories.length;
+  const testedPart =
+    tested > 0 ? `이번에는 ${tested}개 항목을 확인했어요.` : "이번 점검에서 기록된 확인 항목이 없어요.";
+  const untestedPart =
+    untested > 0
+      ? ` 확인하지 못한 항목이 ${untested}개 있어서, 그 부분의 문제는 이 결과에 들어 있지 않아요.`
+      : "";
+  return `${testedPart}${untestedPart}`;
+}
+
 /** 결정적(규칙 기반) 요약 — AI 없이도 항상 동작. */
 function deterministicReport(
   findings: SecurityFinding[],
@@ -56,30 +97,42 @@ function deterministicReport(
 ): ScanReport {
   const counts = countBySeverity(findings);
   const total = findings.length;
+  const confirmed = findings.filter(isConfirmed).length;
 
   const parts = (["critical", "high", "medium", "low"] as Severity[])
     .filter((s) => counts[s] > 0)
     .map((s) => `${SEVERITY_LABEL[s]} ${counts[s]}건`);
 
+  const basis =
+    confirmed === 0
+      ? " 모두 코드나 설정에서 찾은 의심 신호라서, 실제로 문제가 되는지는 각 항목의 근거를 보고 확인해 주세요."
+      : confirmed === total
+        ? " 모두 점검 도구가 실제 요청으로 확인한 항목이에요."
+        : ` 그중 ${confirmed}건은 점검 도구가 실제 요청으로 확인했고, ${total - confirmed}건은 코드나 설정에서 찾은 의심 신호예요.`;
+
   const summary =
     total === 0
-      ? "이번 스캔에서는 검사한 범위 내에서 취약점이 발견되지 않았습니다. 다만 이는 점검한 항목에 한정된 결과입니다."
-      : `이번 스캔에서 총 ${total}건의 보안 문제를 발견했습니다(${parts.join(
-          ", "
-        )}). 아래 목록에서 각 항목의 영향과 근거를 확인할 수 있습니다.`;
+      ? `이번에 확인한 범위에서는 문제를 찾지 못했어요. ${scopeSentence(scope)} 문제를 찾지 못했다는 것이 모든 위험이 없다는 뜻은 아니에요.`
+      : `이번 점검에서 확인이 필요한 문제를 ${total}건 찾았어요(${parts.join(", ")}).${basis} ${scopeSentence(scope)}`;
 
   const highlights = findings
     .slice()
     .sort((a, b) => severityRank(a.severity) - severityRank(b.severity))
     .slice(0, 5)
-    .map((f) => `[${SEVERITY_LABEL[f.severity]}] ${f.title}`);
+    .map((f) => {
+      const title = f.title.trim().replace(/[.。]\s*$/, "");
+      const impact = firstSentence(f.humanReadableImpact);
+      const withImpact = impact && impact !== f.title.trim() ? `${title}. ${impact}` : title;
+      return `[${SEVERITY_LABEL[f.severity]}] ${withImpact}`;
+    });
 
+  const top = (["critical", "high", "medium", "low"] as Severity[]).find((s) => counts[s] > 0);
   const recommendation =
-    counts.critical > 0
-      ? "심각 항목부터 수정안을 생성해 적용하고, 같은 공격이 막히는지 검증하세요."
-      : total > 0
-        ? "발견된 항목의 수정안을 생성해 적용한 뒤 검증하세요."
-        : "정기적으로 재스캔하여 변경된 코드에 새로운 문제가 없는지 확인하세요.";
+    total === 0
+      ? "코드를 바꾼 뒤에는 다시 점검해 주세요. 확인하지 못한 항목은 '점검 범위와 한계'에서 이유를 확인하고, 코드만으로 확인할 수 없는 부분은 직접 확인해 주세요."
+      : `먼저 심각도 '${SEVERITY_LABEL[top!]}' 항목 ${counts[top!]}건의 근거와 수정 방법을 확인하고 수정안을 만들어 적용해 주세요. 적용한 뒤에는 재검증을 실행해 같은 문제가 남았는지, 평소 쓰던 기능이 그대로 동작하는지 확인해 주세요.${
+          total > counts[top!] ? " 그다음 나머지 항목도 같은 순서로 처리해 주세요." : ""
+        }`;
 
   return {
     summary,
@@ -133,10 +186,11 @@ export async function generateScanReport(
     const list = findings
       .map(
         (f) =>
-          `- [${SEVERITY_LABEL[f.severity]}] ${f.title} :: ${f.humanReadableImpact}`
+          `- [${SEVERITY_LABEL[f.severity]}] (${isConfirmed(f) ? "실제 요청으로 확인" : "코드·설정에서 찾은 의심 신호"}) ${f.title} :: ${f.humanReadableImpact}`
       )
       .join("\n");
-    const user = `검사 범위: 테스트 ${scope.testedCategories.length}개 항목, 미검사 ${scope.untestedCategories.length}개 항목.
+    const user = `확인한 항목 ${scope.testedCategories.length}개: ${scope.testedCategories.join(", ") || "(없음)"}
+확인하지 못한 항목 ${scope.untestedCategories.length}개: ${scope.untestedCategories.join(", ") || "(없음)"}
 발견 ${findings.length}건:
 ${list || "(발견 없음)"}
 

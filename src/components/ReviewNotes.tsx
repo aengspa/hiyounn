@@ -14,28 +14,58 @@ const VERDICT_TONE: Record<ReverifyVerdict, string> = {
   false_positive: "text-ink-subtle",
 };
 
+/** 색 없이도 결론을 구분하는 표시. 옆의 글자가 뜻을 전하므로 aria-hidden으로 둔다. */
+const VERDICT_MARK: Record<ReverifyVerdict, string> = {
+  fixed_in_source: "✓",
+  still_present: "✕",
+  inconclusive: "?",
+  false_positive: "−",
+};
+
 const EXPLOIT_TEXT: Record<ExploitCheck["status"], string> = {
   blocked: "고치기 전에는 같은 방식으로 문제가 생겼고, 고친 뒤에는 막혔어요",
   still_exploitable: "고친 뒤에도 같은 방식으로 문제가 생겨요",
   not_reproduced: "고치기 전 코드에서도 문제가 재현되지 않아 이 테스트로는 판단하지 않았어요",
-  error: "테스트를 실행하지 못했어요",
+  error: "테스트를 실행하지 못해 이 방법으로는 확인하지 못했어요",
   not_run: "실행하지 않았어요",
 };
 
-function EvidenceList({ evidence }: { evidence: ReverifyEvidence[] }) {
+const EXPLOIT_MARK: Record<ExploitCheck["status"], string> = {
+  blocked: "✓",
+  still_exploitable: "✕",
+  not_reproduced: "?",
+  error: "?",
+  not_run: "○",
+};
+
+function Mark({ children }: { children: string }) {
+  return (
+    <span aria-hidden="true" className="mr-1 inline-block w-4 text-center font-extrabold">
+      {children}
+    </span>
+  );
+}
+
+/** 근거 코드(파일 경로·인용 코드)는 기술 정보라 펼쳐 볼 때만 보여 준다. */
+function EvidenceList({ evidence, summary = "근거 코드 보기" }: { evidence: ReverifyEvidence[]; summary?: string }) {
   if (evidence.length === 0) return null;
   return (
-    <ul className="mt-2 space-y-2">
-      {evidence.map((e, i) => (
-        <li key={i} className="overflow-hidden rounded-xl border-2 border-line bg-surface">
-          <div className="border-b border-line bg-surface-warm px-3 py-1 font-mono text-xs text-ink-muted">{e.file}</div>
-          <pre className="overflow-x-auto px-3 py-1.5 text-xs leading-5 text-ink">
-            <code>{e.snippet}</code>
-          </pre>
-          {e.explanation && <p className="border-t border-line px-3 py-1.5 text-xs text-ink-subtle">{e.explanation}</p>}
-        </li>
-      ))}
-    </ul>
+    <details className="mt-3">
+      <summary className="flex min-h-11 cursor-pointer items-center text-sm font-bold text-brand-800 hover:underline">
+        {summary} ({evidence.length}개)
+      </summary>
+      <ul className="mt-2 space-y-2">
+        {evidence.map((e, i) => (
+          <li key={i} className="overflow-hidden rounded-xl border-2 border-line bg-surface">
+            <div className="break-all border-b border-line bg-surface-warm px-3 py-1 font-mono text-xs text-ink-muted">{e.file}</div>
+            <pre className="overflow-x-auto px-3 py-1.5 text-xs leading-5 text-ink">
+              <code>{e.snippet}</code>
+            </pre>
+            {e.explanation && <p className="break-words border-t border-line px-3 py-2 text-sm leading-relaxed text-ink">{e.explanation}</p>}
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
@@ -52,42 +82,62 @@ export interface VerifyNoteItem {
   exploit?: ExploitCheck;
 }
 
-/** 재검증에서 규칙·AI·공격 재현 테스트가 각각 뭐라고 했는지. */
-export function VerifyNote({ item, fallback }: { item: VerifyNoteItem; fallback?: string }) {
+/**
+ * 재검증에서 규칙·AI·공격 재현 테스트가 각각 뭐라고 했는지(판단 근거).
+ * `shownText`는 같은 카드에 이미 보여 준 상태 문장이다. 같은 문장을 두 번 쓰지 않는다.
+ */
+export function VerifyNote({ item, shownText }: { item: VerifyNoteItem; shownText?: string }) {
   const ruleText = item.ruleSummary;
   const aiText = item.aiSummary;
+  const summary = item.summary?.trim();
+  const showSummary = Boolean(!ruleText && !aiText && summary && !(shownText ?? "").includes(summary));
+  const showExploit = Boolean(item.exploit && item.exploit.status !== "not_run");
+  if (!ruleText && !aiText && !showSummary && !showExploit && item.evidence.length === 0) return null;
   return (
-    <section aria-label="호이가 다시 확인한 내용" className="mt-4 rounded-2xl border-2 border-line bg-surface-warm p-4 text-sm leading-relaxed">
-      <h4 className="text-[13px] font-bold text-ink-subtle">호이가 다시 확인한 내용</h4>
+    <section aria-label="재검증 근거" className="mt-4 border-t-2 border-dashed border-line pt-4 text-base leading-relaxed">
+      <h5 className="text-sm font-bold text-ink">재검증 근거</h5>
       {ruleText && (
-        <p className="mt-1.5">
+        <p className="mt-2 break-words">
           <span className="font-bold text-ink">규칙 재검사</span>
-          {item.ruleVerdict && <span className={`ml-1 font-bold ${VERDICT_TONE[item.ruleVerdict]}`}>· {VERDICT_TEXT[item.ruleVerdict]}</span>}
-          <span className="block text-ink-subtle">{ruleText}</span>
+          {item.ruleVerdict && (
+            <span className={`ml-1 font-bold ${VERDICT_TONE[item.ruleVerdict]}`}>
+              · <Mark>{VERDICT_MARK[item.ruleVerdict]}</Mark>
+              {VERDICT_TEXT[item.ruleVerdict]}
+            </span>
+          )}
+          <span className="block text-ink">{ruleText}</span>
         </p>
       )}
       {aiText && (
-        <p className="mt-1.5">
-          <span className="font-bold text-ink">AI 코멘트</span>
-          {item.aiVerdict && <span className={`ml-1 font-bold ${VERDICT_TONE[item.aiVerdict]}`}>· {VERDICT_TEXT[item.aiVerdict]}</span>}
-          <span className="block text-ink-subtle">{aiText}</span>
+        <p className="mt-2 break-words">
+          <span className="font-bold text-ink">AI 재검토</span>
+          {item.aiVerdict && (
+            <span className={`ml-1 font-bold ${VERDICT_TONE[item.aiVerdict]}`}>
+              · <Mark>{VERDICT_MARK[item.aiVerdict]}</Mark>
+              {VERDICT_TEXT[item.aiVerdict]}
+            </span>
+          )}
+          <span className="block text-ink">{aiText}</span>
         </p>
       )}
-      {!ruleText && !aiText && (item.summary || fallback) && <p className="mt-1.5 text-ink-subtle">{item.summary || fallback}</p>}
-      {item.exploit && item.exploit.status !== "not_run" && (
-        <div className="mt-1.5">
+      {showSummary && <p className="mt-2 break-words text-ink">{summary}</p>}
+      {showExploit && item.exploit && (
+        <div className="mt-2 break-words">
           <span className="font-bold text-ink">같은 방식으로 다시 시도해 본 결과</span>
           <span
             className={`ml-1 font-bold ${
               item.exploit.status === "blocked" ? "text-success" : item.exploit.status === "still_exploitable" ? "text-danger" : "text-warning"
             }`}
           >
-            · {EXPLOIT_TEXT[item.exploit.status]}
+            · <Mark>{EXPLOIT_MARK[item.exploit.status]}</Mark>
+            {EXPLOIT_TEXT[item.exploit.status]}
           </span>
-          <span className="block text-ink-subtle">{item.exploit.detail}</span>
+          {item.exploit.detail && <span className="block text-ink">{item.exploit.detail}</span>}
           {item.exploit.testCode && (
             <details className="mt-1">
-              <summary className="cursor-pointer text-xs font-bold text-brand-800">AI가 작성한 테스트 코드 보기</summary>
+              <summary className="flex min-h-11 cursor-pointer items-center text-sm font-bold text-brand-800 hover:underline">
+                AI가 작성한 테스트 코드 보기
+              </summary>
               <pre className="mt-1 overflow-x-auto rounded-xl border-2 border-line bg-surface p-2 text-xs leading-5">
                 <code>{item.exploit.testCode}</code>
               </pre>
@@ -108,20 +158,27 @@ const ADJ_TEXT: Record<Adjudication["verdict"], string> = {
   unsure: "판단을 보류했어요",
 };
 
+const ADJ_MARK: Record<Adjudication["verdict"], string> = {
+  not_vulnerable: "−",
+  vulnerable: "✕",
+  unsure: "?",
+};
+
 /** 오탐 의견이 붙은 규칙 항목을 AI가 근거와 함께 다시 판정한 결과. */
 export function AdjudicationNote({ adjudication }: { adjudication: Adjudication }) {
   return (
-    <section aria-label="AI 재판정" className="mt-4 rounded-2xl border-2 border-line bg-surface-warm p-4 text-sm leading-relaxed">
-      <h4 className="text-[13px] font-bold text-ink-subtle">AI가 다시 판단했어요 (규칙이 찾은 내용이 실제 문제인지)</h4>
-      <p className="mt-1.5">
+    <section aria-label="AI 재판정" className="mt-4 rounded-2xl border-2 border-line bg-surface-warm p-4 text-base leading-relaxed">
+      <h4 className="text-sm font-bold text-ink">AI가 다시 판단했어요 (규칙이 찾은 내용이 실제 문제인지)</h4>
+      <p className="mt-2 break-words">
         <span
           className={`font-bold ${
             adjudication.verdict === "not_vulnerable" ? "text-ink-subtle" : adjudication.verdict === "vulnerable" ? "text-danger" : "text-warning"
           }`}
         >
+          <Mark>{ADJ_MARK[adjudication.verdict]}</Mark>
           {ADJ_TEXT[adjudication.verdict]}
         </span>
-        {adjudication.reason && <span className="block text-ink-subtle">{adjudication.reason}</span>}
+        {adjudication.reason && <span className="block text-ink">{adjudication.reason}</span>}
       </p>
       <EvidenceList evidence={adjudication.evidence} />
     </section>

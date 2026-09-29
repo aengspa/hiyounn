@@ -116,7 +116,7 @@ export class BaaSConfigScanner implements SecurityScanner {
       {
         id: id("ev"),
         kind: "configuration",
-        label: "RLS 미설정/정책 없음 테이블",
+        label: "행 보호 규칙(RLS)이 꺼져 있거나 정책이 없는 테이블",
         content: vulnerable
           .map(
             (v) =>
@@ -129,7 +129,7 @@ export class BaaSConfigScanner implements SecurityScanner {
       {
         id: id("ev"),
         kind: "scanner_output",
-        label: "BaaS 정책 스캐너 출력",
+        label: "SQL 파일 점검 결과",
         content: `분석한 테이블 ${rows.length}개 중 취약 ${vulnerable.length}개.\nRLS 꺼짐: ${
           noRls.map((v) => v.table).join(", ") || "없음"
         }\n정책 없음: ${noPolicy.map((v) => v.table).join(", ") || "없음"}`,
@@ -144,24 +144,32 @@ export class BaaSConfigScanner implements SecurityScanner {
         scanId: "",
         title:
           noRls.length > 0
-            ? "공개 키만 있으면 누구나 데이터베이스 테이블을 읽을 수 있습니다"
-            : "일부 테이블에 접근 제한 정책이 없습니다",
+            ? "앱의 공개 키만 있으면 누구나 일부 테이블의 데이터를 읽거나 바꿀 수 있어요"
+            : "일부 테이블에 누가 어떤 데이터를 볼 수 있는지 정한 규칙이 없어요",
         severity,
         category: "BaaS Misconfiguration",
         owasp: "A01 – Broken Access Control",
         cwe: "CWE-284",
         cvss: noRls.length > 0 ? 7.4 : 5.4,
-        description: `Supabase SQL 정적 분석 결과, 다음 테이블이 취약합니다: ${vulnerable
+        description: `Supabase SQL 정적 분석 결과, 다음 테이블에 접근 규칙이 부족해요: ${vulnerable
           .map((v) => v.table)
           .join(", ")}.`,
         humanReadableImpact:
-          "테이블에 접근 규칙(RLS/정책)이 없으면, 앱의 공개 키를 쓰는 사람이면 누구나 그 테이블의 행을 읽거나 쓸 수 있습니다.",
-        whyItMatters:
-          "Supabase의 공개(anon) 키는 브라우저에서 보입니다. RLS가 없으면 그 키만으로 테이블 전체가 노출됩니다.",
+          noRls.length > 0
+            ? "Supabase의 공개(anon) 키는 누구나 브라우저에서 볼 수 있어요. 행 보호 규칙(RLS)이 꺼진 테이블은 이 키만 있으면 누구나 데이터를 읽거나 쓸 수 있어요."
+            : "행 보호 규칙(RLS)은 켜져 있지만 누가 어떤 행을 볼 수 있는지 정한 정책이 없어요. 지금은 일반 사용자 요청이 막히지만, 앱에 필요한 접근 규칙이 코드에 정해져 있지 않은 상태예요.",
+        whyItMatters: [
+          "코드에서 확인했어요: supabase 폴더의 SQL 파일을 읽어 테이블마다 접근 규칙을 확인했어요.",
+          noRls.length > 0 ? `RLS를 켜는 문장이 없는 테이블: ${noRls.map((v) => v.table).join(", ")}.` : "",
+          noPolicy.length > 0 ? `RLS는 켰지만 정책(create policy)이 없는 테이블: ${noPolicy.map((v) => v.table).join(", ")}.` : "",
+          "배포된 Supabase 프로젝트에 실제로 적용된 설정은 확인하지 않았어요.",
+        ]
+          .filter(Boolean)
+          .join(" "),
         location: { file: "supabase/migrations", line: 1 },
         evidence,
         remediation:
-          "각 테이블에 `enable row level security`를 켜고, 소유자(auth.uid())로 행을 제한하는 정책을 추가하세요.",
+          "테이블마다 `alter table 테이블이름 enable row level security` 문장을 추가해 주세요. 그리고 로그인한 사람이 자기 행만 보고 바꿀 수 있도록 auth.uid()로 주인을 비교하는 정책(create policy)을 만들어 주세요.",
         status: "detected",
         simulated: false,
         verificationKey: `rls:${noRls[0]?.table ?? vulnerable[0].table}`,

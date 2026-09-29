@@ -109,13 +109,13 @@ export class BflaScanner implements SecurityScanner {
       {
         id: id("ev"),
         kind: "http_request",
-        label: "관리자 함수 호출",
+        label: "관리자 기능에 보낸 요청",
         content: `GET ${url}\n- 일반 사용자 세션\n- 관리자 세션(대조군)`,
       },
       {
         id: id("ev"),
         kind: "http_response",
-        label: "권한별 응답",
+        label: "계정별 응답",
         content: `일반 사용자 → HTTP ${asUser.status} (허용됨 — 취약)\n관리자 → HTTP ${asAdmin.status}`,
       },
       {
@@ -130,20 +130,19 @@ export class BflaScanner implements SecurityScanner {
       {
         id: id("finding"),
         scanId: "",
-        title: "일반 사용자가 관리자 전용 기능을 실행할 수 있습니다",
+        title: "일반 사용자도 관리자 전용 기능을 실행할 수 있어요",
         severity: "high",
         category: "Broken Function Level Authorization",
         owasp: "API5:2023 – Broken Function Level Authorization",
         cwe: "CWE-285",
         cvss: 8.1,
-        description: `관리자 전용 함수(${url})가 일반 사용자 세션으로도 실행되었습니다 (HTTP ${asUser.status}).`,
+        description: `관리자 전용 함수(${url})가 일반 사용자 세션으로도 실행됐어요 (HTTP ${asUser.status}).`,
         humanReadableImpact:
-          "권한이 없는 일반 사용자가 관리자 기능(사용자 관리·역할 변경 등)을 실행해 시스템을 장악할 수 있습니다.",
-        whyItMatters:
-          "함수 수준 권한 검사가 없으면 누구나 관리자 작업을 수행할 수 있습니다.",
+          "관리자가 아닌 사람도 관리자만 써야 하는 기능을 실행할 수 있어요.",
+        whyItMatters: `일반 사용자 테스트 계정으로 ${url}에 실제로 요청을 보냈더니 HTTP ${asUser.status} 응답으로 허용됐어요. 관리자 테스트 계정으로 보낸 요청은 HTTP ${asAdmin.status}였어요. 서버가 요청한 사람이 관리자인지 확인하지 않는 것으로 보여요.`,
         evidence,
         remediation:
-          "관리자 전용 라우트에 서버측 역할(role) 검사를 추가하고, 권한이 없으면 403을 반환하세요.",
+          "관리자 전용 기능을 처리하기 전에 서버에서 요청한 사람이 관리자인지 확인하고, 아니면 403 응답으로 거절하도록 바꿔 주세요. 화면에서 버튼을 숨기는 것만으로는 막을 수 없어요.",
         status: "verified",
         simulated: false,
         verificationKey: `bfla:${context.projectId}`,

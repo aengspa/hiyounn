@@ -190,9 +190,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "SEC-001",
     version: "2.0.0",
     title: "Hardcoded secret exposure",
-    titleKo: "비밀정보 하드코딩",
+    titleKo: "코드에 직접 적힌 비밀키(하드코딩)",
     summaryKo:
-      "소스 코드·설정 파일·git 히스토리에 API 키, DB 비밀번호, 토큰이 들어 있는지 확인합니다.",
+      "비밀키가 코드에 들어 있으면 코드를 볼 수 있는 사람 누구나 그 키로 외부 서비스나 데이터베이스에 접속할 수 있어요. 소스 코드, 설정 파일, git 기록에 API 키·DB 비밀번호·토큰이 직접 적혀 있는지 확인해요.",
     severity: "critical",
     standards: std(
       cwe(798, 540),
@@ -220,10 +220,10 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
       [...APP_PATHS, ".gitignore", ".env.example"],
       "approval_required",
       [
-        "노출된 키를 발급처(OpenAI, Supabase, Stripe 등)에서 즉시 폐기(revoke)하고 새 키를 발급하세요.",
-        "새 키는 배포 플랫폼(Vercel 등)의 환경변수에만 저장하세요.",
-        ".env, .env.local 등을 .gitignore에 추가하세요.",
-        "git 히스토리에 남은 키는 히스토리 정리만으로는 불충분합니다. 반드시 폐기가 먼저입니다.",
+        "키를 발급한 서비스(OpenAI, Supabase, Stripe 등)에서 노출된 키를 사용할 수 없게 하고(폐기) 새 키를 발급하세요.",
+        "새 키는 코드에 넣지 말고 배포 서비스(Vercel 등)의 환경변수 설정에만 저장하세요.",
+        ".env, .env.local 같은 비밀 설정 파일을 .gitignore에 추가해 저장소에 올라가지 않게 하세요.",
+        "git 기록에 남은 키는 기록을 지워도 이미 누군가 복사했을 수 있어요. 기록 정리보다 키 폐기를 먼저 하세요.",
       ],
     ),
     verificationRequiredChecks: ["scan-secrets", "changed-code-scan"],
@@ -234,9 +234,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "SEC-002",
     version: "1.0.0",
     title: "Secrets exposed to the client bundle",
-    titleKo: "프론트엔드에 노출된 비밀키",
+    titleKo: "브라우저로 전달되는 서버 전용 비밀키",
     summaryKo:
-      "NEXT_PUBLIC_·VITE_ 등 공개 접두사 환경변수나 클라이언트 코드에 서버 전용 키(OpenAI 키, Supabase service_role 키 등)가 들어가 누구나 브라우저에서 볼 수 있는지 확인합니다.",
+      "서버에서만 써야 하는 키가 화면 코드에 들어가면, 사이트 방문자 누구나 브라우저에서 그 키를 꺼내 쓸 수 있어요. NEXT_PUBLIC_·VITE_ 같은 공개용 이름을 붙인 환경변수나 화면 코드에 OpenAI 키, Supabase service_role 키 같은 서버 전용 키가 들어 있는지 확인해요.",
     severity: "critical",
     standards: std(
       cwe(798, 200, 540),
@@ -273,9 +273,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     ],
     execution: PASSIVE,
     remediation: patch([...APP_PATHS, ".env.example"], "approval_required", [
-      "노출된 키를 즉시 폐기하고 재발급하세요(브라우저로 이미 배포됐다면 유출된 것으로 간주).",
-      "서버 전용 키는 공개 접두사 없이 선언하고, 서버(API Route/Server Action)에서만 사용하세요.",
-      "외부 AI API는 반드시 자체 서버를 거쳐 호출하고, 그 서버 엔드포인트에 인증과 호출 제한을 거세요.",
+      "노출된 키는 발급한 서비스에서 폐기하고 새로 발급하세요. 이미 배포됐다면 누군가 가져갔을 수 있다고 보고 처리해야 해요.",
+      "서버 전용 키는 공개용 이름(NEXT_PUBLIC_ 등) 없이 선언하고, 서버 코드(API Route, Server Action)에서만 읽으세요.",
+      "외부 AI 서비스는 브라우저에서 직접 부르지 말고 내 서버를 거쳐 부르세요. 그 서버 API에는 로그인 확인과 호출 횟수 제한을 넣으세요.",
     ]),
     verificationRequiredChecks: [
       "scan-public-env-prefix",
@@ -289,9 +289,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "SEC-004",
     version: "2.0.0",
     title: "Vulnerable dependencies",
-    titleKo: "취약한 의존성",
+    titleKo: "알려진 보안 문제가 있는 외부 라이브러리 버전(취약한 의존성)",
     summaryKo:
-      "사용 중인 라이브러리에 알려진 취약점(CVE)이 있는지 lockfile 기준으로 확인합니다.",
+      "프로젝트에서 쓰는 외부 라이브러리의 현재 버전에 이미 알려진 보안 문제(CVE)가 있으면, 그 문제를 이용한 공격을 받을 수 있어요. lockfile에 적힌 설치 버전을 알려진 문제 목록과 비교해요. 프로젝트에서 문제가 되는 기능을 실제로 쓰는지까지는 확인하지 않아요.",
     severity: "high",
     standards: std(
       cwe(1395, 1104),
@@ -310,7 +310,7 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     coverageGap: {
       when: { field: "capabilities.lockfile", op: "not_equals", value: "detected" },
       messageKo:
-        "lockfile(package-lock.json, pnpm-lock.yaml 등)이 없어 실제 설치 버전을 알 수 없습니다. package.json의 범위 기준으로만 추정했으니 lockfile을 포함해 다시 올려주세요.",
+        "lockfile(package-lock.json, pnpm-lock.yaml 등)이 없어서 실제로 설치되는 버전을 알 수 없었어요. package.json에 적힌 버전 범위로만 추정했어요. lockfile을 함께 넣어 다시 올려 주세요.",
     },
   },
 
@@ -319,9 +319,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "SEC-005",
     version: "1.0.0",
     title: "Hallucinated or typosquatted packages",
-    titleKo: "AI 환각 패키지·타이포스쿼팅",
+    titleKo: "없는 이름이거나 유명 패키지를 흉내 낸 의심 패키지",
     summaryKo:
-      "AI가 지어낸(실존하지 않거나 최근 선점된) 패키지, 유명 패키지와 이름이 비슷한 가짜 패키지, 설치 시 스크립트를 실행하는 패키지를 찾습니다.",
+      "AI가 지어낸 이름의 패키지나 유명 패키지 이름을 흉내 낸 가짜 패키지를 설치하면, 설치하는 순간 악성 코드가 실행될 수 있어요. 패키지 저장소에 실제로 없거나 최근에 만들어진 패키지, 유명 패키지와 철자가 비슷한 패키지, 설치할 때 스크립트를 실행하는 패키지가 있는지 확인해요.",
     severity: "high",
     standards: std(
       cwe(1357, 829),
@@ -348,8 +348,8 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     ],
     execution: PASSIVE,
     remediation: patch(DEPENDENCY_PATHS, "not_applicable", [
-      "의심 패키지는 이름 철자와 공식 저장소(GitHub) 링크를 직접 확인하세요.",
-      "이미 설치했다면 해당 환경의 키를 모두 교체하는 것을 권장합니다.",
+      "의심 패키지는 이름 철자와 공식 저장소(GitHub) 주소가 맞는지 직접 확인하세요. 필요 없는 패키지라면 package.json에서 지우세요.",
+      "이미 설치했다면 그 컴퓨터나 서버에서 쓰던 키를 모두 새로 발급받아 바꾸는 것을 권장해요.",
     ]),
     verificationRequiredChecks: ["registry-existence", "typosquat-similarity"],
   },
@@ -359,9 +359,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "SEC-006",
     version: "1.0.0",
     title: "Weak password storage",
-    titleKo: "취약한 비밀번호 저장 방식",
+    titleKo: "알아내기 쉬운 방식으로 저장한 비밀번호",
     summaryKo:
-      "직접 구현한 로그인에서 비밀번호를 평문·MD5·SHA-1 등으로 저장하는지 확인합니다(bcrypt·argon2·scrypt 권장).",
+      "비밀번호를 그대로 저장하거나 MD5·SHA-1처럼 빠른 방식으로만 바꿔 저장하면, 데이터가 유출됐을 때 원래 비밀번호를 쉽게 알아낼 수 있어요. 직접 만든 로그인 코드에서 비밀번호를 어떤 방식으로 저장하는지 확인해요.",
     severity: "high",
     standards: std(
       cwe(916, 328, 256),
@@ -376,7 +376,8 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     checks: [{ id: "scan-password-hashing", toolId: "static_web_analyzer", method: "SAST" }],
     execution: PASSIVE,
     remediation: patch(APP_PATHS, "approval_required", [
-      "기존 사용자 비밀번호는 다음 로그인 시 새 해시로 재저장(rehash-on-login)하도록 마이그레이션하세요.",
+      "비밀번호는 bcrypt, argon2, scrypt처럼 비밀번호 저장용 방식으로 바꿔 저장하세요.",
+      "이미 저장된 비밀번호는 사용자가 다음에 로그인할 때 새 방식으로 다시 저장하도록 바꾸세요(rehash-on-login).",
     ]),
     verificationRequiredChecks: ["scan-password-hashing", "changed-code-scan"],
   },
@@ -387,9 +388,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "WEB-003",
     version: "2.0.0",
     title: "DOM/Stored Cross-Site Scripting (static signal)",
-    titleKo: "XSS(교차 사이트 스크립팅)",
+    titleKo: "입력한 글이 화면에서 코드로 실행될 가능성(XSS)",
     summaryKo:
-      "사용자 입력이 innerHTML, dangerouslySetInnerHTML, v-html 등으로 이스케이프 없이 화면에 들어가는지 확인합니다.",
+      "사용자가 입력한 글이 글자가 아니라 화면 코드로 들어가면, 다른 방문자의 브라우저에서 원하지 않는 스크립트가 실행될 수 있어요. 입력값이 innerHTML, dangerouslySetInnerHTML, v-html 같은 곳에 글자로 바꾸는 처리(이스케이프) 없이 들어가는지 확인해요.",
     severity: "high",
     standards: std(
       cwe(79),
@@ -412,9 +413,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "WEB-004",
     version: "2.0.0",
     title: "Injection (SQL / NoSQL / command / eval / deserialization) — static signal",
-    titleKo: "인젝션(SQL·NoSQL·커맨드·eval·역직렬화)",
+    titleKo: "입력값이 DB 명령이나 서버 명령으로 실행될 가능성(인젝션)",
     summaryKo:
-      "입력값이 SQL 문자열, NoSQL 쿼리 객체, 셸 명령, eval(), 안전하지 않은 역직렬화에 그대로 들어가는지 확인합니다.",
+      "사용자가 보낸 값이 DB 조회문이나 서버 명령에 그대로 섞이면, 그 값으로 데이터를 몰래 읽거나 바꾸거나 서버에서 명령을 실행할 수 있어요. 입력값이 SQL 문자열, NoSQL 조회 조건, 셸 명령, eval(), 안전하지 않은 데이터 복원(역직렬화)에 그대로 들어가는지 확인해요.",
     severity: "critical",
     standards: std(
       cwe(89, 943, 78, 95, 502),
@@ -450,9 +451,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "WEB-006",
     version: "1.1.0",
     title: "Path traversal via unsanitized file access (static signal)",
-    titleKo: "경로 트래버설(디렉터리 접근 우회)",
+    titleKo: "입력값으로 허용하지 않은 파일에 접근할 가능성(경로 트래버설)",
     summaryKo:
-      "파일 경로에 사용자 입력이 들어가 ../ 등으로 의도하지 않은 파일을 읽거나 쓸 수 있는지 확인합니다.",
+      "파일 이름이나 경로에 사용자가 보낸 값이 그대로 들어가면, ../ 같은 값으로 허용한 폴더 밖의 파일을 읽거나 덮어쓸 수 있어요. 파일을 읽고 쓰는 코드의 경로에 사용자 입력이 검사 없이 들어가는지 확인해요.",
     severity: "high",
     standards: std(
       cwe(22, 23),
@@ -475,9 +476,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "WEB-017",
     version: "1.0.0",
     title: "Server-Side Request Forgery (static signal)",
-    titleKo: "SSRF(서버 측 요청 위조)",
+    titleKo: "사용자가 준 주소로 서버가 대신 보내는 요청(SSRF)",
     summaryKo:
-      "사용자가 준 URL을 서버가 그대로 요청하는 기능(링크 미리보기, 이미지 프록시, URL 요약 등)에 허용 목록이 없는지, next/image remotePatterns가 전체 허용인지 확인합니다.",
+      "사용자가 준 주소로 서버가 직접 요청을 보내면, 외부에서는 닿을 수 없는 내부 서비스나 클라우드 설정 정보에 서버를 통해 접근할 수 있어요. 링크 미리보기, 이미지 프록시, URL 요약처럼 사용자가 준 주소를 서버가 요청하는 코드에 허용 주소 목록이 있는지, next/image의 remotePatterns가 모든 주소를 허용하는지 확인해요.",
     severity: "high",
     standards: std(
       cwe(918),
@@ -507,9 +508,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "WEB-020",
     version: "1.0.0",
     title: "Unrestricted file upload (static signal)",
-    titleKo: "파일 업로드 검증 미흡",
+    titleKo: "업로드 파일 검사가 부족한 처리",
     summaryKo:
-      "업로드 파일의 확장자·MIME·크기를 검증하지 않거나, public 폴더에 저장하거나, HTML/SVG를 그대로 서빙하는지 확인합니다.",
+      "업로드 파일의 종류와 크기를 확인하지 않으면, 사이트에서 실행되는 파일이나 매우 큰 파일이 올라올 수 있어요. 업로드 처리에서 확장자·파일 형식(MIME)·크기를 확인하는지, public 폴더에 저장하는지, HTML·SVG 파일을 그대로 보여 주는지 확인해요.",
     severity: "high",
     standards: std(
       cwe(434, 400),
@@ -533,9 +534,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "WEB-023",
     version: "1.0.0",
     title: "Verbose error disclosure (static signal)",
-    titleKo: "에러 메시지·스택 트레이스 노출",
+    titleKo: "오류 응답에 드러나는 내부 정보",
     summaryKo:
-      "API가 에러 발생 시 error.stack, DB 에러 원문, 내부 경로를 응답으로 그대로 돌려주는지 확인합니다.",
+      "오류 내용을 그대로 응답하면 서버의 파일 경로, DB 구조, 사용 중인 라이브러리 같은 내부 정보가 외부에 보여 공격 준비에 쓰일 수 있어요. API가 오류가 났을 때 error.stack, DB 오류 원문, 내부 경로를 응답에 담는지 확인해요.",
     severity: "low",
     standards: std(cwe(209, 215), capec(54, 215), owasp("A10:2025")),
     appliesTo: ["web", "api"],
@@ -554,9 +555,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "WEB-014",
     version: "1.1.0",
     title: "Broken object-level authorization / IDOR (static signal)",
-    titleKo: "IDOR(객체 수준 권한 확인 누락)",
+    titleKo: "요청한 데이터의 주인 확인 누락(IDOR)",
     summaryKo:
-      "/api/orders/:id처럼 ID로 데이터를 조회·수정할 때 \"요청자 본인의 데이터인지\" 확인하는 코드가 빠졌는지 확인합니다. (실제 재현은 모드 C의 WEB-002)",
+      "요청한 데이터가 로그인한 사람의 것인지 확인하지 않으면, 주소의 번호만 바꿔 다른 사람의 데이터를 보거나 바꿀 수 있어요. /api/orders/:id처럼 번호로 데이터를 찾는 코드에 데이터의 주인을 확인하는 부분이 있는지 코드에서 확인해요. 실제로 다른 계정의 데이터가 열리는지는 계정 기반 점검(WEB-002)에서 확인해요.",
     severity: "critical",
     standards: std(
       cwe(639, 862),
@@ -580,9 +581,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "WEB-005",
     version: "2.0.0",
     title: "Excessive data exposure in API responses (static signal)",
-    titleKo: "민감정보 응답 과다 노출",
+    titleKo: "화면에 필요 없는 정보까지 보내는 API 응답",
     summaryKo:
-      "API가 DB 레코드를 통째로 반환해 비밀번호 해시, 이메일, 내부 필드 등 화면에 필요 없는 값까지 내보내는지 확인합니다.",
+      "API가 DB 기록을 통째로 보내면, 화면에는 안 보여도 비밀번호 해시, 이메일, 내부 값 같은 정보를 누구나 응답에서 꺼내 볼 수 있어요. API 응답에 DB 기록 전체를 그대로 담는지, 필요한 값만 골라 보내는지 확인해요.",
     severity: "high",
     standards: std(
       cwe(213, 200, 359),
@@ -607,9 +608,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "WEB-016",
     version: "1.0.0",
     title: "Mass assignment (static signal)",
-    titleKo: "대량 할당(Mass Assignment)",
+    titleKo: "사용자가 바꾸면 안 되는 값까지 저장되는 처리(대량 할당)",
     summaryKo:
-      "요청 body를 그대로 DB update/create에 넣어 사용자가 role, is_admin, plan, credits 같은 필드를 임의로 바꿀 수 있는지 확인합니다.",
+      "요청 내용을 통째로 DB에 저장하면, 사용자가 role, is_admin, plan, credits처럼 스스로 바꾸면 안 되는 값까지 바꿀 수 있어요. 요청 본문(body)을 그대로 DB 생성·수정 함수에 넣는지 확인해요.",
     severity: "high",
     standards: std(
       cwe(915),
@@ -633,9 +634,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "WEB-019",
     version: "1.0.0",
     title: "Insecure JWT handling (static signal)",
-    titleKo: "JWT 검증 결함",
+    titleKo: "로그인 토큰(JWT) 확인 방식의 빈틈",
     summaryKo:
-      "JWT를 decode만 하고 서명을 검증하지 않거나, 허용 알고리즘을 지정하지 않거나, 만료를 무시하거나, 약한 시크릿을 쓰는지 확인합니다.",
+      "로그인 토큰(JWT)이 진짜인지 확인하지 않으면, 누군가 토큰 내용을 바꿔 다른 사람이나 관리자인 척할 수 있어요. 토큰을 읽기만 하고 서명을 확인하지 않는지, 허용할 서명 방식을 정해 두지 않았는지, 만료 시간을 무시하는지, 추측하기 쉬운 비밀값을 쓰는지 확인해요.",
     severity: "high",
     standards: std(
       cwe(347, 345, 613, 922),
@@ -673,9 +674,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "WEB-021",
     version: "1.0.0",
     title: "Cross-Site Request Forgery (static signal)",
-    titleKo: "CSRF(교차 사이트 요청 위조)",
+    titleKo: "다른 사이트가 사용자 몰래 요청을 보낼 가능성(CSRF)",
     summaryKo:
-      "쿠키로 인증하는 앱에서 GET 요청으로 데이터를 변경하거나, 상태 변경 요청에 CSRF 토큰·Origin 검증이 없는지 확인합니다.",
+      "로그인 쿠키로 사용자를 확인하는 사이트에서는, 사용자가 다른 사이트를 열기만 해도 그 사이트가 사용자 몰래 데이터 변경 요청을 보낼 수 있어요. GET 요청으로 데이터를 바꾸는지, 데이터를 바꾸는 요청에 CSRF 토큰이나 요청 출처(Origin) 확인이 있는지 확인해요.",
     severity: "medium",
     standards: std(cwe(352), capec(62), owasp("A01:2025")),
     appliesTo: ["web", "api"],
@@ -701,9 +702,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "WEB-022",
     version: "1.0.0",
     title: "Open redirect (static signal)",
-    titleKo: "오픈 리다이렉트",
+    titleKo: "외부 사이트로 보낼 수 있는 이동 처리(오픈 리다이렉트)",
     summaryKo:
-      "?next=, ?redirect= 같은 파라미터 값으로 허용 목록 없이 리다이렉트해 피싱에 악용될 수 있는지 확인합니다(로그인·OAuth 콜백 포함).",
+      "?next=, ?redirect= 같은 주소 값대로 이동시키면, 내 사이트 주소로 시작하는 링크로 사용자를 가짜 사이트(피싱)로 보낼 수 있어요. 로그인·OAuth 콜백을 포함해, 이동할 주소를 허용 목록으로 제한하는지 확인해요.",
     severity: "medium",
     standards: std(
       cwe(601),
@@ -726,9 +727,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "WEB-018",
     version: "1.0.0",
     title: "Unverified webhook signatures",
-    titleKo: "결제·웹훅 서명 미검증",
+    titleKo: "진짜인지 확인하지 않는 결제·웹훅 알림",
     summaryKo:
-      "Stripe·토스페이먼츠 등 웹훅을 받을 때 서명을 검증하지 않아, 누구나 가짜 \"결제 완료\" 이벤트를 보내 유료 기능을 열 수 있는지 확인합니다.",
+      "웹훅 서명을 확인하지 않으면, 누구나 가짜 \"결제 완료\" 알림을 보내 유료 기능을 열 수 있어요. Stripe·토스페이먼츠 같은 서비스의 웹훅을 받는 코드가 서명을 확인하는지, 서명 확인에 필요한 원본 요청 본문을 쓰는지 확인해요.",
     severity: "critical",
     standards: std(
       cwe(345, 347, 294),
@@ -753,7 +754,8 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     ],
     execution: PASSIVE,
     remediation: patch(APP_PATHS, "approval_required", [
-      "결제 상태는 웹훅 내용만 믿지 말고 결제사 API로 한 번 더 조회해 확정하세요.",
+      "웹훅을 받는 코드에서 결제사가 준 서명 비밀값으로 서명을 먼저 확인하고, 맞지 않으면 처리를 멈추세요.",
+      "결제 상태는 웹훅 내용만 믿지 말고, 결제사 API로 한 번 더 조회해서 확정하세요.",
     ]),
     verificationRequiredChecks: [
       "scan-webhook-signature",
@@ -769,9 +771,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "WEB-007",
     version: "1.0.0",
     title: "CORS and security headers (static config)",
-    titleKo: "CORS·보안 헤더(설정 파일)",
+    titleKo: "브라우저 보호 설정(CORS·보안 헤더, 설정 파일)",
     summaryKo:
-      "설정 파일에서 CORS 전체 허용(*), 자격증명 포함 CORS, CSP·HSTS·X-Frame-Options 누락을 확인합니다.",
+      "브라우저 보호 설정이 빠지거나 너무 넓으면, 다른 사이트가 내 사이트 응답을 읽거나 내 화면을 몰래 겹쳐 띄울 수 있어요. 설정 파일에서 모든 사이트를 허용하는 CORS(*), 로그인 정보까지 허용하는 CORS, CSP·HSTS·X-Frame-Options 누락을 확인해요.",
     severity: "medium",
     standards: std(
       cwe(942, 693, 1021),
@@ -808,9 +810,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "WEB-008",
     version: "1.0.0",
     title: "Debug mode and unauthenticated admin routes (static)",
-    titleKo: "디버그 설정·무인증 관리자 라우트(정적)",
+    titleKo: "디버그 설정·로그인 없이 열리는 관리자 경로(코드)",
     summaryKo:
-      "운영 설정에 디버그 모드가 켜져 있는지, 인증 미들웨어 없이 열려 있는 /admin 계열 라우트가 있는지, public 폴더에 .env 등 민감 파일이 있는지 확인합니다.",
+      "디버그 모드가 켜져 있거나 관리자 경로가 로그인 없이 열리면, 누구나 내부 정보를 보거나 관리 기능을 쓸 수 있어요. 운영 설정에 디버그 모드가 켜져 있는지, 로그인 확인 없이 열린 /admin 계열 경로가 있는지, public 폴더에 .env 같은 비밀 파일이 있는지 확인해요.",
     severity: "high",
     standards: std(cwe(489, 306, 540), capec(121, 36), owasp("A02:2025")),
     appliesTo: ["web", "api"],
@@ -842,9 +844,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "WEB-015",
     version: "1.0.0",
     title: "Unrestricted consumption of costly operations (static signal)",
-    titleKo: "비용 유발 기능 무제한 호출",
+    titleKo: "돈이 드는 기능의 호출 제한 누락",
     summaryKo:
-      "AI 호출, 이메일·SMS 발송, 이미지 생성 등 돈이 드는 엔드포인트에 인증이나 호출 횟수 제한(rate limit)이 없는지 확인합니다.",
+      "AI 호출, 이메일·문자 발송, 이미지 생성처럼 쓸 때마다 비용이 드는 기능을 누구나 무제한으로 부를 수 있으면 요금이 크게 늘 수 있어요. 이런 기능의 API에 로그인 확인, 호출 횟수 제한(rate limit), AI 응답 길이 상한이 있는지 확인해요.",
     severity: "high",
     standards: std(
       cwe(770, 799, 400),
@@ -863,7 +865,8 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     ],
     execution: PASSIVE,
     remediation: patch([...APP_PATHS, ...CONFIG_PATHS], "not_applicable", [
-      "AI·SMS 제공사 콘솔에서 월 사용 한도(hard limit)와 알림을 설정하세요.",
+      "비용이 드는 API에는 로그인 확인과 사용자별 호출 횟수 제한을 넣으세요. AI를 부를 때는 응답 길이 상한(max tokens)도 정하세요.",
+      "AI·문자 서비스 관리 화면에서 월 사용 한도(hard limit)와 사용량 알림을 설정하세요.",
     ]),
     verificationRequiredChecks: [
       "scan-costly-route-auth",
@@ -879,9 +882,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "LLM-001",
     version: "1.0.0",
     title: "LLM integration security (static signal)",
-    titleKo: "AI(LLM) 기능 보안",
+    titleKo: "AI(LLM) 기능 연결 방식의 빈틈",
     summaryKo:
-      "시스템 프롬프트에 비밀정보가 들어 있는지, 사용자 입력이나 LLM 출력이 검증 없이 DB 쿼리·셸·eval·HTML 렌더링·도구 호출로 이어지는지, 응답 토큰 상한이 있는지 확인합니다.",
+      "AI에게 주는 지시문(시스템 프롬프트)에 비밀정보가 있거나 AI 답변을 검사 없이 실행하면, 사용자가 AI를 속여 비밀정보를 꺼내거나 원하지 않는 동작을 하게 만들 수 있어요. 시스템 프롬프트에 비밀정보가 있는지, 사용자 입력이나 AI 답변이 DB 조회·셸 명령·eval·화면 HTML·도구 호출로 검사 없이 이어지는지, 답변 길이 상한이 있는지 확인해요.",
     severity: "high",
     standards: std(
       cwe(1427, 1426, 200, 79),
@@ -901,8 +904,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     ],
     execution: PASSIVE,
     remediation: patch(APP_PATHS, "not_applicable", [
-      "시스템 프롬프트는 유출될 수 있다고 가정하고 비밀정보를 넣지 마세요.",
-      "LLM이 호출할 수 있는 도구는 최소 권한으로 제한하고, 쓰기 작업은 사용자 확인을 거치게 하세요.",
+      "시스템 프롬프트는 사용자가 꺼내 볼 수 있다고 생각하고, 비밀키나 내부 정보를 넣지 마세요.",
+      "AI 답변은 DB 조회, 셸 명령, eval, 화면 HTML에 그대로 넣지 마세요. 화면에 보여 줄 때는 글자로만 표시하세요.",
+      "AI가 쓸 수 있는 도구에는 꼭 필요한 권한만 주고, 데이터를 바꾸는 작업은 사용자가 확인한 뒤에 실행하세요.",
     ]),
     verificationRequiredChecks: [
       "scan-secret-in-system-prompt",
@@ -917,9 +921,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "BAAS-001",
     version: "2.0.0",
     title: "Supabase Row Level Security (static policy)",
-    titleKo: "Supabase RLS(행 수준 보안) 정책",
+    titleKo: "Supabase 테이블 접근 규칙(RLS)",
     summaryKo:
-      "Supabase 테이블에 RLS가 꺼져 있거나, 정책이 USING (true)처럼 전부 허용인지 마이그레이션 파일로 확인합니다. 대시보드에서 만든 테이블은 파일에 없을 수 있어 모드 B/C 점검을 권장합니다.",
+      "Supabase 테이블에 행마다 접근을 막는 규칙(RLS)이 꺼져 있거나 모두 허용이면, 앱에 들어 있는 공개 키만으로 누구나 테이블 데이터를 읽거나 바꿀 수 있어요. 마이그레이션 파일에서 RLS가 꺼져 있는지, USING (true)처럼 모두 허용하는 규칙이 있는지 확인해요. Supabase 관리 화면에서 만든 테이블은 파일에 없을 수 있어서 배포 URL 점검(모드 B/C)도 권장해요.",
     severity: "high",
     standards: std(
       cwe(284, 862, 639),
@@ -952,9 +956,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "BAAS-002",
     version: "1.0.0",
     title: "Firebase security rules (static)",
-    titleKo: "Firebase 보안 규칙",
+    titleKo: "Firebase 데이터 접근 규칙",
     summaryKo:
-      "Firestore·Realtime DB·Storage 규칙이 allow read, write: if true 이거나, 테스트 모드 규칙(request.time < 기한)이 그대로 남아 있는지 확인합니다.",
+      "Firebase 규칙이 모두 허용이면 앱에 들어 있는 공개 설정만으로 누구나 데이터를 읽거나 바꿀 수 있어요. Firestore·Realtime DB·Storage 규칙이 allow read, write: if true 인지, 테스트용 기한 규칙(request.time < 기한)이 남아 있는지, 로그인만 하면 모두 허용하는지 확인해요.",
     severity: "critical",
     standards: std(
       cwe(284, 862, 732),
@@ -977,7 +981,7 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     coverageGap: {
       when: { field: "capabilities.firebase_rules_file", op: "not_equals", value: "detected" },
       messageKo:
-        "Firebase 규칙 파일이 없어 콘솔에만 규칙이 있는 것으로 보입니다. 모드 B로 실제 접근 가능 여부를 확인하세요.",
+        "프로젝트에 Firebase 규칙 파일이 없어서 규칙을 확인하지 못했어요. 규칙이 Firebase 콘솔에만 있는 것으로 보여요. 배포 URL 점검(모드 B)으로 로그인 없이 데이터가 읽히는지 확인해 주세요.",
     },
   },
 
@@ -986,9 +990,9 @@ export const MODE_A_RULES: SecurityRule[] = withMode("A", [
     family: "BAAS-003",
     version: "1.0.0",
     title: "Public storage buckets (static)",
-    titleKo: "스토리지 버킷 공개 설정",
+    titleKo: "누구나 볼 수 있게 열린 파일 저장소(스토리지 버킷)",
     summaryKo:
-      "Supabase Storage 버킷이 public이거나 익명 목록 조회를 허용하는지, S3 등에 public-read ACL을 쓰는지 확인합니다.",
+      "파일 저장소가 공개로 설정되면 누구나 저장된 파일 목록을 보거나 파일을 내려받을 수 있어요. Supabase Storage 버킷이 public인지, 로그인 없이 목록을 볼 수 있게 허용하는지, S3 등에 public-read 권한을 쓰는지 확인해요.",
     severity: "high",
     standards: std(
       cwe(552, 284),
@@ -1022,9 +1026,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
     family: "SEC-002",
     version: "1.0.0",
     title: "Secrets in deployed JavaScript bundles",
-    titleKo: "배포된 JS 번들 내 비밀키",
+    titleKo: "배포된 화면 코드(JS 번들)에 들어 있는 비밀키",
     summaryKo:
-      "실제 배포된 페이지의 JavaScript 파일을 내려받아 서버 전용 키가 들어 있는지 확인합니다. 발견한 Supabase/Firebase 공개 설정은 BaaS 점검에 사용합니다.",
+      "배포된 사이트의 JavaScript 파일에 서버 전용 키가 들어 있으면, 방문자 누구나 그 키를 꺼내 쓸 수 있어요. 실제 배포된 페이지의 JavaScript 파일을 내려받아 서버 전용 키가 있는지 확인해요. 함께 찾은 Supabase·Firebase 공개 설정은 데이터 접근 점검에 사용해요.",
     severity: "critical",
     standards: std(
       cwe(798, 200, 540),
@@ -1047,7 +1051,8 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
     ],
     execution: safeActive(40, 90),
     remediation: patch([...APP_PATHS, ".env.example"], "approval_required", [
-      "번들에서 발견된 키는 이미 공개된 것이므로 즉시 폐기·재발급하세요.",
+      "화면 코드에서 발견된 키는 이미 공개된 것이에요. 발급한 서비스에서 바로 폐기하고 새로 발급하세요.",
+      "새 키는 서버 코드에서만 읽고, 공개용 이름(NEXT_PUBLIC_ 등)을 붙이지 마세요.",
     ]),
     verificationRequiredChecks: ["fetch-and-scan-bundles"],
     produces: ["linked_baas_project"],
@@ -1058,9 +1063,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
     family: "WEB-001",
     version: "2.0.0",
     title: "Unauthenticated access to protected API",
-    titleKo: "보호된 API의 무인증 접근",
+    titleKo: "로그인 없이 열리는 보호 API",
     summaryKo:
-      "로그인이 필요한 API를 로그인 없이 호출했을 때 거부(401/403)되는지 확인합니다. 소스가 있으면 라우트 목록을, 없으면 크롤링 결과를 사용합니다.",
+      "로그인이 필요한 API가 로그인 없이 응답하면, 누구나 그 API의 데이터나 기능을 쓸 수 있어요. 로그인하지 않은 상태로 API를 불렀을 때 거부(401/403)되는지 실제 요청으로 확인해요. 소스가 있으면 코드의 경로 목록을, 없으면 사이트를 둘러본 결과를 사용해요.",
     severity: "high",
     standards: std(
       cwe(306, 862),
@@ -1084,7 +1089,10 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
       },
     ],
     execution: safeActive(15, 60),
-    remediation: patch([...APP_PATHS, ...CONFIG_PATHS], "approval_required"),
+    remediation: patch([...APP_PATHS, ...CONFIG_PATHS], "approval_required", [
+      "로그인이 필요한 API는 처리 전에 서버에서 로그인한 사용자인지 확인하고, 아니면 401을 돌려주세요.",
+      "여러 API에 같은 확인이 필요하면 middleware 같은 공통 위치에서 한 번에 확인하세요.",
+    ]),
     verificationRequiredChecks: ["anonymous-access", "existing-functional-tests"],
   },
 
@@ -1093,9 +1101,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
     family: "WEB-007",
     version: "2.0.0",
     title: "CORS and security headers",
-    titleKo: "CORS·보안 헤더",
+    titleKo: "브라우저 보호 설정(CORS·보안 헤더)",
     summaryKo:
-      "실제 응답 헤더에서 CSP, HSTS, X-Frame-Options, X-Content-Type-Options 설정과, 임의 Origin을 허용하는 CORS 응답이 있는지 확인합니다.",
+      "브라우저 보호 설정이 빠지거나 너무 넓으면, 다른 사이트가 내 사이트 응답을 읽거나 내 화면을 몰래 겹쳐 띄울 수 있어요. 실제 사이트 응답에 CSP, HSTS, X-Frame-Options, X-Content-Type-Options 설정이 있는지, 아무 사이트 주소(Origin)나 허용하는 CORS 응답이 오는지 확인해요.",
     severity: "medium",
     standards: std(
       cwe(942, 693, 1021),
@@ -1118,7 +1126,10 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
       },
     ],
     execution: safeActive(6, 30),
-    remediation: patch([...CONFIG_PATHS, ...APP_PATHS]),
+    remediation: patch([...CONFIG_PATHS, ...APP_PATHS], "not_applicable", [
+      "모든 사이트를 허용하는 CORS(*) 대신 내 사이트 주소만 허용하세요. 요청에 온 Origin 값을 그대로 돌려주지 마세요.",
+      "next.config나 middleware에서 CSP, HSTS, X-Frame-Options, X-Content-Type-Options 헤더를 설정하세요.",
+    ]),
     verificationRequiredChecks: ["http-headers", "cors-origin-reflection"],
   },
 
@@ -1127,9 +1138,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
     family: "WEB-008",
     version: "2.0.0",
     title: "Exposed administrative or debug endpoints",
-    titleKo: "노출된 관리자·디버그 경로",
+    titleKo: "외부에서 열리는 관리자·디버그 경로",
     summaryKo:
-      "/admin, /debug, /.env, /.git/HEAD 같은 경로가 로그인 없이 외부에서 열리는지 확인합니다.",
+      "관리자·디버그 경로나 .env, .git 같은 파일이 외부에서 열리면, 누구나 관리 기능을 쓰거나 비밀 설정을 내려받을 수 있어요. /admin, /debug, /.env, /.git/HEAD 같은 경로가 로그인 없이 열리는지 실제 요청으로 확인해요.",
     severity: "high",
     standards: std(
       cwe(489, 538, 306, 425),
@@ -1164,7 +1175,10 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
       },
     ],
     execution: safeActive(15, 30),
-    remediation: patch([...CONFIG_PATHS, ...APP_PATHS], "approval_required"),
+    remediation: patch([...CONFIG_PATHS, ...APP_PATHS], "approval_required", [
+      "관리자·디버그 경로는 운영 배포에서 빼거나, 서버에서 관리자 로그인을 확인한 뒤에만 열리게 하세요.",
+      ".env, .git 같은 파일이 배포 폴더(public 등)에 들어가지 않게 하세요. 이미 열려 있었다면 그 안의 키를 새로 발급하세요.",
+    ]),
     verificationRequiredChecks: ["probe-exposed-paths"],
   },
 
@@ -1174,9 +1188,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
     family: "WEB-025",
     version: "1.0.0",
     title: "Admin paths disclosed via robots.txt / sitemap.xml",
-    titleKo: "robots.txt·sitemap을 통한 관리자 경로 노출",
+    titleKo: "robots.txt·sitemap에 적힌 관리자 경로",
     summaryKo:
-      "robots.txt나 sitemap.xml에 관리자·내부 경로가 적혀 있어 공격자에게 위치를 알려주는지, 그 경로가 실제로 로그인 없이 열리는지 확인합니다.",
+      "robots.txt나 sitemap.xml에 관리자·내부 경로를 적으면 누구나 그 위치를 알 수 있어요. 그 경로가 로그인 없이 열리면 위험이 더 커져요. 두 파일에 관리자·내부 경로가 있는지, 그 경로가 실제로 로그인 없이 열리는지 확인해요.",
     severity: "low", // 해당 경로가 무인증 접근 가능하면 결과를 high로 상향
     standards: std(
       cwe(200, 425),
@@ -1204,7 +1218,10 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
       },
     ],
     execution: safeActive(10, 30),
-    remediation: patch(["public/robots.txt", "app/robots.ts", "app/sitemap.ts", ...CONFIG_PATHS]),
+    remediation: patch(["public/robots.txt", "app/robots.ts", "app/sitemap.ts", ...CONFIG_PATHS], "not_applicable", [
+      "robots.txt와 sitemap에서 관리자·내부 경로를 빼세요.",
+      "경로를 숨기는 것만으로는 보호되지 않아요. 그 경로는 서버에서 관리자 로그인을 확인한 뒤에만 열리게 하세요.",
+    ]),
     verificationRequiredChecks: ["robots-sitemap-admin-paths", "disclosed-path-access"],
   },
 
@@ -1213,9 +1230,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
     family: "WEB-009",
     version: "2.0.0",
     title: "Plaintext HTTP allowed / TLS not enforced",
-    titleKo: "평문 HTTP 허용·HTTPS 미강제",
+    titleKo: "암호화되지 않은 http 접속 허용",
     summaryKo:
-      "http:// 로 접속했을 때 https로 강제 전환되는지, 로그인 폼이 평문으로 전송되지 않는지 확인합니다.",
+      "http:// 로 접속해도 https로 바뀌지 않으면, 같은 와이파이처럼 통신 중간에 있는 사람이 로그인 정보와 주고받는 내용을 엿볼 수 있어요. http:// 로 접속했을 때 https로 자동 이동하는지, 로그인 폼이 암호화 없이 전송되지 않는지 확인해요.",
     severity: "medium",
     // v1의 A05(Misconfiguration) → 암호화 실패(A04:2025)로 정정
     standards: std(
@@ -1230,7 +1247,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
     prerequisites: { CONFIG: ["authorized_test_deployment"] },
     checks: [{ id: "probe-tls", toolId: "tls_probe", method: "CONFIG", expected: "denied" }],
     execution: safeActive(4, 20),
-    remediation: patch(CONFIG_PATHS, "approval_required"),
+    remediation: patch(CONFIG_PATHS, "approval_required", [
+      "배포 서비스 설정이나 middleware에서 http 접속을 https로 자동 이동하게 하고, HSTS 헤더를 켜세요.",
+    ]),
     verificationRequiredChecks: ["probe-tls"],
   },
 
@@ -1239,9 +1258,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
     family: "WEB-010",
     version: "2.0.0",
     title: "Username enumeration via auth responses",
-    titleKo: "사용자 계정 존재 여부 노출",
+    titleKo: "가입한 계정인지 알 수 있는 로그인 응답",
     summaryKo:
-      "로그인·회원가입·비밀번호 찾기에서 \"없는 계정\"과 \"틀린 비밀번호\"의 응답(메시지·상태코드·응답시간)이 달라 가입 여부를 알아낼 수 있는지 확인합니다.",
+      "\"없는 계정\"과 \"틀린 비밀번호\"의 응답이 다르면, 누군가 이메일 목록을 넣어 보며 가입한 사람을 알아낼 수 있어요. 로그인·회원가입·비밀번호 찾기에서 두 경우의 메시지, 상태 코드, 응답 시간이 다른지 확인해요.",
     severity: "medium",
     standards: std(cwe(204, 203), capec(575), owasp("A07:2025"), attack("T1589.002")),
     appliesTo: ["web", "api"],
@@ -1258,7 +1277,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
       },
     ],
     execution: safeActive(6, 30),
-    remediation: patch(APP_PATHS, "approval_required"),
+    remediation: patch(APP_PATHS, "approval_required", [
+      "없는 계정과 틀린 비밀번호에 같은 메시지와 같은 상태 코드를 돌려주세요. 예: \"이메일 또는 비밀번호가 맞지 않아요.\"",
+    ]),
     verificationRequiredChecks: ["probe-user-enumeration"],
   },
 
@@ -1267,9 +1288,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
     family: "WEB-011",
     version: "2.0.0",
     title: "Missing brute-force protection on login",
-    titleKo: "로그인 무차별 대입 방어 부재",
+    titleKo: "로그인 반복 시도 차단 부족",
     summaryKo:
-      "존재하지 않는 계정으로 로그인을 연속 실패했을 때 차단(429·잠금·CAPTCHA)이 걸리는지 확인합니다. 요청 수가 적어 차단 기준이 더 높으면 탐지하지 못할 수 있어 '경고'로 보고합니다.",
+      "로그인을 여러 번 틀려도 막히지 않으면, 비밀번호를 자동으로 계속 넣어 보는 공격(무차별 대입)에 계정이 뚫릴 수 있어요. 없는 계정으로 로그인을 연달아 실패했을 때 차단(429, 잠금, CAPTCHA)이 걸리는지 확인해요. 시도 횟수가 적어서 차단 기준이 더 높으면 찾지 못할 수 있어 '의심'으로 알려 드려요.",
     severity: "medium",
     standards: std(
       cwe(307),
@@ -1292,7 +1313,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
       },
     ],
     execution: safeActive(8, 40),
-    remediation: patch(APP_PATHS, "approval_required"),
+    remediation: patch(APP_PATHS, "approval_required", [
+      "로그인 API에 계정별·IP별 시도 횟수 제한을 넣고, 여러 번 틀리면 잠시 막거나 추가 확인(CAPTCHA)을 요청하세요.",
+    ]),
     verificationRequiredChecks: ["probe-bruteforce"],
   },
 
@@ -1301,9 +1324,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
     family: "WEB-012",
     version: "1.1.0",
     title: "Insecure session cookie attributes",
-    titleKo: "세션 쿠키 속성 미흡",
+    titleKo: "로그인 쿠키 보호 설정 부족",
     summaryKo:
-      "세션 쿠키에 Secure(HTTPS 전용), HttpOnly(스크립트 접근 차단), SameSite 속성이 설정되어 있는지 확인합니다.",
+      "로그인 쿠키에 보호 설정이 빠지면, 암호화되지 않은 연결이나 화면 스크립트를 통해 로그인 상태를 빼앗길 수 있어요. 로그인 쿠키에 Secure(https에서만 전송), HttpOnly(스크립트로 읽기 차단), SameSite(다른 사이트 요청에 붙지 않게) 설정이 있는지 확인해요.",
     severity: "medium",
     standards: std(
       cwe(614, 1004, 1275),
@@ -1319,7 +1342,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
       { id: "probe-cookie-flags", toolId: "cookie_probe", method: "CONFIG", expected: "denied" },
     ],
     execution: safeActive(2, 20),
-    remediation: patch(APP_PATHS, "approval_required"),
+    remediation: patch(APP_PATHS, "approval_required", [
+      "로그인 쿠키를 만드는 코드에 Secure, HttpOnly, SameSite=Lax(또는 Strict) 설정을 넣으세요.",
+    ]),
     verificationRequiredChecks: ["probe-cookie-flags"],
   },
 
@@ -1328,9 +1353,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
     family: "WEB-015",
     version: "1.0.0",
     title: "Anonymous reachability of costly endpoints",
-    titleKo: "비용 유발 엔드포인트 무인증 접근",
+    titleKo: "로그인 없이 부를 수 있는 비용 발생 API",
     summaryKo:
-      "AI·SMS·이메일 엔드포인트에 형식이 틀린 요청을 보내 인증 단계에서 막히는지(401) 아니면 통과하는지(400) 확인합니다. 실제 AI 호출이나 문자 발송은 일어나지 않습니다.",
+      "AI·문자·이메일 API를 로그인 없이 부를 수 있으면, 누구나 반복해서 불러 요금을 늘릴 수 있어요. 형식이 틀린 요청을 보내 로그인 확인에서 막히는지(401), 아니면 로그인 확인을 통과하는지(400) 확인해요. 실제 AI 호출이나 문자 발송은 일어나지 않아요.",
     severity: "high",
     standards: std(
       cwe(770, 306),
@@ -1361,7 +1386,10 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
       },
     ],
     execution: safeActive(10, 30),
-    remediation: patch([...APP_PATHS, ...CONFIG_PATHS]),
+    remediation: patch([...APP_PATHS, ...CONFIG_PATHS], "not_applicable", [
+      "비용이 드는 API는 처리 전에 로그인한 사용자인지 확인하고, 사용자별 호출 횟수 제한을 넣으세요.",
+      "AI·문자 서비스 관리 화면에서 월 사용 한도와 사용량 알림을 설정하세요.",
+    ]),
     verificationRequiredChecks: ["costly-endpoint-anon-reachability"],
   },
 
@@ -1370,9 +1398,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
     family: "WEB-022",
     version: "1.0.0",
     title: "Open redirect (active probe)",
-    titleKo: "오픈 리다이렉트(실제 확인)",
+    titleKo: "외부 사이트로 보낼 수 있는 이동 처리(실제 확인)",
     summaryKo:
-      "리다이렉트 파라미터에 외부 도메인을 넣었을 때 실제로 그 도메인으로 이동시키는지 확인합니다(이동은 따라가지 않고 Location 헤더만 확인).",
+      "이동할 주소 값에 외부 주소를 넣었을 때 그대로 보내면, 내 사이트 링크로 사용자를 가짜 사이트(피싱)로 보낼 수 있어요. 이동할 주소 값에 외부 도메인을 넣어 보내고, 응답의 이동 주소(Location 헤더)만 확인해요. 실제로 그 주소로 이동하지는 않아요.",
     severity: "medium",
     standards: std(
       cwe(601),
@@ -1398,7 +1426,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
       },
     ],
     execution: safeActive(12, 30),
-    remediation: patch([...APP_PATHS, ...CONFIG_PATHS]),
+    remediation: patch([...APP_PATHS, ...CONFIG_PATHS], "not_applicable", [
+      "이동할 주소는 내 사이트 안의 경로(/로 시작)나 허용 목록에 있는 주소만 받고, 나머지는 기본 페이지로 보내세요.",
+    ]),
     verificationRequiredChecks: ["probe-open-redirect"],
   },
 
@@ -1407,9 +1437,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
     family: "WEB-023",
     version: "1.0.0",
     title: "Verbose error disclosure (active probe)",
-    titleKo: "에러 메시지 노출(실제 확인)",
+    titleKo: "오류 응답에 드러나는 내부 정보(실제 확인)",
     summaryKo:
-      "API에 깨진 JSON이나 잘못된 타입을 보내 응답에 스택 트레이스, DB 에러, 서버 경로가 나오는지 확인합니다.",
+      "오류 응답에 스택 트레이스, DB 오류, 서버 경로가 나오면 서버 내부 구조가 외부에 보여 공격 준비에 쓰일 수 있어요. API에 깨진 JSON이나 형식이 틀린 값을 보내 응답에 이런 정보가 나오는지 실제 요청으로 확인해요.",
     severity: "low",
     standards: std(cwe(209, 215), capec(54, 215), owasp("A10:2025")),
     appliesTo: ["api", "web"],
@@ -1426,7 +1456,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
       },
     ],
     execution: safeActive(8, 30),
-    remediation: patch(APP_PATHS),
+    remediation: patch(APP_PATHS, "not_applicable", [
+      "사용자에게는 \"요청을 처리하지 못했어요\" 같은 일반 오류 메시지만 보내고, 자세한 오류 내용은 서버 로그에만 남기세요.",
+    ]),
     verificationRequiredChecks: ["probe-error-leak"],
   },
 
@@ -1435,9 +1467,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
     family: "LLM-001",
     version: "1.0.0",
     title: "System prompt leakage (active probe)",
-    titleKo: "AI 시스템 프롬프트 유출(실제 확인)",
+    titleKo: "AI 지시문(시스템 프롬프트) 유출(실제 확인)",
     summaryKo:
-      "공개된 AI 채팅 엔드포인트에 정해진 추출 문장 3개를 보내 시스템 프롬프트나 내부 지시가 응답에 나오는지 확인합니다(사용자 AI 토큰이 소량 사용됨).",
+      "AI 지시문(시스템 프롬프트)이나 내부 지시가 답변에 나오면, 그 안에 적힌 규칙이나 비밀정보가 누구에게나 보여요. 공개된 AI 채팅 API에 정해진 추출 문장 3개를 보내 지시문이 답변에 나오는지 확인해요. 이 점검에는 사용자의 AI 사용량이 조금 들어요.",
     severity: "medium",
     // CAPEC 대응 패턴 없음 → CWE + OWASP LLM + MITRE ATLAS로 근거
     standards: std(
@@ -1460,7 +1492,10 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
       },
     ],
     execution: safeActive(3, 60),
-    remediation: patch(APP_PATHS),
+    remediation: patch(APP_PATHS, "not_applicable", [
+      "시스템 프롬프트에는 비밀키나 내부 정보를 넣지 마세요. 사용자가 꺼내 볼 수 있다고 생각하고 작성하세요.",
+      "비밀이 필요한 처리는 AI에게 맡기지 말고 서버 코드에서 처리하세요.",
+    ]),
     verificationRequiredChecks: ["probe-system-prompt-leak"],
   },
 
@@ -1470,9 +1505,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
     family: "BAAS-001",
     version: "1.0.0",
     title: "Supabase anonymous table read (active probe)",
-    titleKo: "Supabase 익명 테이블 조회(실제 확인)",
+    titleKo: "로그인 없이 읽히는 Supabase 테이블(실제 확인)",
     summaryKo:
-      "배포된 앱에 들어 있는 공개(anon) 키로 각 테이블을 1행씩 조회해, 로그인 없이 데이터가 나오는지 확인합니다. service_role 키는 발견되더라도 절대 사용하지 않습니다.",
+      "앱에 들어 있는 공개(anon) 키만으로 테이블 데이터가 나오면, 방문자 누구나 그 데이터를 읽을 수 있어요. 배포된 앱에 들어 있는 공개 키로 각 테이블을 1행씩 조회해 로그인 없이 데이터가 나오는지 확인해요. service_role 키는 발견하더라도 절대 사용하지 않아요.",
     severity: "critical",
     standards: std(
       cwe(284, 862),
@@ -1497,7 +1532,10 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
       },
     ],
     execution: safeActive(30, 60, "linked_baas_project"),
-    remediation: patch(SUPABASE_PATHS, "approval_required"),
+    remediation: patch(SUPABASE_PATHS, "approval_required", [
+      "먼저 그 테이블이 누구나 봐도 되는 데이터인지 확인하세요.",
+      "공개용이 아니라면 테이블에 RLS를 켜고, 로그인한 사용자가 자기 행만 읽을 수 있는 규칙(예: auth.uid() = user_id)을 추가하세요.",
+    ]),
     verificationRequiredChecks: ["supabase-anon-select"],
   },
 
@@ -1506,9 +1544,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
     family: "BAAS-002",
     version: "1.0.0",
     title: "Firebase anonymous read (active probe)",
-    titleKo: "Firebase 익명 조회(실제 확인)",
+    titleKo: "로그인 없이 읽히는 Firebase 데이터(실제 확인)",
     summaryKo:
-      "로그인 없이 Realtime DB(/.json)나 앱에서 쓰는 Firestore 컬렉션을 읽을 수 있는지 확인합니다.",
+      "로그인 없이 Firebase 데이터가 읽히면 방문자 누구나 그 데이터를 볼 수 있어요. 로그인하지 않은 상태로 Realtime DB(/.json)나 앱에서 쓰는 Firestore 컬렉션을 읽을 수 있는지 확인해요.",
     severity: "critical",
     standards: std(cwe(284, 862), capec(1, 122), owasp("A01:2025"), attack("T1530")),
     appliesTo: ["baas"],
@@ -1527,7 +1565,10 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
       },
     ],
     execution: safeActive(15, 60, "linked_baas_project"),
-    remediation: patch(FIREBASE_PATHS, "approval_required"),
+    remediation: patch(FIREBASE_PATHS, "approval_required", [
+      "먼저 그 데이터가 누구나 봐도 되는 데이터인지 확인하세요.",
+      "공개용이 아니라면 Firebase 규칙의 읽기 조건에 로그인 확인(request.auth != null)과 데이터 주인 확인(예: request.auth.uid == resource.data.ownerId)을 넣으세요.",
+    ]),
     verificationRequiredChecks: ["firebase-anon-read"],
   },
 
@@ -1536,9 +1577,9 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
     family: "BAAS-003",
     version: "1.0.0",
     title: "Anonymous storage bucket listing (active probe)",
-    titleKo: "스토리지 버킷 익명 목록 조회(실제 확인)",
+    titleKo: "로그인 없이 보이는 파일 저장소 목록(실제 확인)",
     summaryKo:
-      "로그인 없이 스토리지 버킷의 파일 목록을 볼 수 있는지 확인합니다(파일 내용은 내려받지 않음).",
+      "로그인 없이 파일 저장소 목록이 보이면 누구나 저장된 파일 이름을 알 수 있고, 공개 설정이면 파일도 내려받을 수 있어요. 로그인하지 않은 상태로 스토리지 버킷의 파일 목록을 볼 수 있는지 확인해요. 파일 내용은 내려받지 않아요.",
     severity: "high",
     standards: std(
       cwe(552, 284),
@@ -1562,7 +1603,10 @@ export const MODE_B_RULES: SecurityRule[] = withMode("B", [
       },
     ],
     execution: safeActive(15, 45, "linked_baas_project"),
-    remediation: patch([...SUPABASE_PATHS, ...FIREBASE_PATHS], "approval_required"),
+    remediation: patch([...SUPABASE_PATHS, ...FIREBASE_PATHS], "approval_required", [
+      "버킷을 비공개로 바꾸고, 파일 목록 조회는 로그인한 사용자에게만 허용하세요.",
+      "파일을 보여 줘야 하면 짧은 기간만 쓸 수 있는 서명된 주소(signed URL)를 만들어 주세요.",
+    ]),
     verificationRequiredChecks: ["storage-anon-list"],
   },
 ]);
@@ -1578,9 +1622,9 @@ export const MODE_C_RULES: SecurityRule[] = withMode("C", [
     family: "WEB-002",
     version: "2.0.0",
     title: "Cross-user object authorization",
-    titleKo: "다른 사용자 데이터 접근(IDOR)",
+    titleKo: "다른 사용자 데이터 읽기·수정(IDOR, 실제 확인)",
     summaryKo:
-      "A 계정으로 B의 데이터를 읽거나 수정하면 거부되는지, B 본인은 정상적으로 되는지 4가지 조합으로 확인합니다.",
+      "다른 사용자의 데이터를 읽거나 바꿀 수 있으면, 로그인한 누구나 남의 정보를 보거나 고칠 수 있어요. 테스트 계정 A로 B의 데이터를 읽고 수정했을 때 거부되는지, B 본인은 정상적으로 되는지 4가지 경우를 실제로 확인해요.",
     severity: "critical",
     standards: std(
       cwe(639, 862),
@@ -1654,7 +1698,10 @@ export const MODE_C_RULES: SecurityRule[] = withMode("C", [
       },
     ],
     execution: isolated(40, 120, { mutatesOwnTestData: true }),
-    remediation: patch([...APP_PATHS, ...SUPABASE_PATHS], "approval_required"),
+    remediation: patch([...APP_PATHS, ...SUPABASE_PATHS], "approval_required", [
+      "데이터를 보여 주거나 바꾸기 전에, 그 데이터가 현재 로그인한 사람의 것인지 서버에서 확인하세요(예: 조회 조건에 로그인한 사용자 id 넣기).",
+      "수정한 뒤에는 본인 데이터는 여전히 읽고 수정할 수 있는지도 함께 확인하세요.",
+    ]),
     verificationRequiredChecks: [
       "cross-user-read",
       "owner-read",
@@ -1670,9 +1717,9 @@ export const MODE_C_RULES: SecurityRule[] = withMode("C", [
     family: "WEB-013",
     version: "2.0.0",
     title: "Broken function-level authorization (BFLA)",
-    titleKo: "일반 사용자의 관리자 기능 호출(BFLA)",
+    titleKo: "일반 계정의 관리자 기능 사용(BFLA)",
     summaryKo:
-      "일반 계정으로 관리자 전용 기능(회원 목록, 권한 변경 등)을 호출하면 거부되는지 확인합니다.",
+      "일반 계정으로 관리자 전용 기능을 쓸 수 있으면, 가입한 누구나 관리자만 해야 하는 작업을 할 수 있어요. 일반 테스트 계정으로 관리자 전용 기능(회원 목록, 권한 변경 등)을 불렀을 때 거부되는지 실제로 확인해요.",
     severity: "high",
     standards: std(
       cwe(285, 863),
@@ -1700,7 +1747,9 @@ export const MODE_C_RULES: SecurityRule[] = withMode("C", [
       },
     ],
     execution: isolated(12, 60),
-    remediation: patch(APP_PATHS, "approval_required"),
+    remediation: patch(APP_PATHS, "approval_required", [
+      "관리자 기능 API는 처리 전에 서버에서 로그인한 사람이 관리자인지 확인하세요. 화면에서 버튼을 숨기는 것만으로는 막을 수 없어요.",
+    ]),
     verificationRequiredChecks: ["probe-bfla"],
   },
 
@@ -1709,9 +1758,9 @@ export const MODE_C_RULES: SecurityRule[] = withMode("C", [
     family: "WEB-016",
     version: "1.0.0",
     title: "Mass assignment (active probe)",
-    titleKo: "대량 할당(실제 확인)",
+    titleKo: "사용자가 바꾸면 안 되는 값까지 저장되는 처리(실제 확인)",
     summaryKo:
-      "A 계정이 자기 프로필을 수정할 때 role, is_admin, plan, credits 같은 필드를 몰래 끼워 넣으면 반영되는지 확인하고, 점검 후 원래 값으로 되돌립니다.",
+      "수정 요청에 role, is_admin, plan, credits 같은 값을 끼워 넣어 저장되면, 사용자가 스스로 권한이나 요금제를 바꿀 수 있어요. 테스트 계정 A가 자기 프로필을 수정할 때 이런 값을 끼워 넣어 반영되는지 확인하고, 점검 뒤 원래 값으로 되돌려요.",
     severity: "high",
     standards: std(
       cwe(915),
@@ -1742,7 +1791,9 @@ export const MODE_C_RULES: SecurityRule[] = withMode("C", [
       },
     ],
     execution: isolated(10, 60, { mutatesOwnTestData: true }),
-    remediation: patch(APP_PATHS, "approval_required"),
+    remediation: patch(APP_PATHS, "approval_required", [
+      "수정 요청에서 사용자가 바꿔도 되는 값(예: 이름, 소개)만 골라 저장하세요. 요청 내용을 통째로 저장하지 마세요.",
+    ]),
     verificationRequiredChecks: ["probe-mass-assignment", "existing-functional-tests"],
   },
 
@@ -1751,9 +1802,9 @@ export const MODE_C_RULES: SecurityRule[] = withMode("C", [
     family: "WEB-019",
     version: "1.0.0",
     title: "JWT tampering (active probe)",
-    titleKo: "JWT 위변조(실제 확인)",
+    titleKo: "변조한 로그인 토큰(JWT) 허용(실제 확인)",
     summaryKo:
-      "A 계정의 토큰을 alg=none으로 바꾸거나, 서명을 지우거나, 사용자 ID를 B로 바꿔 보냈을 때 모두 거부되는지 확인합니다.",
+      "변조한 로그인 토큰이 통과하면, 누구나 다른 사용자인 척 요청할 수 있어요. 테스트 계정 A의 토큰을 alg=none으로 바꾸거나, 서명을 지우거나, 사용자 ID를 B로 바꿔 보냈을 때 모두 거부되는지 확인해요.",
     severity: "critical",
     standards: std(
       cwe(347, 345),
@@ -1795,7 +1846,10 @@ export const MODE_C_RULES: SecurityRule[] = withMode("C", [
       },
     ],
     execution: isolated(10, 60),
-    remediation: patch(APP_PATHS, "approval_required"),
+    remediation: patch(APP_PATHS, "approval_required", [
+      "토큰을 받을 때마다 서명을 확인하는 함수(verify)를 쓰고, 허용할 서명 방식(algorithms)과 만료 시간을 함께 확인하세요.",
+      "서명을 확인하지 않은 decode 결과로 사용자를 판단하지 마세요.",
+    ]),
     verificationRequiredChecks: ["jwt-alg-none", "jwt-signature-stripped", "jwt-subject-swapped"],
   },
 
@@ -1804,9 +1858,9 @@ export const MODE_C_RULES: SecurityRule[] = withMode("C", [
     family: "BAAS-001",
     version: "1.0.0",
     title: "Supabase cross-user RLS (active probe)",
-    titleKo: "Supabase 사용자 간 데이터 접근(실제 확인)",
+    titleKo: "Supabase에서 다른 사용자 행 읽기·수정(실제 확인)",
     summaryKo:
-      "A 계정 세션으로 B가 소유한 행을 조회·수정할 수 있는지 확인합니다. 반드시 사용자 세션으로만 점검하며 service_role 키는 사용하지 않습니다.",
+      "테이블 접근 규칙(RLS)이 부족하면 로그인한 사용자가 다른 사람의 행을 읽거나 바꿀 수 있어요. 테스트 계정 A의 로그인 상태로 B가 가진 행을 조회·수정할 수 있는지 확인해요. 반드시 사용자 로그인 상태로만 점검하고 service_role 키는 쓰지 않아요.",
     severity: "critical",
     standards: std(
       cwe(639, 284, 862),
@@ -1850,7 +1904,9 @@ export const MODE_C_RULES: SecurityRule[] = withMode("C", [
       },
     ],
     execution: isolated(40, 120, { target: "linked_baas_project" }),
-    remediation: patch(SUPABASE_PATHS, "approval_required"),
+    remediation: patch(SUPABASE_PATHS, "approval_required", [
+      "해당 테이블의 RLS 규칙에, 행의 주인과 로그인한 사용자가 같은지 확인하는 조건(예: auth.uid() = user_id)을 읽기와 수정 모두에 넣으세요.",
+    ]),
     verificationRequiredChecks: [
       "rls-cross-user-read",
       "rls-cross-user-update",

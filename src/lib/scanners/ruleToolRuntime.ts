@@ -28,10 +28,10 @@ export class RuleToolRuntime {
 
   async request(url: string, options: SafeFetchOptions = {}): Promise<SafeFetchResult> {
     if (++this.requests > (this.rule.execution.maxRequests ?? 60)) {
-      throw new Error("규칙의 요청 수 상한에 도달했습니다.");
+      throw new Error("이 검사에 정해 둔 요청 횟수 상한을 다 써서 나머지는 확인하지 못했어요.");
     }
     const remaining = this.deadline - Date.now();
-    if (remaining <= 0) throw new Error("규칙의 실행 시간 상한에 도달했습니다.");
+    if (remaining <= 0) throw new Error("이 검사에 정해 둔 시간이 지나 나머지는 확인하지 못했어요.");
     const result = await this.fetcher(url, {
       ...options,
       timeoutMs: Math.min(options.timeoutMs ?? 5000, remaining),
@@ -40,16 +40,16 @@ export class RuleToolRuntime {
       maxRedirects: 0,
       headers: { "user-agent": SCANNER_USER_AGENT, ...options.headers },
     });
-    if (result.truncated) throw new Error("응답 크기 상한으로 인해 전체 응답을 검사하지 못했습니다.");
+    if (result.truncated) throw new Error("응답이 너무 커서 전체 내용을 확인하지 못했어요.");
     return result;
   }
 
   targetUrl(raw: string): string {
     const base = this.context.deploymentUrl;
-    if (!base) throw new Error("배포 URL이 없습니다.");
+    if (!base) throw new Error("배포 주소가 없어 실제 사이트를 확인하지 못했어요.");
     const target = new URL(raw, base);
     if (target.origin !== new URL(base).origin || target.username || target.password) {
-      throw new Error("검증한 배포 origin 밖의 점검 대상입니다.");
+      throw new Error("소유를 확인한 배포 주소 밖이라 요청을 보내지 않았어요.");
     }
     return target.toString();
   }
@@ -81,9 +81,12 @@ export class RuleToolRuntime {
       executionTier: this.rule.execution.tier,
       description,
       humanReadableImpact: this.rule.summaryKo,
-      whyItMatters: this.rule.summaryKo,
-      remediation: this.rule.remediation.manualStepsKo?.join("\n") ?? "규칙의 허용 경로에서 원인을 수정하고 다시 점검하세요.",
-      evidence: [{ id: id("ev"), kind: "scanner_output", label: check.id, content: evidence, masked: true }],
+      // 규칙 요약(영향)을 되풀이하지 않고, 이번에 무엇을 보고 판단했는지와 확인 수준을 적는다.
+      whyItMatters: `${description} ${howChecked(check, Boolean(confirmed))}`,
+      remediation:
+        this.rule.remediation.manualStepsKo?.join("\n") ??
+        "근거에 적힌 위치의 코드나 설정을 고친 뒤 다시 점검해 주세요.",
+      evidence: [{ id: id("ev"), kind: "scanner_output", label: `점검 결과 (${check.id})`, content: evidence, masked: true }],
       location: options.file ? { file: options.file, line: options.line ?? 1 } : undefined,
       status: confirmed ? "verified" : "detected",
       testStatus: confirmed ? "CONFIRMED" : "SUSPECTED",
@@ -93,6 +96,18 @@ export class RuleToolRuntime {
       updatedAt: timestamp,
     };
   }
+}
+
+/** 코드만 읽었는지, 실제 요청으로 확인했는지 구분해 알린다. */
+function howChecked(check: Check, confirmed: boolean): string {
+  if (check.method === "SAST") return "코드에서 확인한 결과이고, 실제로 문제가 생기는지는 실행해 확인하지 않았어요.";
+  if (check.toolId === "package_provenance_checker") {
+    return confirmed
+      ? "npm 공개 저장소에 실제로 조회해 확인했어요."
+      : "npm 공개 저장소 정보를 보고 판단했어요. 이 패키지가 실제로 위험한지는 직접 확인해 주세요.";
+  }
+  if (confirmed) return "실제로 요청을 보내 응답으로 확인했어요.";
+  return "실제로 요청을 보내 확인했어요. 의도한 동작인지는 근거를 보고 직접 판단해 주세요.";
 }
 
 export function gap(reason: string): ToolResult {

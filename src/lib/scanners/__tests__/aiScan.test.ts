@@ -269,6 +269,53 @@ describe("scan-time adjudication", () => {
   });
 });
 
+describe("AI prompt response schemas", () => {
+  // Wording may change; the JSON contract the parsers rely on must not.
+  it("scan prompt keeps its field names and enum values", async () => {
+    const { AI_SCAN_SYSTEM_PROMPT: p } = await import("@/lib/scanners/aiCodeScanner");
+    for (const key of ["findings", "title", "severity", "category", "owasp", "cwe", "humanReadableImpact", "whyItMatters", "file", "line", "codeSnippet", "remediation", "ruleReviews", "id", "verdict", "reason"]) {
+      expect(p).toContain(`"${key}":`);
+    }
+    expect(p).toContain('"severity": "critical|high|medium|low"');
+    expect(p).toContain('"verdict": "confirmed|likely_false_positive|unsure"');
+    expect(p).toContain('"category": "취약점 분류(영문 표준 명칭)"');
+    expect(p).toContain('"owasp": "OWASP 분류(예: A01 - Broken Access Control) 또는 빈 문자열"');
+    expect(p).toContain('"cwe": "CWE 번호(예: CWE-89) 또는 빈 문자열"');
+    expect(p).toContain('"codeSnippet": "문제되는 코드를 파일에서 글자 그대로 복사(최소 한 줄 전체)"');
+    expect(p).toContain("__HOI_REDACTED_SECRET_숫자__");
+    expect(p).toContain('{"findings": [], "ruleReviews": [...]}');
+    // The e2e mock gateway routes calls by this sentence.
+    expect(p).toContain("시니어 애플리케이션 보안 엔지니어");
+  });
+
+  it("adjudication prompt keeps its verdicts and evidence fields", async () => {
+    const { AI_ADJUDICATE_SYSTEM_PROMPT: p } = await import("@/lib/scanners/aiCodeScanner");
+    expect(p).toContain('"verdict": "not_vulnerable" | "vulnerable" | "unsure"');
+    for (const key of ["results", "id", "reason", "evidence", "file", "snippet", "explanation"]) expect(p).toContain(`"${key}":`);
+    expect(p).toContain("final reviewer for rule-based");
+  });
+
+  it("verify prompt keeps its verdicts, roles and fields", async () => {
+    const { AI_VERIFY_SYSTEM_PROMPT: p } = await import("@/lib/scanners/aiCodeScanner");
+    expect(p).toContain('"verdict": "still_present|fixed|inconclusive"');
+    expect(p).toContain('"role": "vulnerable_code|mitigation"');
+    expect(p.match(/"verdict": "preserved\|broken\|inconclusive"/g)).toHaveLength(2);
+    for (const key of ["summary", "evidence", "file", "snippet", "explanation", "regression", "checks", "label", "expectation"]) {
+      expect(p).toContain(`"${key}":`);
+    }
+    expect(p).toContain("originalFinding");
+  });
+
+  it("route-table prompt keeps its enum values", async () => {
+    const { AUTHZ_SYSTEM_PROMPT: p } = await import("@/lib/scanners/authzMatrix");
+    expect(p).toContain("map every HTTP route");
+    expect(p).toContain('"auth": "required" | "public" | "none" | "unknown"');
+    expect(p).toContain('"admin": "required" | "none" | "n/a" | "unknown"');
+    expect(p).toContain('"ownership": "checked" | "missing" | "n/a" | "unknown"');
+    expect(p).toContain('"notes":');
+  });
+});
+
 describe("merging related classes", () => {
   it("merges weak-random and weak-crypto only on the exact same line", async () => {
     const { mergeCorroborating } = await import("@/lib/scanners/findingMerge");

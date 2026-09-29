@@ -1,4 +1,4 @@
-﻿import { notFound } from "next/navigation";
+import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { HoiScene } from "@/components/mascot/HoiScene";
 import { Hoi } from "@/components/mascot/Hoi";
@@ -29,8 +29,10 @@ export const dynamic = "force-dynamic";
 /**
  * 점검 보고서.
  *   제목 → "확인할 부분 N개를 찾았어요" → 맨 위 "전체 수정하기" → 항목 목록.
- *   항목의 "더보기"는 설명만 펼친다(항목별 단계 UI 없음).
- *   수정 후에는 요약·바뀐 파일·실패 항목·다운로드·재검증을 보여 준다.
+ *   항목마다 "어떤 일이 생길 수 있나요 / 왜 이렇게 판단했나요 / 이렇게 바꿔 주세요"를 나눠 보여 주고,
+ *   코드·경로·규칙 ID·CWE/OWASP는 "자세히 보기" 안에 둔다.
+ *   수정 후에는 요약·바뀐 파일·실패 항목·다운로드·재검증을 보여 주고, 항목마다
+ *   "무엇을 바꿨나요 / 확인된 것 / 아직 확인이 필요한 것"을 나눈다.
  */
 export default async function ScanResultsPage({ params }: { params: { id: string } }) {
   const uid = await requirePageUserId(`/dashboard/scans/${params.id}`);
@@ -49,7 +51,7 @@ export default async function ScanResultsPage({ params }: { params: { id: string
   const initialJob = latest
     ? toPublicJob(
         isStale(latest, Date.now(), LIMITS.staleJobMs)
-          ? { ...latest, status: "failed", errorCode: "timeout", errorMessage: "수정 작업이 제한 시간 안에 끝나지 않았어요. 다시 시도해 주세요." }
+          ? { ...latest, status: "failed", errorCode: "timeout", errorMessage: "수정 작업이 제한 시간 안에 끝나지 않았어요. 올린 원본 코드는 그대로예요. 다시 시도해 주세요." }
           : latest
       )
     : undefined;
@@ -66,6 +68,9 @@ export default async function ScanResultsPage({ params }: { params: { id: string
     whyItMatters: f.whyItMatters,
     remediation: f.remediation,
     location: f.location,
+    ruleId: f.ruleId,
+    cwe: f.cwe,
+    owasp: f.owasp,
     isAi: Boolean(f.verificationKey?.startsWith("ai:") || f.category === "AI Detected"),
     aiReview: f.aiReview,
     code: scanned ? codeContextFor(f, scanned.files, secrets) : undefined,
@@ -98,14 +103,14 @@ export default async function ScanResultsPage({ params }: { params: { id: string
             </div>
           </div>
           {falsePositiveCount > 0 && (
-            <p className="mt-1 text-sm text-ink-muted">
+            <p className="mt-2 text-base leading-relaxed text-ink-subtle">
               규칙 결과 중 {falsePositiveCount}개는 AI가 코드 근거를 확인해 오탐으로 판정해서 아래에 따로 모았어요.
             </p>
           )}
           {scan.scope.aiCoverage && <AiCoverageNotice coverage={scan.scope.aiCoverage} />}
           {scan.scope.semgrep && <SemgrepNotice semgrep={scan.scope.semgrep} />}
           {scan.scope.incremental && (
-            <p className="mt-1 text-sm text-ink-muted">
+            <p className="mt-2 text-base leading-relaxed text-ink-subtle">
               새로 올린 코드에서 바뀐 파일 {scan.scope.incremental.changedFiles.length}개만 AI가 새로 봤어요. 바뀌지 않은 파일{" "}
               {scan.scope.incremental.unchangedFiles}개는 규칙으로 다시 점검했고, 이전 AI 결과 {scan.scope.incremental.carriedOver}건은
               “이전 점검에서 이어옴”으로 표시했어요.
@@ -213,13 +218,23 @@ function AuthzTable({ rows }: { rows: RouteAuthzEntry[] }) {
 function SemgrepNotice({ semgrep }: { semgrep: NonNullable<ScanScope["semgrep"]> }) {
   const text =
     semgrep.status === "ran"
-      ? `Semgrep 규칙 검사도 함께 돌렸어요(${semgrep.findings}건${semgrep.config ? `, ${semgrep.config}` : ""}). 같은 문제는 규칙 결과와 합쳤어요.`
+      ? `추가 규칙 검사 도구(Semgrep)도 함께 돌렸어요(${semgrep.findings}건${semgrep.config ? `, ${semgrep.config}` : ""}). 같은 문제는 규칙 결과와 합쳤어요.`
       : semgrep.status === "not_installed"
-        ? "Semgrep이 설치돼 있지 않아 Semgrep 규칙 검사는 건너뛰었어요."
+        ? "추가 규칙 검사 도구(Semgrep)가 설치돼 있지 않아 그 검사는 건너뛰었어요. 나머지 규칙 검사 결과는 그대로 보여 드려요."
         : semgrep.status === "failed"
-          ? `Semgrep 규칙 검사를 끝내지 못했어요${semgrep.detail ? ` (${semgrep.detail})` : ""}.`
-          : "Semgrep 규칙 검사를 건너뛰었어요.";
-  return <p className={`mt-1 text-sm ${semgrep.status === "failed" ? "text-warning" : "text-ink-muted"}`}>{text}</p>;
+          ? "추가 규칙 검사 도구(Semgrep)가 검사를 끝내지 못해 그 결과는 빠져 있어요. 나머지 규칙 검사 결과는 그대로 보여 드려요."
+          : "추가 규칙 검사 도구(Semgrep)는 이번에 건너뛰었어요.";
+  return (
+    <div className={`mt-2 break-words text-base leading-relaxed ${semgrep.status === "failed" ? "text-warning" : "text-ink-subtle"}`}>
+      <p>{text}</p>
+      {semgrep.status === "failed" && semgrep.detail && (
+        <details className="mt-1 text-sm text-ink-subtle">
+          <summary className="flex min-h-11 cursor-pointer items-center font-bold text-brand-800">오류 내용 보기 (기술 정보)</summary>
+          <p className="break-all font-mono text-xs">{semgrep.detail}</p>
+        </details>
+      )}
+    </div>
+  );
 }
 
 const OMIT_REASON: Record<AiScanCoverage["omitted"][number]["reason"], string> = {
@@ -237,14 +252,14 @@ const OMIT_REASON: Record<AiScanCoverage["omitted"][number]["reason"], string> =
 function AiCoverageNotice({ coverage }: { coverage: AiScanCoverage }) {
   if (coverage.status === "off") {
     return (
-      <p className="mt-2 text-sm text-ink-muted">
-        AI 분석이 꺼져 있어 규칙 기반 점검만 했어요. 권한 확인 누락 같은 로직 문제는 규칙으로 잘 잡히지 않아요.
+      <p className="mt-2 text-base font-semibold leading-relaxed text-ink">
+        AI 분석이 꺼져 있어 규칙 기반 점검만 했어요. 다른 사람의 정보를 볼 수 있는지 같은 흐름 문제(권한 확인 누락)는 규칙만으로는 잘 잡히지 않아요.
       </p>
     );
   }
   if (coverage.status === "complete") {
     return (
-      <p className="mt-2 text-sm text-ink-muted">
+      <p className="mt-2 text-base leading-relaxed text-ink-subtle">
         규칙 기반 점검과 함께 AI가 코드 파일 {coverage.filesTotal}개를 모두 살펴봤어요.
         {coverage.mergedWithRules > 0 && ` 같은 문제를 가리킨 규칙·AI 결과 ${coverage.mergedWithRules}건은 하나로 합쳤어요.`}
       </p>
@@ -257,14 +272,14 @@ function AiCoverageNotice({ coverage }: { coverage: AiScanCoverage }) {
     .join(", ");
   const retryable = coverage.omitted.some((o) => o.reason === "time_budget" || o.reason === "call_failed");
   return (
-    <Card variant={coverage.status === "failed" ? "danger" : "warm"} className="mt-4 p-4 text-sm leading-relaxed">
+    <Card variant={coverage.status === "failed" ? "danger" : "warm"} className="mt-4 p-4 text-base leading-relaxed">
       <p className="font-bold text-ink">
         {coverage.status === "failed"
           ? "AI 분석을 하지 못해 규칙 기반 결과만 보여 드려요"
           : `AI는 코드 파일 ${coverage.filesTotal}개 중 ${coverage.filesReviewed}개만 살펴봤어요`}
       </p>
       {reasons && <p className="mt-1 text-ink-subtle">보지 못한 이유: {reasons}.</p>}
-      <p className="mt-1 text-ink-subtle">
+      <p className="mt-1 text-ink">
         AI가 보지 못한 파일의 문제는 이 목록에 없을 수 있어요.
         {retryable && " 다시 점검하면 이어서 확인할 수 있어요."}
       </p>

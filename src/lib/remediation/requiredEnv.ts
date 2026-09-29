@@ -28,7 +28,7 @@ export function guidanceFor(name: string): { kind: RequiredEnv["kind"]; guidance
   if (/^JWT_(SECRET|KEY)$/.test(name) || /JWT.*SECRET/.test(name)) {
     return {
       kind: "secret",
-      guidance: `토큰 서명 검증 키예요. 토큰을 발급하는 쪽과 같은 값이어야 하고(HS256), 32바이트 이상 무작위 값을 쓰세요(예: openssl rand -base64 48). 비어 있으면 로그인이 필요한 요청이 모두 거절돼요. ${WHERE}`,
+      guidance: `로그인 토큰이 진짜인지 확인할 때 쓰는 비밀키(서명 키)예요. 토큰을 발급하는 쪽과 같은 값이어야 하고(HS256), 32바이트 이상 무작위 값을 쓰세요(예: openssl rand -base64 48). 비어 있으면 로그인이 필요한 요청이 모두 거절돼요. ${WHERE}`,
     };
   }
   if (/ALLOWED_HOSTS|ALLOWLIST|ALLOWED_ORIGINS|ALLOWED_DOMAINS/.test(name)) {

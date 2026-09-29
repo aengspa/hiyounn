@@ -7,7 +7,14 @@ import {
   NotAuthorizedError,
 } from "@/lib/store/store";
 import { startFixAll } from "@/lib/fixjobs/fixAllService";
-import { mergeVerdicts, reverifyFixJob, selectFilesForReview, validateLlmResult } from "@/lib/fixjobs/reverifyService";
+import {
+  aiFailureMessage,
+  INCONCLUSIVE_NOTES,
+  mergeVerdicts,
+  reverifyFixJob,
+  selectFilesForReview,
+  validateLlmResult,
+} from "@/lib/fixjobs/reverifyService";
 import { SecurityOrchestrator } from "@/lib/scanners/orchestrator";
 import type { generateLlmFileFix } from "@/lib/remediation/llmFileFix";
 import type { FixAttempt, ReverifyItem, SecurityFinding, SourceVersion } from "@/lib/domain/types";
@@ -169,6 +176,50 @@ describe("reverifyFixJob", () => {
     expect(out.verification!.sentFiles).toEqual(["src/view.ts"]);
   });
 
+  it("LLM failure is never shown as resolved and says what was not confirmed", async () => {
+    const { user, job } = await fixedJob("rv-fail-msg", XSS_FILES);
+    const out = await reverifyFixJob(job.id, user.id, {
+      llmConfigured: true,
+      exploitGen: noExploit,
+      orchestrator: new SecurityOrchestrator([]),
+      llmCall: async () => {
+        throw new Error("boom");
+      },
+    });
+    const v = out.verification!;
+    expect(v.errorMessage).toContain("확인하지 못했어요");
+    expect(v.errorMessage).toContain("재검증을 다시 실행해 주세요");
+    expect(v.errorMessage).not.toMatch(/해결(했|됐)어요|완료했어요/);
+    for (const it of v.items) {
+      expect(it.verdict).not.toBe("fixed_in_source");
+      expect(it.summary).toContain("확인하지 못했어요");
+      const label = fixStatusFor(it.findingId, { item: { findingId: it.findingId, outcome: "applied" }, verification: v }).label;
+      expect(label).not.toMatch(/해결/);
+    }
+    const findings = await getFindingsForScan(job.scanId, user.id);
+    expect(findings.some((f) => f.status === "resolved")).toBe(false);
+  });
+
+  it("keeps the JSON field names and verdict values in the prompt", async () => {
+    const { user, job } = await fixedJob("rv-prompt", XSS_FILES);
+    let system = "";
+    await reverifyFixJob(job.id, user.id, {
+      llmConfigured: true,
+      exploitGen: noExploit,
+      orchestrator: new SecurityOrchestrator([]),
+      llmCall: async (s) => {
+        system = s;
+        return { correlationId: "c", text: JSON.stringify({ results: [] }) };
+      },
+    });
+    for (const field of ['"results"', '"findingId"', '"verdict"', '"summary"', '"evidence"', '"role"', '"file"', '"snippet"', '"explanation"']) {
+      expect(system).toContain(field);
+    }
+    for (const value of ['"fixed_in_source"', '"still_present"', '"not_vulnerable"', '"inconclusive"', '"mitigation"', '"vulnerable_code"', '"safe_code"', '"is_vulnerability"']) {
+      expect(system).toContain(value);
+    }
+  });
+
   it("accepts AI-only verdicts only with snippets that exist in the fixed file", async () => {
     const { user, job, ids } = await fixedJob("rv-llm", XSS_FILES);
     const out = await reverifyFixJob(job.id, user.id, {
@@ -294,6 +345,28 @@ describe("mergeVerdicts", () => {
     expect(r.method).toBe("rule");
   });
 
+  it("undecided items get a reason-specific note; decided or exploit-confirmed items do not", () => {
+    const failed = mergeVerdicts(f, undefined, undefined, "failed");
+    const notSent = mergeVerdicts(f, undefined, { ...item("inconclusive", "llm"), reasonCode: "file_not_sent" }, "completed");
+    expect(failed.summary).toBe(INCONCLUSIVE_NOTES.ai_failed);
+    expect(notSent.summary).toBe(INCONCLUSIVE_NOTES.file_not_sent);
+    expect(failed.summary).not.toBe(notSent.summary);
+    const blocked = mergeVerdicts(f, undefined, undefined, "failed", { status: "blocked", detail: "d" });
+    expect(blocked.verdict).toBe("fixed_in_source");
+    expect(blocked.summary).toBeUndefined();
+  });
+
+  it("AI failure messages keep call failure and invalid answers distinct", () => {
+    const invalid = aiFailureMessage("ai_invalid_response", false);
+    const network = aiFailureMessage("ai_network_error", false);
+    expect(invalid).not.toBe(network);
+    for (const m of [invalid, network, aiFailureMessage("ai_timeout", true)]) {
+      expect(m).toContain("확인하지 못했어요");
+      expect(m).not.toMatch(/해결(했|됐)어요/);
+    }
+    expect(aiFailureMessage("ai_timeout", true)).toContain("규칙으로 다시 검사할 수 있는 항목만");
+  });
+
   it("dependency items without a rule answer stay inconclusive (no AI)", () => {
     const dep = { ...f, verificationKey: "dep:lodash" } as SecurityFinding;
     const r = mergeVerdicts(dep, undefined, undefined, "not_needed");
@@ -316,6 +389,17 @@ describe("validateLlmResult", () => {
     );
     expect(r.verdict).toBe("inconclusive");
     expect(r.reasonCode).toBe("evidence_not_verified");
+  });
+
+  it("an unverified 'fixed' claim is labeled as not reflected before the AI text", () => {
+    const r = validateLlmResult(
+      finding,
+      { verdict: "fixed_in_source", summary: "고쳐졌어요.", evidence: [{ role: "mitigation", file: "a.ts", snippet: "sanitize(everything)" }] },
+      version,
+      sent
+    );
+    expect(r.summary!.startsWith(INCONCLUSIVE_NOTES.evidence_not_verified)).toBe(true);
+    expect(r.summary).toContain("고쳐졌어요.");
   });
 
   it("rejects snippets from files that were not sent", () => {
