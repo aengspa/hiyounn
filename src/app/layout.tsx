@@ -3,8 +3,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "호이 보안 코치 — 같이 튼튼하게 만들어요",
-    template: "%s | 호이 보안 코치",
+    default: "코치코치 호이 — 같이 튼튼하게 만들어요",
+    template: "%s | 코치코치 호이",
   },
   description:
     "호이가 코드의 약한 곳을 쉬운 말로 알려드리고, 고친 뒤 잘 막혔는지 한 번 더 확인해요.",

@@ -43,3 +43,6 @@ dev2.log
 
 # sample apps are run locally for testing
 /samples/*/node_modules/
+
+# local run/build logs
+*.log
