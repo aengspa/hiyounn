@@ -54,7 +54,7 @@ export default async function LandingPage() {
               만들어요
             </h1>
             <p className="mx-auto mt-4 max-w-xl break-keep text-lg leading-relaxed text-ink-subtle">
-              호이가 약한 곳을 찾아 쉽게 설명해드리고, 
+              호이가 약한 곳을 찾아 쉽게 설명해드리고, <br />
               튼튼하게 고친 뒤에 잘 막혔는지 한 번 더 확인해요.
             </p>
 
