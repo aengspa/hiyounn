@@ -5,7 +5,7 @@
   "description": "An independent Security Agent that finds vulnerabilities, fixes them, reproduces the attack, and verifies your app still works.",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/fetch-gitleaks.mjs && next build",
     "start": "next start",
     "lint": "next lint",
     "verify:rules": "tsx scripts/verify-rules.mts",

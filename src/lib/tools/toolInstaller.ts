@@ -5,6 +5,7 @@ import { chmod, mkdir, open, rm, stat, writeFile } from "fs/promises";
 import path from "path";
 import {
   INSTALL_MARKER,
+  bundledBin,
   getInstallableTool,
   installDir,
   installedBin,
@@ -20,6 +21,7 @@ import { extractFileFromTarGz, extractFileFromZip } from "@/lib/tools/archive";
  *
  *  - 허용 목록의 id만 받는다. 버전은 목록에 고정돼 있다.
  *  - 서버에 이미 있는 실행 파일(SEMGREP_BIN·GITLEAKS_BIN·PATH)을 먼저 쓴다.
+ *    그다음 빌드 때 배포본에 함께 넣은 파일(vendor-bin/, gitleaks)을 쓴다.
  *  - 설치 폴더: HOI_TOOLS_DIR, 없으면 os.tmpdir()/hoi-tools.
  *  - HOI_ALLOW_TOOL_INSTALL=false면 설치하지 않는다. 테스트(VITEST)에서는
  *    HOI_ALLOW_TOOL_INSTALL=true를 직접 주지 않는 한 설치하지 않는다.
@@ -40,7 +42,7 @@ export interface EnsureResult {
   version: string;
   /** 사용자에게 보여 줄 수 있는 짧은 이유(비밀값 없음). */
   reason?: string;
-  source?: "system" | "tools_dir" | "installed";
+  source?: "system" | "bundled" | "tools_dir" | "installed";
 }
 
 export interface RunResult {
@@ -122,6 +124,8 @@ export async function ensureTool(toolId: string, deps: InstallerDeps = {}): Prom
   }
   const existing = systemBin(tool, env);
   if (existing) return { id: tool.id, status: "already_installed", binPath: existing, version: "system", source: "system" };
+  const bundled = bundledBin(tool, env);
+  if (bundled) return { id: tool.id, status: "already_installed", binPath: bundled, version: tool.version, source: "bundled" };
   const ours = installedBin(tool.id, env);
   if (ours) return { id: tool.id, status: "already_installed", binPath: ours, version: tool.version, source: "tools_dir" };
   if (!toolInstallAllowed(env)) return { id: tool.id, status: "install_disabled", version: tool.version, reason: "서버 설정에서 도구 설치를 꺼 두었어요." };

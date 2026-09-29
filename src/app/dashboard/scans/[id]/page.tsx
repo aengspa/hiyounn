@@ -113,8 +113,8 @@ export default async function ScanResultsPage({ params }: { params: { id: string
             </p>
           )}
           {scan.scope.aiCoverage && <AiCoverageNotice coverage={scan.scope.aiCoverage} />}
-          {scan.scope.semgrep && <SemgrepNotice semgrep={scan.scope.semgrep} />}
-          {scan.scope.tools && scan.scope.tools.items.length > 0 && <ToolsNotice tools={scan.scope.tools} />}
+          {scan.scope.semgrep?.status === "ran" && <SemgrepNotice semgrep={scan.scope.semgrep} />}
+          {scan.scope.tools && <ToolsNotice tools={scan.scope.tools} />}
           {scan.scope.incremental && (
             <p className="mt-2 text-base leading-relaxed text-ink-subtle">
               새로 올린 코드에서 바뀐 파일 {scan.scope.incremental.changedFiles.length}개만 AI가 새로 봤어요. 바뀌지 않은 파일{" "}
@@ -221,31 +221,38 @@ function AuthzTable({ rows }: { rows: RouteAuthzEntry[] }) {
   );
 }
 
-const TOOL_STATUS: Record<NonNullable<ScanScope["tools"]>["items"][number]["status"], { mark: string; text: string }> = {
+type ToolItem = NonNullable<ScanScope["tools"]>["items"][number];
+type UsedToolStatus = Extract<ToolItem["status"], "ready" | "already_installed">;
+
+// 실제로 쓴 도구만 보여 준다. 설치 실패·꺼짐·시간 초과 같은 "못 쓴" 도구는 화면에 알리지 않는다.
+const TOOL_STATUS: Record<UsedToolStatus, { mark: string; text: string }> = {
   ready: { mark: "✓", text: "설치해서 사용했어요" },
   already_installed: { mark: "✓", text: "이미 있어서 사용했어요" },
-  install_failed: { mark: "✕", text: "설치하지 못해 이번에는 쓰지 못했어요" },
-  install_disabled: { mark: "−", text: "서버에서 설치를 꺼 두어 쓰지 않았어요" },
-  timed_out: { mark: "?", text: "준비 시간이 모자라 이번에는 쓰지 못했어요" },
 };
 
-/** 점검 시작 때 고른 추가 도구(허용 목록 안에서만)와 준비 결과. */
+function isUsedTool(t: ToolItem): t is ToolItem & { status: UsedToolStatus } {
+  return t.status === "ready" || t.status === "already_installed";
+}
+
+/** 점검 시작 때 고른 추가 도구 중 실제로 사용한 것만 알린다. */
 function ToolsNotice({ tools }: { tools: NonNullable<ScanScope["tools"]> }) {
+  const used = tools.items.filter(isUsedTool);
+  if (used.length === 0) return null;
   const who =
     tools.planner === "ai"
       ? "AI가 이 프로젝트에 필요하다고 본 추가 점검 도구예요."
       : tools.planner === "disabled"
-        ? "추가 점검 도구 설치가 꺼져 있어, 서버에 이미 있는 도구만 확인했어요."
+        ? "서버에 이미 있는 추가 점검 도구로 함께 확인했어요."
         : "AI 없이 프로젝트 파일 종류를 보고 고른 추가 점검 도구예요.";
   return (
     <details className="mt-2 break-words text-base leading-relaxed text-ink">
       <summary className="flex min-h-11 cursor-pointer items-center font-bold text-brand-800">
-        추가 점검 도구 {tools.items.length}개 ({tools.items.filter((t) => t.status === "ready" || t.status === "already_installed").length}개 사용)
+        추가 점검 도구 {used.length}개 사용
       </summary>
       <p className="mt-1">{who} 미리 검증해 둔 도구 목록 안에서만 골라요.</p>
       <ul className="mt-2 space-y-2">
-        {tools.items.map((t) => {
-          const s = TOOL_STATUS[t.status] ?? { mark: "?", text: t.status };
+        {used.map((t) => {
+          const s = TOOL_STATUS[t.status];
           return (
             <li key={t.id} className="min-w-0">
               <span className="font-bold">
@@ -255,7 +262,6 @@ function ToolsNotice({ tools }: { tools: NonNullable<ScanScope["tools"]> }) {
               </span>
               <span className="ml-1">· {s.text}</span>
               <span className="block text-ink-subtle">{t.reason}</span>
-              {t.detail && t.status !== "ready" && t.status !== "already_installed" && <span className="block text-ink-subtle">{t.detail}</span>}
             </li>
           );
         })}
@@ -264,24 +270,14 @@ function ToolsNotice({ tools }: { tools: NonNullable<ScanScope["tools"]> }) {
   );
 }
 
+/** Semgrep을 실제로 돌렸을 때만 알린다. 설치 안 됨·실패·건너뜀은 화면에 보이지 않는다. */
 function SemgrepNotice({ semgrep }: { semgrep: NonNullable<ScanScope["semgrep"]> }) {
-  const text =
-    semgrep.status === "ran"
-      ? `추가 규칙 검사 도구(Semgrep)도 함께 돌렸어요(${semgrep.findings}건${semgrep.config ? `, ${semgrep.config}` : ""}). 같은 문제는 규칙 결과와 합쳤어요.`
-      : semgrep.status === "not_installed"
-        ? "추가 규칙 검사 도구(Semgrep)가 설치돼 있지 않아 그 검사는 건너뛰었어요. 나머지 규칙 검사 결과는 그대로 보여 드려요."
-        : semgrep.status === "failed"
-          ? "추가 규칙 검사 도구(Semgrep)가 검사를 끝내지 못해 그 결과는 빠져 있어요. 나머지 규칙 검사 결과는 그대로 보여 드려요."
-          : "추가 규칙 검사 도구(Semgrep)는 이번에 건너뛰었어요.";
+  if (semgrep.status !== "ran") return null;
   return (
-    <div className={`mt-2 break-words text-base leading-relaxed ${semgrep.status === "failed" ? "text-warning" : "text-ink-subtle"}`}>
-      <p>{text}</p>
-      {semgrep.status === "failed" && semgrep.detail && (
-        <details className="mt-1 text-sm text-ink-subtle">
-          <summary className="flex min-h-11 cursor-pointer items-center font-bold text-brand-800">오류 내용 보기 (기술 정보)</summary>
-          <p className="break-all font-mono text-xs">{semgrep.detail}</p>
-        </details>
-      )}
+    <div className="mt-2 break-words text-base leading-relaxed text-ink-subtle">
+      <p>
+        추가 규칙 검사 도구(Semgrep)도 함께 돌렸어요({semgrep.findings}건{semgrep.config ? `, ${semgrep.config}` : ""}). 같은 문제는 규칙 결과와 합쳤어요.
+      </p>
     </div>
   );
 }

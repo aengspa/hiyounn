@@ -6,15 +6,15 @@ import type { RegressionTest, SecurityEvidence, SecurityFinding, VerificationRes
 import { VerificationUnavailableError } from "@/lib/store/errors";
 import { safeProjectPath } from "@/lib/remediation/patchEngine";
 import { secretFingerprint } from "@/lib/scanners/secretScanner";
-import { getInstallableTool, installedBin, systemBin } from "@/lib/tools/installableTools";
+import { bundledBin, getInstallableTool, installedBin, systemBin } from "@/lib/tools/installableTools";
 import { defaultRunner, logToolEvent, scrubbedToolEnv } from "@/lib/tools/toolInstaller";
 import { id, maskSecret, now } from "@/lib/util";
 
 /**
  * Gitleaks 비밀키 검사(기준 규칙 검사기 중 하나).
  *
- * GITLEAKS_BIN·PATH의 gitleaks 또는 서버가 허용 목록에서 설치한 고정 버전이 있을
- * 때만 돈다. 임시 폴더에 코드 사본을 쓰고 `gitleaks detect --no-git`으로 본다.
+ * GITLEAKS_BIN·PATH의 gitleaks, 빌드 때 배포본에 함께 넣은 고정 버전(vendor-bin/),
+ * 또는 서버가 허용 목록에서 설치한 고정 버전이 있을 때만 돈다. 임시 폴더에 코드 사본을 쓰고 `gitleaks detect --no-git`으로 본다.
  * 올린 파일에 .git 폴더가 실제로 있으면 코드 기록(커밋)도 본다.
  * 비밀값은 저장하지 않는다. 근거 줄은 우리 파일에서 읽고 값은 가린다.
  */
@@ -23,7 +23,7 @@ const RUN_TIMEOUT_MS = 120_000;
 
 export function gitleaksBin(env: Record<string, string | undefined> = process.env): string | undefined {
   const tool = getInstallableTool("gitleaks")!;
-  return systemBin(tool, env) ?? installedBin("gitleaks", env);
+  return systemBin(tool, env) ?? bundledBin(tool, env) ?? installedBin("gitleaks", env);
 }
 
 export interface GitleaksHit {

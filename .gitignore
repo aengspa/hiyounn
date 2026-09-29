@@ -38,5 +38,8 @@ dev2.log
 # local dev artifacts (logs, tools, e2e output)
 /.local/
 
+# build-time bundled tool binaries (scripts/fetch-gitleaks.mjs)
+/vendor-bin/
+
 # sample apps are run locally for testing
 /samples/*/node_modules/

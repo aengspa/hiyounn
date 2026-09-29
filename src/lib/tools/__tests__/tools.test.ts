@@ -1,15 +1,25 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { deflateRawSync, gzipSync } from "node:zlib";
-import { afterAll, describe, expect, it } from "vitest";
-import { getInstallableTool, listInstallableTools } from "@/lib/tools/installableTools";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { bundledBin, bundledBinPath, getInstallableTool, listInstallableTools } from "@/lib/tools/installableTools";
 import { ensureTool, scrubbedToolEnv, toolInstallAllowed, checksumFor, type ProcessRunner } from "@/lib/tools/toolInstaller";
 import { filterAiToolChoice, heuristicPlan, planTools, prepareScanTools, projectSignals } from "@/lib/tools/toolPlanner";
 import { extractFileFromTarGz, extractFileFromZip } from "@/lib/tools/archive";
+import { gitleaksBin } from "@/lib/scanners/gitleaksScanner";
 
 const tmp = mkdtempSync(path.join(os.tmpdir(), "hoi-tools-test-"));
-afterAll(() => rmSync(tmp, { recursive: true, force: true }));
+// 번들 위치(process.cwd()/vendor-bin)를 저장소가 아닌 임시 폴더로 고정한다(빌드로 받은 파일에 영향받지 않게).
+const emptyRoot = path.join(tmp, "empty-root");
+beforeAll(() => {
+  mkdirSync(emptyRoot, { recursive: true });
+  vi.spyOn(process, "cwd").mockReturnValue(emptyRoot);
+});
+afterAll(() => {
+  vi.restoreAllMocks();
+  rmSync(tmp, { recursive: true, force: true });
+});
 
 /** 설치가 일어나면 실패하게 만드는 가짜 의존성(실제 네트워크·프로세스 없음). */
 const noNetwork = async (): Promise<Response> => {
@@ -210,5 +220,69 @@ describe("tool planner", () => {
     expect(slow.items.find((i) => i.id === "semgrep")?.status).toBe("timed_out");
     expect(slow.items.find((i) => i.id === "gitleaks")).toMatchObject({ status: "ready", displayName: "Gitleaks", version: "8.30.1" });
     expect(JSON.stringify(slow)).not.toContain("/x/gitleaks");
+  });
+});
+
+describe("bundled gitleaks (vendor-bin)", () => {
+  const gl = getInstallableTool("gitleaks")!;
+  const exe = process.platform === "win32" ? "gitleaks.exe" : "gitleaks";
+  const root = path.join(tmp, "bundle-root");
+  const toolsHome = path.join(tmp, "bundle-tools");
+  const bundled = path.join(root, "vendor-bin", "gitleaks", exe);
+  const env = { PATH: "", HOI_TOOLS_DIR: toolsHome, HOI_ALLOW_TOOL_INSTALL: "true" };
+
+  beforeAll(() => {
+    mkdirSync(path.dirname(bundled), { recursive: true });
+    writeFileSync(bundled, "bundled-gitleaks");
+    chmodSync(bundled, 0o755);
+  });
+
+  it("resolves the bundled path relative to the project root, only for release-file tools", () => {
+    expect(bundledBinPath(gl, root)).toBe(bundled);
+    expect(bundledBinPath(getInstallableTool("semgrep")!, root)).toBeUndefined();
+    expect(bundledBin(gl, env, { root: path.join(tmp, "nothing-here") })).toBeUndefined();
+  });
+
+  it("prefers the bundled binary over installing", async () => {
+    vi.mocked(process.cwd).mockReturnValue(root);
+    try {
+      const r = await ensureTool("gitleaks", { env, fetcher: noNetwork, runner: noProcess });
+      expect(r).toMatchObject({ status: "already_installed", source: "bundled", binPath: bundled, version: gl.version });
+      expect(gitleaksBin(env)).toBe(bundled);
+    } finally {
+      vi.mocked(process.cwd).mockReturnValue(emptyRoot);
+    }
+  });
+
+  it("still lets GITLEAKS_BIN and PATH win over the bundled binary", async () => {
+    const sysDir = path.join(tmp, "sys-bin");
+    mkdirSync(sysDir, { recursive: true });
+    const sys = path.join(sysDir, exe);
+    writeFileSync(sys, "system-gitleaks");
+    vi.mocked(process.cwd).mockReturnValue(root);
+    try {
+      const viaEnv = await ensureTool("gitleaks", { env: { ...env, GITLEAKS_BIN: sys }, fetcher: noNetwork, runner: noProcess });
+      expect(viaEnv).toMatchObject({ status: "already_installed", source: "system", binPath: sys });
+      const viaPath = await ensureTool("gitleaks", { env: { ...env, PATH: sysDir }, fetcher: noNetwork, runner: noProcess });
+      expect(viaPath).toMatchObject({ source: "system", binPath: sys });
+      expect(gitleaksBin({ ...env, PATH: sysDir })).toBe(sys);
+    } finally {
+      vi.mocked(process.cwd).mockReturnValue(emptyRoot);
+    }
+  });
+
+  it("copies a non-executable bundled file to the tools dir with mode 755 and uses the copy", () => {
+    // 읽기 전용 배포 폴더에서 실행 권한이 빠진 상황: 원본만 실행할 수 없다고 본다.
+    const isExecutable = (file: string) => file !== bundled;
+    const first = bundledBin(gl, env, { root, isExecutable });
+    expect(first).toBeDefined();
+    expect(first).not.toBe(bundled);
+    expect(first!.startsWith(toolsHome)).toBe(true);
+    expect(readFileSync(first!, "utf8")).toBe("bundled-gitleaks");
+    if (process.platform !== "win32") expect(statSync(first!).mode & 0o777).toBe(0o755);
+    // 다시 불러도 같은 사본을 쓴다.
+    expect(bundledBin(gl, env, { root, isExecutable })).toBe(first);
+    // 사본도 실행할 수 없으면 쓰지 않는다(설치 경로로 넘어감).
+    expect(bundledBin(gl, env, { root, isExecutable: () => false })).toBeUndefined();
   });
 });

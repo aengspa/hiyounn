@@ -1,4 +1,4 @@
-import { existsSync } from "fs";
+import { accessSync, chmodSync, constants as fsConstants, copyFileSync, existsSync, mkdirSync, renameSync, rmSync, statSync } from "fs";
 import os from "os";
 import path from "path";
 
@@ -150,6 +150,64 @@ export function installedBin(toolId: InstallableToolId, env: Env = process.env):
   if (!tool) return undefined;
   const bin = installedBinPath(tool, env);
   return existsSync(bin) && existsSync(path.join(installDir(tool, env), INSTALL_MARKER)) ? bin : undefined;
+}
+
+/**
+ * 빌드 때 배포본에 함께 넣은 실행 파일 폴더(프로젝트 루트 기준, Vercel에서는 /var/task).
+ * scripts/fetch-gitleaks.mjs가 채우고 next.config.mjs의 outputFileTracingIncludes로 함수에 들어간다.
+ */
+export const BUNDLED_DIR = "vendor-bin";
+
+/** 함께 넣은 실행 파일 위치(있는지와 무관). 릴리스 파일로 받는 도구만 해당. */
+export function bundledBinPath(tool: InstallableTool, root: string = process.cwd()): string | undefined {
+  if (tool.install.kind !== "github-release") return undefined;
+  return path.join(root, BUNDLED_DIR, tool.id, IS_WIN ? `${tool.binName}.exe` : tool.binName);
+}
+
+function canExecute(file: string): boolean {
+  try {
+    accessSync(file, fsConstants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export interface BundledOptions {
+  /** 기본 process.cwd(). */
+  root?: string;
+  /** 테스트용: 실행 권한 확인 대체. */
+  isExecutable?: (file: string) => boolean;
+}
+
+/**
+ * 배포본에 함께 넣은 실행 파일. 읽기 전용 배포 폴더에서 실행 권한이 빠졌으면
+ * 도구 폴더(os.tmpdir 기준)로 복사해 권한(755)을 주고 그 사본을 쓴다.
+ */
+export function bundledBin(tool: InstallableTool, env: Env = process.env, opts: BundledOptions = {}): string | undefined {
+  const src = bundledBinPath(tool, opts.root);
+  if (!src || !existsSync(src)) return undefined;
+  const isExec = opts.isExecutable ?? canExecute;
+  if (isExec(src)) return src;
+  const copy = path.join(toolsDir(env), `${tool.id}-${tool.version}-bundled`, path.basename(src));
+  try {
+    const fresh = existsSync(copy) && isExec(copy) && statSync(copy).size === statSync(src).size;
+    if (!fresh) {
+      mkdirSync(path.dirname(copy), { recursive: true });
+      // 동시에 복사해도 덜 쓴 파일을 실행하지 않도록 임시 이름에 쓴 뒤 바꾼다.
+      const tmp = `${copy}.${process.pid}.tmp`;
+      try {
+        copyFileSync(src, tmp);
+        chmodSync(tmp, 0o755);
+        renameSync(tmp, copy);
+      } finally {
+        rmSync(tmp, { force: true });
+      }
+    }
+    return isExec(copy) ? copy : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** 서버에 이미 있는 실행 파일(환경변수 지정 → PATH). */
