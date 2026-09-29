@@ -20,12 +20,12 @@ export function PageHeader({
   children,
 }: Props) {
   return (
-    <header className="border-b border-line bg-[#F8F7F2]">
-      <div className="mx-auto max-w-6xl px-4 py-3 sm:px-6 sm:py-4">
+    <header className="border-b-2 border-line bg-gradient-to-b from-canvas-soft to-surface-warm">
+      <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6 sm:py-6">
         {backHref && (
           <Link
             href={backHref}
-            className="mb-1 inline-flex min-h-11 items-center rounded-xl pr-3 text-sm font-bold text-brand-700 hover:text-brand-900 hover:underline"
+            className="mb-2 inline-flex min-h-11 items-center gap-1 rounded-full border-2 border-line bg-surface px-3 text-sm font-bold text-brand-800 hover:border-brand-300 hover:text-brand-900"
             aria-label="이전 화면으로 이동"
           >
             <span aria-hidden="true">←</span>&nbsp;{backLabel ?? "이전"}
@@ -33,7 +33,7 @@ export function PageHeader({
         )}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="min-w-0">
-            <h1 className="break-words text-xl font-bold tracking-tight text-ink sm:text-2xl">
+            <h1 className="break-words text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
               {title}
             </h1>
             {subtitle && (

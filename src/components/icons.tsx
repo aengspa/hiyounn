@@ -72,3 +72,18 @@ export function SearchIcon({ className = "h-5 w-5", title, ...props }: IconProps
     </svg>
   );
 }
+
+export function ChatIcon({ className = "h-5 w-5", title, ...props }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} focusable="false" {...iconA11y(title)} {...props}>
+      {title && <title>{title}</title>}
+      <path
+        d="M5 5h14a2 2 0 012 2v8a2 2 0 01-2 2h-7l-4.5 3.5V17H5a2 2 0 01-2-2V7a2 2 0 012-2z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path d="M8 10h8M8 13h5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}

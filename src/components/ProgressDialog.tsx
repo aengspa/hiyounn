@@ -90,7 +90,7 @@ export function ProgressDialog({
   if (!open || !mounted) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#192638]/45 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#3a2b20]/40 p-4 backdrop-blur-sm">
       <div
         ref={dialogRef}
         role="dialog"
@@ -99,19 +99,22 @@ export function ProgressDialog({
         aria-labelledby="progress-dialog-title"
         aria-describedby="progress-dialog-description"
         tabIndex={-1}
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-line bg-surface p-6 text-center shadow-2xl outline-none sm:p-8"
+        className="hoi-card-3d max-h-[90vh] w-full max-w-lg overflow-y-auto p-6 text-center shadow-warm-lg outline-none sm:p-8"
       >
         <div className="flex justify-center">
-          <Hoi mood="searching" size="md" decorative />
+          <Hoi mood="searching" size="lg" decorative />
         </div>
-        <h2 id="progress-dialog-title" className="mt-4 text-xl font-bold text-ink">
+        <h2 id="progress-dialog-title" className="mt-4 text-xl font-extrabold text-ink sm:text-2xl">
           {title}
         </h2>
         <p id="progress-dialog-description" className="mt-2 text-sm leading-relaxed text-ink-subtle">
           {description}
         </p>
-        <div className="mx-auto mt-5 h-2 w-40 overflow-hidden rounded-full bg-primary-soft" aria-hidden="true">
-          <div className="h-full w-1/3 animate-pulse rounded-full bg-brand-500 motion-reduce:animate-none" />
+        {/* 진행률을 알 수 없으므로 퍼센트 막대 대신 점 세 개만 보여준다 */}
+        <div className="hoi-dots mt-5" aria-hidden="true">
+          <span />
+          <span />
+          <span />
         </div>
         {children && <div className="mt-5 text-left">{children}</div>}
         <div className="sr-only" aria-live="polite" aria-atomic="true">

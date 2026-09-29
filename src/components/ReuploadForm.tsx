@@ -49,17 +49,29 @@ export function ReuploadForm({ projectId }: { projectId: string }) {
   }
 
   return (
-    <details className="rounded-3xl border border-line bg-surface p-4 sm:p-5">
-      <summary className="cursor-pointer text-base font-bold text-ink">코드 새로 올리기</summary>
-      <form onSubmit={submit} className="mt-3 space-y-3">
-        <div className="flex gap-2 text-sm">
+    <details className="group rounded-3xl border-2 border-line bg-surface p-4 shadow-warm open:bg-surface-warm sm:p-5">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 text-base font-extrabold text-ink marker:content-none hover:text-brand-800 [&::-webkit-details-marker]:hidden">
+        <span>코드 새로 올리기</span>
+        <span
+          aria-hidden="true"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-brand-300 bg-primary-soft text-lg leading-none text-brand-900 transition-transform group-open:rotate-45 motion-reduce:transition-none"
+        >
+          +
+        </span>
+      </summary>
+      <form onSubmit={submit} className="mt-3 space-y-4 border-t-2 border-dashed border-line pt-4">
+        <div className="inline-flex gap-1 rounded-2xl border-2 border-line bg-surface-warm p-1 text-sm">
           {(["zip", "paste"] as const).map((m) => (
             <button
               key={m}
               type="button"
               onClick={() => setMode(m)}
               aria-pressed={mode === m}
-              className={`rounded-xl border px-3 py-1.5 font-bold ${mode === m ? "border-brand-800 text-brand-800" : "border-line text-ink-subtle"}`}
+              className={`min-h-11 rounded-xl border-2 px-4 font-bold ${
+                mode === m
+                  ? "border-line-input bg-surface text-brand-800 shadow-[0_2px_0_var(--border-strong)]"
+                  : "border-transparent text-ink-subtle hover:bg-surface hover:text-ink"
+              }`}
             >
               {m === "zip" ? "ZIP 파일" : "코드 붙여넣기"}
             </button>
@@ -71,7 +83,7 @@ export function ReuploadForm({ projectId }: { projectId: string }) {
             accept=".zip,application/zip"
             aria-label="프로젝트 ZIP"
             onChange={(e) => setFile(e.currentTarget.files?.[0] ?? null)}
-            className="block w-full text-sm"
+            className="block min-h-12 w-full rounded-2xl border-2 border-line-input bg-surface p-2 text-sm file:mr-3 file:min-h-10 file:rounded-xl file:border-0 file:bg-primary-soft file:px-4 file:font-bold file:text-brand-800"
           />
         ) : (
           <textarea
@@ -80,14 +92,21 @@ export function ReuploadForm({ projectId }: { projectId: string }) {
             aria-label="새 코드"
             rows={8}
             placeholder={"// file: src/server.js\n..."}
-            className="w-full rounded-2xl border border-line-input bg-surface p-3 font-mono text-xs"
+            className="w-full rounded-2xl border-2 border-line-input bg-surface p-3 font-mono text-sm hover:border-brand-700 focus:border-brand-700"
           />
         )}
-        <Button type="submit" disabled={busy} aria-busy={busy}>
+        <Button type="submit" variant="secondary" disabled={busy} aria-busy={busy}>
           새 코드 올리기
         </Button>
         {message && (
-          <p role="status" className={`text-sm ${message.tone === "ok" ? "text-success" : "text-danger"}`}>
+          <p
+            role="status"
+            className={`rounded-2xl border-2 px-4 py-3 text-sm font-semibold ${
+              message.tone === "ok"
+                ? "border-[#bfe0c8] bg-success-soft text-success"
+                : "border-[#f3c4bd] bg-danger-soft text-danger"
+            }`}
+          >
             {message.text}
           </p>
         )}

@@ -3,7 +3,8 @@
 import { useId, useState } from "react";
 import type { Severity } from "@/lib/domain/types";
 import type { PublicFixJob } from "@/lib/fixjobs/publicJob";
-import { Badge, Button, Card, SeverityBadge, type BadgeTone } from "@/components/ui";
+import { Badge, Button, Card, Confetti, SeverityBadge, buttonClassName, type BadgeTone } from "@/components/ui";
+import { Hoi } from "@/components/mascot/Hoi";
 import { ProgressDialog } from "@/components/ProgressDialog";
 import { fixStatusFor, type FixStatusKey } from "@/lib/ui/fixStatus";
 import type { CodeContext } from "@/lib/ui/codeContext";
@@ -195,27 +196,28 @@ export function FixAllPanel({
             <Card variant="raised" className="p-5 sm:p-6">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <h2 id="fix-all-title" className="text-lg font-bold text-ink">
-                    {job?.status === "failed" ? "다시 전체 수정해 볼까요?" : "찾은 부분을 한 번에 고쳐 볼까요?"}
+                  <p className="inline-flex rounded-full bg-sun-soft px-3 py-0.5 text-[13px] font-bold text-brand-900">가장 먼저 할 일</p>
+                  <h2 id="fix-all-title" className="mt-2 text-xl font-extrabold text-ink">
+                    {job?.status === "failed" ? "다시 한 번 고쳐 볼까요?" : "찾은 부분을 한 번에 고쳐 볼까요?"}
                   </h2>
                   <p className="mt-1 text-sm leading-relaxed text-ink-subtle">
                     올린 원본은 그대로 두고, 고친 사본을 따로 만들어요. 고친 파일은 내려받아 직접 반영해요.
                   </p>
                 </div>
-                <Button onClick={runFixAll} disabled={busy !== null} aria-busy={busy === "fix"} className="w-full sm:w-auto">
-                  {job?.status === "failed" ? "다시 전체 수정하기" : "전체 수정하기"}
+                <Button onClick={runFixAll} disabled={busy !== null} aria-busy={busy === "fix"} size="lg" className="w-full shrink-0 sm:w-auto">
+                  {job?.status === "failed" ? "다시 고쳐 보기" : "한 번에 고쳐 보기"}
                 </Button>
               </div>
             </Card>
           )}
           {!canFix && (
             <Card variant="warm" className="p-5 text-sm leading-relaxed text-ink-subtle">
-              <h2 id="fix-all-title" className="font-bold text-ink">이 점검 기록은 전체 수정을 할 수 없어요</h2>
+              <h2 id="fix-all-title" className="font-extrabold text-ink">이 점검 기록은 한 번에 고치기를 할 수 없어요</h2>
               <p className="mt-1">어떤 코드를 점검했는지 기록이 남지 않은 예전 점검이에요. 프로젝트에서 다시 점검해 주세요.</p>
             </Card>
           )}
           {error && (
-            <p role="alert" className="mt-3 rounded-2xl bg-danger-soft p-3 text-sm font-medium text-danger">
+            <p role="alert" className="mt-3 rounded-2xl border-2 border-[#f3c4bd] bg-danger-soft p-3 text-sm font-semibold text-danger">
               {error}
             </p>
           )}
@@ -229,8 +231,8 @@ export function FixAllPanel({
 
       {/* 항목 목록 */}
       <section aria-labelledby="findings-title" className="mt-10">
-        <h2 id="findings-title" className="text-lg font-bold text-ink">
-          확인할 부분 ({active.length}개)
+        <h2 id="findings-title" className="text-xl font-extrabold text-ink sm:text-2xl">
+          호이가 찾은 부분 <span className="text-brand-800">({active.length}개)</span>
         </h2>
         <ol className="mt-4 space-y-3">
           {active.map((f) => (
@@ -240,8 +242,8 @@ export function FixAllPanel({
       </section>
 
       {falsePositives.length > 0 && (
-        <details className="mt-8 rounded-3xl border border-line bg-surface p-4 sm:p-5">
-          <summary className="cursor-pointer text-base font-bold text-ink">
+        <details className="mt-8 rounded-3xl border-2 border-dashed border-line-strong bg-surface-warm p-4 sm:p-5">
+          <summary className="flex min-h-11 cursor-pointer items-center text-base font-extrabold text-ink hover:text-brand-800">
             AI가 오탐으로 판정한 규칙 결과 ({falsePositives.length}개)
           </summary>
           <p className="mt-2 text-sm text-ink-subtle">
@@ -267,6 +269,13 @@ export function FixAllPanel({
     </>
   );
 }
+
+const SEV_ACCENT: Record<Severity, string> = {
+  critical: "bg-sev-critical",
+  high: "bg-sev-high",
+  medium: "bg-sev-medium",
+  low: "bg-sev-low",
+};
 
 const CORROBORATOR_LABEL: Record<string, string> = {
   semgrep: "Semgrep도 확인",
@@ -295,7 +304,9 @@ function FindingRow({
   const panelId = useId();
   const adjudication = finding.aiReview?.adjudication;
   return (
-    <div className="rounded-3xl border border-line bg-surface p-5 shadow-warm sm:p-6">
+    <div className="relative overflow-hidden rounded-3xl border-2 border-line bg-surface p-5 pl-6 shadow-warm sm:p-6 sm:pl-7">
+      {/* 심각도 색 띠(장식). 심각도는 배지의 글자·아이콘으로도 전달한다 */}
+      <span aria-hidden="true" className={`absolute inset-y-0 left-0 w-1.5 ${SEV_ACCENT[finding.severity] ?? "bg-line-strong"}`} />
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone={STATUS_TONE[statusKey]}>{statusLabel}</Badge>
         <SeverityBadge severity={finding.severity} />
@@ -311,7 +322,7 @@ function FindingRow({
           ))}
         {finding.carriedOver && <Badge tone="neutral">이전 점검에서 이어옴</Badge>}
       </div>
-      <h3 className="mt-3 break-words text-base font-bold text-ink sm:text-lg">{finding.title}</h3>
+      <h3 className="mt-3 break-words text-lg font-extrabold text-ink sm:text-xl">{finding.title}</h3>
       <p className="mt-1 break-keep leading-relaxed text-ink-subtle">{finding.humanReadableImpact}</p>
 
       {finding.code ? (
@@ -338,32 +349,35 @@ function FindingRow({
 
       <button
         type="button"
-        className="mt-3 inline-flex min-h-11 items-center rounded-xl pr-2 text-sm font-bold text-brand-800 hover:underline"
+        className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-full border-2 border-line bg-surface-warm px-4 text-sm font-bold text-brand-800 hover:border-brand-300"
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => setOpen((v) => !v)}
       >
-        {open ? "접기" : "더보기"}
+        {open ? "접기" : "자세히 보기"}
+        <span aria-hidden="true" className={`transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`}>
+          ▾
+        </span>
       </button>
-      <div id={panelId} hidden={!open} className="mt-2 space-y-3 border-t border-line pt-3 text-sm leading-relaxed text-ink-subtle">
+      <div id={panelId} hidden={!open} className="mt-3 space-y-3 rounded-2xl border-2 border-dashed border-line bg-surface-warm p-4 text-sm leading-relaxed text-ink-subtle">
         <p>
-          <span className="font-bold text-ink">지금 상태: </span>
+          <span className="block font-bold text-ink">지금 상태</span>
           {statusDetail}
         </p>
         <p>
-          <span className="font-bold text-ink">왜 위험한가요? </span>
+          <span className="block font-bold text-ink">이대로 두면 어떤 일이 생겨요?</span>
           {finding.whyItMatters}
         </p>
         {finding.aiReview?.verdict === "likely_false_positive" && !adjudication && (
           <p>
-            <span className="font-bold text-ink">AI 의견: </span>
+            <span className="block font-bold text-ink">AI 의견</span>
             규칙이 찾은 항목이지만 AI는 실제 문제가 아닐 수 있다고 봤어요
             {finding.aiReview.reason ? ` (${finding.aiReview.reason})` : ""}. 규칙 결과는 그대로 두었으니 코드를 보고 판단해 주세요.
           </p>
         )}
         {finding.remediation && (
           <p>
-            <span className="font-bold text-ink">어떻게 고치나요? </span>
+            <span className="block font-bold text-ink">이렇게 고쳐보세요</span>
             {finding.remediation}
           </p>
         )}
@@ -394,6 +408,9 @@ function FixResult({
       else vCounts.check += 1;
     }
   }
+  // 규칙 재검사로 확인한 해결만 있고, 남아 있음·엇갈림·확인 필요·AI 판단이 하나도 없을 때만 축하한다.
+  const allBlocked =
+    job.status === "completed" && !!v && v.status === "completed" && vCounts.resolved > 0 && vCounts.resolvedAi + vCounts.still + vCounts.disputed + vCounts.check === 0;
   const vSummary = [
     vCounts.resolved && `해결 확인 ${vCounts.resolved}개`,
     vCounts.resolvedAi && `AI 판단 해결 ${vCounts.resolvedAi}개`,
@@ -412,13 +429,13 @@ function FixResult({
 
   return (
     <section aria-labelledby="fix-result-title" className="mt-6">
-      <Card variant={job.status === "failed" ? "danger" : "warm"} className="p-5 sm:p-6">
-        <h2 id="fix-result-title" className="text-lg font-bold text-ink">
+      <Card variant={job.status === "failed" ? "danger" : "raised"} className="p-5 sm:p-6">
+        <h2 id="fix-result-title" className="text-xl font-extrabold text-ink">
           {headline}
         </h2>
         {job.status !== "failed" && (
           <p className="mt-1 text-sm text-ink-subtle">
-            고친 내용은 아직 재검증 전이에요. 재검증으로 문제가 사라졌는지 확인해 주세요.
+            고친 내용이 정말 잘 막히는지는 아직 확인 전이에요. 아래 버튼으로 호이가 한 번 더 확인해요.
           </p>
         )}
 
@@ -438,7 +455,7 @@ function FixResult({
         {job.changedFiles.length > 0 && <JobDiff jobId={job.id} />}
 
         {job.requiredEnv.length > 0 && (
-          <div className="mt-4 rounded-2xl border border-[#f0d9a6] bg-warning-soft p-4 text-sm leading-relaxed">
+          <div className="mt-4 rounded-2xl border-2 border-[#f0d9a6] bg-warning-soft p-4 text-sm leading-relaxed">
             <h3 className="font-bold text-warning">받은 파일을 반영하기 전에 설정할 환경변수 ({job.requiredEnv.length}개)</h3>
             <p className="mt-1 text-ink-subtle">설정하지 않으면 해당 기능이 안전하게 멈추도록(요청 거절) 고쳐져 있어요.</p>
             <ul className="mt-2 space-y-2">
@@ -458,7 +475,7 @@ function FixResult({
             <h3 className="text-sm font-bold text-ink">고치지 못한 항목 ({failedItems.length}개)</h3>
             <ul className="mt-2 space-y-2 text-sm">
               {failedItems.map((it) => (
-                <li key={it.findingId} className="rounded-2xl bg-surface p-3">
+                <li key={it.findingId} className="rounded-2xl border-2 border-line bg-surface p-3">
                   <span className="font-bold text-ink">{it.title}</span>
                   <span className="block text-ink-subtle">{it.reason}</span>
                 </li>
@@ -472,19 +489,19 @@ function FixResult({
             <a
               href={job.artifact.downloadPath}
               download={job.artifact.fileName}
-              className="hoi-button-3d inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border-2 border-line-input bg-surface px-5 font-bold text-ink shadow-[0_3px_0_var(--border-strong)] hover:bg-surface-warm"
+              className={buttonClassName({ variant: "secondary" })}
             >
-              수정된 파일 다운로드
-              <span className="text-xs font-medium text-ink-muted">({formatBytes(job.artifact.size)})</span>
+              고친 파일 내려받기
+              <span className="text-[13px] font-medium text-ink-subtle">({formatBytes(job.artifact.size)})</span>
             </a>
             <Button onClick={onVerify} disabled={busy !== null} aria-busy={busy === "verify"}>
-              {v ? "다시 재검증하기" : "재검증하기"}
+              {v ? "한 번 더 확인하기" : "정말 막혔는지 다시 확인하기"}
             </Button>
           </div>
         )}
         {job.artifact && (
           <>
-            <p className="mt-4 rounded-2xl bg-info-soft p-3 text-sm leading-relaxed text-info">{GUIDANCE}</p>
+            <p className="mt-4 rounded-2xl border-2 border-[#c9def3] bg-info-soft p-3 text-sm font-semibold leading-relaxed text-info">{GUIDANCE}</p>
             <p className="mt-2 break-all text-xs text-ink-muted">
               파일 확인값(SHA-256): <span className="font-mono">{job.artifact.sha256}</span>
             </p>
@@ -493,10 +510,24 @@ function FixResult({
       </Card>
 
       {v && v.status !== "running" && (
-        <Card variant={v.status === "failed" ? "danger" : "default"} className="mt-4 p-5 sm:p-6" aria-live="polite">
-          <h2 className="text-lg font-bold text-ink">
-            {v.status === "failed" ? "AI 재검증을 완료하지 못했어요" : "재검증 결과"}
-          </h2>
+        <Card
+          variant={v.status === "failed" ? "danger" : allBlocked ? "warm" : "default"}
+          className={`relative mt-4 overflow-hidden p-5 sm:p-6 ${allBlocked ? "!border-[#bfe0c8]" : ""}`}
+          aria-live="polite"
+        >
+          {allBlocked && <Confetti />}
+          <div className="flex items-center gap-4">
+            {allBlocked && <Hoi mood="celebrate" size="md" decorative className="shrink-0" />}
+            <h2 className="text-xl font-extrabold text-ink">
+              {v.status === "failed"
+                ? "다시 확인하는 과정을 끝내지 못했어요"
+                : allBlocked
+                  ? "잘 막았어요! 한 단계 더 튼튼해졌어요"
+                  : vCounts.still > 0
+                    ? "아직 완전히 막히지 않은 곳이 있어요"
+                    : "다시 확인한 결과"}
+            </h2>
+          </div>
           {v.status === "failed" && (
             <p className="mt-1 text-sm text-ink-subtle">{v.errorMessage ?? "잠시 후 다시 시도해 주세요."}</p>
           )}

@@ -25,13 +25,13 @@ export function HoiScene({
 
   return (
     <section
-      className={`hoi-decoration flex flex-col items-center gap-5 rounded-3xl border border-line bg-surface-warm px-5 py-9 text-center shadow-warm sm:px-8 ${className}`}
+      className={`hoi-decoration hoi-card-3d flex flex-col items-center gap-5 !bg-surface-warm px-5 py-10 text-center sm:px-10 ${className}`}
     >
       <Hoi mood={mood} size={size} />
       <div className="min-w-0 max-w-xl">
-        <Heading className="break-keep text-2xl font-bold tracking-tight text-ink">{title}</Heading>
+        <Heading className="break-keep text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">{title}</Heading>
         {description && (
-          <div className="mt-2 break-words text-ink-subtle">{description}</div>
+          <div className="mt-3 break-words leading-relaxed text-ink-subtle">{description}</div>
         )}
         {action && <div className="mt-6 flex flex-wrap justify-center gap-2">{action}</div>}
       </div>

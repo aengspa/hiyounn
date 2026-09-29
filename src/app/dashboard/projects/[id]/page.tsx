@@ -12,14 +12,15 @@ import {
 } from "@/lib/store/store";
 import { RunScanButton } from "@/components/RunScanButton";
 import { ReuploadForm } from "@/components/ReuploadForm";
+import { formatKstDateTime } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
 const JOB_LABEL: Record<string, string> = {
-  running: "수정 중",
-  completed: "수정 완료",
-  partial: "일부 수정",
-  failed: "수정 실패",
+  running: "고치는 중이에요",
+  completed: "모두 고쳤어요",
+  partial: "일부 고쳤어요",
+  failed: "고치지 못했어요",
 };
 
 /** 프로젝트 상세: 점검 시작 버튼 + "점검 기록" 목록 하나. */
@@ -55,14 +56,14 @@ export default async function ProjectPage({ params }: { params: { id: string } }
           </div>
         )}
         <section aria-labelledby="history-title">
-          <h2 id="history-title" className="text-lg font-bold text-ink">
+          <h2 id="history-title" className="text-xl font-extrabold text-ink sm:text-2xl">
             점검 기록
           </h2>
           {rows.length === 0 ? (
             <EmptyState
               className="mt-4"
               title="아직 점검 기록이 없어요"
-              description="점검 전이라 결과가 없어요. 위험이 없다는 뜻은 아니에요. 위의 ‘점검 시작하기’로 확인해 주세요."
+              description="호이가 아직 살펴보지 않았어요. 위험이 없다는 뜻은 아니에요. 위의 ‘점검 시작하기’로 같이 확인해 봐요."
             />
           ) : (
             <ol className="mt-4 space-y-3">
@@ -70,19 +71,33 @@ export default async function ProjectPage({ params }: { params: { id: string } }
                 <li key={scan.id}>
                   <Link
                     href={`/dashboard/scans/${scan.id}`}
-                    className="group flex min-h-20 flex-col gap-2 rounded-3xl border border-line bg-surface p-5 shadow-warm transition-colors hover:border-brand-300 motion-reduce:transition-none sm:flex-row sm:items-center sm:justify-between"
+                    className="hoi-card-3d hoi-card-link group flex min-h-20 flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6"
                   >
-                    <div className="min-w-0">
-                      <p className="font-bold text-ink">
-                        {new Date(scan.completedAt ?? scan.startedAt).toLocaleString("ko-KR")}
-                        {index === 0 && <span className="ml-2 text-sm font-semibold text-brand-800">가장 최근</span>}
-                      </p>
-                      <p className="mt-1 text-sm text-ink-subtle">
-                        확인할 부분 {scan.findingIds.length}개
-                        {latestJob ? ` · ${JOB_LABEL[latestJob.status] ?? ""}` : ""}
-                      </p>
+                    <div className="flex min-w-0 items-start gap-4">
+                      <span
+                        aria-hidden="true"
+                        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-base font-extrabold ${
+                          index === 0 ? "bg-sun-soft text-brand-900" : "bg-surface-warm text-ink-subtle"
+                        }`}
+                      >
+                        {rows.length - index}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="font-extrabold text-ink">
+                          {formatKstDateTime(scan.completedAt ?? scan.startedAt)}
+                          {index === 0 && (
+                            <span className="ml-2 inline-flex rounded-full border-2 border-brand-300 bg-primary-soft px-2.5 py-0.5 text-[13px] font-bold text-brand-900">
+                              가장 최근
+                            </span>
+                          )}
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-ink-subtle">
+                          확인할 부분 {scan.findingIds.length}개
+                          {latestJob ? ` · ${JOB_LABEL[latestJob.status] ?? ""}` : ""}
+                        </p>
+                      </div>
                     </div>
-                    <span className="text-sm font-bold text-brand-800 group-hover:underline">
+                    <span className="inline-flex min-h-11 items-center gap-1 self-start rounded-full bg-primary-soft px-4 text-sm font-bold text-brand-900 sm:self-auto">
                       결과 보기 <span aria-hidden="true">→</span>
                     </span>
                   </Link>

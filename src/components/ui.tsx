@@ -52,18 +52,19 @@ export type ButtonSize = "sm" | "md" | "lg";
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
   // 주황 배경 + 진한 갈색 글자(5.54:1). hover·active 배경과 깊이는 `.is-primary` CSS 규칙.
   primary: "is-primary border-0 bg-brand-500 text-ink",
+  // 흰 표면 + 3:1 이상 입력 경계 + 하단 깊이(`.is-secondary`).
   secondary:
-    "border-2 border-line-input bg-surface text-ink shadow-[0_3px_0_var(--border-strong)] hover:bg-surface-warm",
+    "is-secondary border-2 border-line-input bg-surface text-ink hover:border-brand-700 hover:bg-surface-warm",
   // bg-primary-soft 위에서는 text-ink-subtle 대비가 부족하므로 hover 때 text-ink로 바꾼다.
   ghost:
     "border-2 border-transparent bg-transparent text-ink-subtle hover:bg-primary-soft hover:text-ink",
-  danger: "border-0 bg-danger text-white shadow-[0_3px_0_#7f1f1f]",
+  danger: "is-danger border-0 bg-danger text-white",
 };
 
 const BUTTON_SIZES: Record<ButtonSize, string> = {
   sm: "min-h-11 px-4 text-sm",
-  md: "min-h-12 px-5 text-base",
-  lg: "min-h-14 px-6 text-lg",
+  md: "min-h-12 px-6 text-base",
+  lg: "min-h-14 px-7 text-lg",
 };
 
 /** Link에도 같은 버튼 외형을 적용할 수 있는 class helper. */
@@ -77,7 +78,7 @@ export function buttonClassName({
   className?: string;
 } = {}) {
   return cx(
-    "hoi-button-3d inline-flex items-center justify-center gap-2 rounded-2xl font-bold leading-tight",
+    "hoi-button-3d inline-flex items-center justify-center gap-2 rounded-2xl font-extrabold leading-tight",
     BUTTON_VARIANTS[variant] ?? BUTTON_VARIANTS.primary,
     BUTTON_SIZES[size] ?? BUTTON_SIZES.md,
     className,
@@ -112,12 +113,12 @@ export function Button({
 export type CardVariant = "default" | "warm" | "raised" | "flat" | "danger";
 
 const CARD_VARIANTS: Record<CardVariant, string> = {
-  default: "rounded-3xl border border-line bg-surface shadow-warm",
-  warm: "rounded-3xl border border-line bg-surface-warm shadow-warm",
-  // rounded-3xl, 테두리, 하단 3px 깊이는 globals.css `.hoi-card-3d`.
+  default: "rounded-3xl border-2 border-line bg-surface shadow-warm",
+  warm: "rounded-3xl border-2 border-line bg-surface-warm shadow-warm",
+  // rounded-3xl, 테두리, 하단 깊이는 globals.css `.hoi-card-3d`.
   raised: "hoi-card-3d",
-  flat: "rounded-2xl border border-line bg-surface",
-  danger: "rounded-3xl border border-[#f3c4bd] bg-danger-soft",
+  flat: "rounded-2xl border-2 border-line bg-surface",
+  danger: "rounded-3xl border-2 border-[#f3c4bd] bg-danger-soft",
 };
 
 export function Card({
@@ -162,7 +163,7 @@ const BADGE_TONES: Record<BadgeTone, string> = {
 };
 
 const BADGE_BASE =
-  "inline-flex min-h-6 items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-bold leading-5";
+  "inline-flex min-h-7 items-center gap-1.5 rounded-full border-2 px-3 py-0.5 text-[13px] font-bold leading-5";
 
 export function Badge({
   children,
@@ -366,21 +367,21 @@ export function Disclosure({
   return (
     <details
       className={cx(
-        "group rounded-2xl border border-line bg-surface px-4 py-3 open:shadow-warm",
+        "group rounded-2xl border-2 border-line bg-surface px-4 py-2 transition-colors open:border-line-strong open:bg-surface-warm open:shadow-warm motion-reduce:transition-none",
         className,
       )}
       {...props}
     >
-      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 font-bold text-ink marker:content-none [&::-webkit-details-marker]:hidden">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 rounded-xl font-bold text-ink marker:content-none hover:text-brand-800 [&::-webkit-details-marker]:hidden">
         <span>{summary}</span>
         <span
           aria-hidden="true"
-          className="text-xl leading-none text-brand-800 transition-transform group-open:rotate-45 motion-reduce:transition-none"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-brand-300 bg-primary-soft text-lg font-bold leading-none text-brand-900 transition-transform group-open:rotate-45 motion-reduce:transition-none"
         >
           +
         </span>
       </summary>
-      <div className="border-t border-line pt-4 text-ink-subtle">{children}</div>
+      <div className="mb-2 mt-2 border-t-2 border-dashed border-line pt-4 text-ink-subtle">{children}</div>
     </details>
   );
 }
@@ -421,10 +422,10 @@ export function EmptyState({
   return (
     <Card
       variant="warm"
-      className={cx("hoi-decoration px-5 py-10 text-center sm:px-8", className)}
+      className={cx("hoi-decoration border-dashed px-5 py-10 text-center sm:px-8 sm:py-12", className)}
     >
       {illustration && <div className="mb-4 flex justify-center">{illustration}</div>}
-      <h2 className="text-xl font-bold text-ink">{title}</h2>
+      <h2 className="text-xl font-extrabold text-ink sm:text-2xl">{title}</h2>
       {description && (
         <div className="mx-auto mt-2 max-w-xl text-sm text-ink-subtle sm:text-base">
           {description}
@@ -450,13 +451,21 @@ export function FriendlyError({
     <div
       role="alert"
       className={cx(
-        "rounded-3xl border border-[#f3c4bd] bg-danger-soft p-5 text-danger",
+        "flex gap-3 rounded-3xl border-2 border-[#f3c4bd] bg-danger-soft p-5 text-danger",
         className,
       )}
     >
-      <p className="font-bold">{title}</p>
-      {description && <div className="mt-1 text-sm text-ink">{description}</div>}
-      {action && <div className="mt-4">{action}</div>}
+      <span
+        aria-hidden="true"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-danger text-base font-extrabold text-white"
+      >
+        !
+      </span>
+      <div className="min-w-0">
+        <p className="font-bold">{title}</p>
+        {description && <div className="mt-1 text-sm leading-relaxed text-ink">{description}</div>}
+        {action && <div className="mt-4">{action}</div>}
+      </div>
     </div>
   );
 }
@@ -483,9 +492,9 @@ export function SectionHeader({
     >
       <div className="min-w-0">
         {eyebrow && (
-          <p className="mb-1 text-sm font-bold text-brand-800">{eyebrow}</p>
+          <p className="mb-2 inline-flex rounded-full bg-primary-soft px-3 py-0.5 text-sm font-bold text-brand-900">{eyebrow}</p>
         )}
-        <h2 className="text-2xl font-bold tracking-tight text-ink">{title}</h2>
+        <h2 className="text-2xl font-extrabold tracking-tight text-ink">{title}</h2>
         {description && <div className="mt-1 text-ink-subtle">{description}</div>}
       </div>
       {action && <div className="shrink-0">{action}</div>}
@@ -520,10 +529,23 @@ export function MetricCard({
       <div className={cx("h-2", METRIC_ACCENT[tone] ?? METRIC_ACCENT.neutral)} aria-hidden="true" />
       <div className="p-5">
         <p className="text-sm font-bold text-ink-subtle">{label}</p>
-        <div className="mt-1 text-3xl font-bold tracking-tight text-ink">{value}</div>
+        <div className="mt-1 text-3xl font-extrabold tracking-tight text-ink">{value}</div>
         {hint && <div className="mt-2 text-sm text-ink-muted">{hint}</div>}
       </div>
     </Card>
+  );
+}
+
+// 1회성 작은 컨페티(장식). 부모는 position: relative여야 한다. 동작 줄이기 설정이면 CSS가 숨긴다.
+const CONFETTI_PIECES = [6, 14, 23, 31, 42, 50, 58, 67, 75, 84, 92];
+
+export function Confetti({ className = "" }: { className?: string } = {}) {
+  return (
+    <div aria-hidden="true" className={cx("hoi-confetti", className)}>
+      {CONFETTI_PIECES.map((left, i) => (
+        <span key={left} style={{ left: `${left}%`, animationDelay: `${(i % 4) * 90}ms` }} />
+      ))}
+    </div>
   );
 }
 

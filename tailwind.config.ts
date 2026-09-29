@@ -73,6 +73,7 @@ const config: Config = {
       },
       fontFamily: {
         sans: [
+          "Pretendard Variable",
           "Pretendard",
           "Apple SD Gothic Neo",
           "Noto Sans KR",

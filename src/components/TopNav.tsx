@@ -18,15 +18,19 @@ export async function TopNav() {
   const user = await getCurrentUser();
 
   return (
-    <header className="sticky top-0 z-30 border-b border-line bg-[#fffaf2]/90 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-2 sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-30 h-[65px] border-b-2 border-line bg-[#fffaf2]/90 backdrop-blur">
+      <div className="mx-auto flex h-full w-full max-w-6xl items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
         <Link
           href="/"
-          className="flex min-h-11 min-w-0 items-center gap-2 rounded-2xl font-bold text-ink"
+          className="flex min-h-11 min-w-0 items-center gap-2 rounded-2xl pr-2 text-lg font-extrabold tracking-tight text-ink"
           aria-label="호이 보안 코치 홈"
         >
-          <Hoi mood="welcome" size="sm" decorative />
-          <span className="truncate">호이 보안 코치</span>
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sun-soft">
+            <Hoi mood="welcome" size="sm" decorative />
+          </span>
+          <span className="truncate">
+            호이 <span className="text-brand-800">보안 코치</span>
+          </span>
         </Link>
 
         {/* 앵커는 로그인·회원가입 화면에서도 랜딩 섹션으로 가도록 "/" 기준으로 둔다. */}

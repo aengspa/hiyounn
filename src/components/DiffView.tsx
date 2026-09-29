@@ -43,7 +43,7 @@ export function EditDiff({ edits }: { edits: { file: string; before: string; aft
       {edits.map((e, i) => {
         const d = fileDiff(e.before, e.after, 2);
         return (
-          <figure key={i} className="overflow-hidden rounded-2xl border border-line bg-surface">
+          <figure key={i} className="overflow-hidden rounded-2xl border-2 border-line bg-surface">
             <figcaption className="flex items-center justify-between border-b border-line px-3 py-1.5 text-xs text-ink-muted">
               <span className="break-all font-mono">{e.file}</span>
               <span>
@@ -88,17 +88,17 @@ export function JobDiff({ jobId }: { jobId: string }) {
 
   return (
     <details
-      className="mt-4 rounded-2xl border border-line bg-surface"
+      className="mt-4 rounded-2xl border-2 border-line bg-surface"
       onToggle={(e) => {
         if ((e.currentTarget as HTMLDetailsElement).open) void load();
       }}
     >
-      <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-ink">바뀐 코드 전체 보기 (수정 전 → 수정 후)</summary>
-      <div className="space-y-3 border-t border-line p-3">
+      <summary className="flex min-h-11 cursor-pointer items-center px-4 py-3 text-sm font-bold text-ink hover:text-brand-800">바뀐 코드 전체 보기 (수정 전 → 수정 후)</summary>
+      <div className="space-y-3 border-t-2 border-line p-3">
         {state === "loading" && <p className="text-sm text-ink-muted">비교를 불러오고 있어요…</p>}
         {state === "error" && <p className="text-sm text-danger">비교를 불러오지 못했어요. 다시 열어 주세요.</p>}
         {files?.map((f) => (
-          <figure key={f.path} className="overflow-hidden rounded-2xl border border-line">
+          <figure key={f.path} className="overflow-hidden rounded-2xl border-2 border-line">
             <figcaption className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-surface-warm px-3 py-1.5 text-xs text-ink-muted">
               <span className="break-all font-mono">
                 {f.path}

@@ -41,8 +41,8 @@ export function RuleProposals({ rules }: { rules: CustomRule[] }) {
 
   return (
     <section className="mt-10" aria-labelledby="rule-proposals-title">
-      <details open className="rounded-3xl border border-line bg-surface p-4 sm:p-5">
-        <summary id="rule-proposals-title" className="cursor-pointer text-base font-bold text-ink">
+      <details open className="rounded-3xl border-2 border-line bg-surface p-4 shadow-warm sm:p-5">
+        <summary id="rule-proposals-title" className="flex min-h-11 cursor-pointer items-center text-base font-extrabold text-ink hover:text-brand-800">
           AI가 제안한 규칙 ({items.length}개)
         </summary>
         <p className="mt-2 text-sm text-ink-subtle">
@@ -51,7 +51,7 @@ export function RuleProposals({ rules }: { rules: CustomRule[] }) {
         {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
         <ul className="mt-3 space-y-3">
           {items.map((r) => (
-            <li key={r.id} className="rounded-2xl border border-line p-3">
+            <li key={r.id} className="rounded-2xl border-2 border-line bg-surface-warm p-4">
               <div className="flex flex-wrap items-center gap-2">
                 <SeverityBadge severity={r.severity} />
                 <Badge tone={r.status === "approved" ? "success" : r.status === "rejected" ? "neutral" : "warning"}>{STATUS_TEXT[r.status]}</Badge>
@@ -59,7 +59,7 @@ export function RuleProposals({ rules }: { rules: CustomRule[] }) {
               </div>
               <p className="mt-2 font-bold text-ink">{r.title}</p>
               {r.rationale && <p className="mt-1 text-sm text-ink-subtle">{r.rationale}</p>}
-              <pre className="mt-2 overflow-x-auto rounded-xl bg-surface-warm p-2 text-xs">
+              <pre className="mt-2 overflow-x-auto rounded-xl border-2 border-line bg-surface p-2 text-xs">
                 <code>
                   /{r.pattern}/{r.flags}
                   {r.safePattern ? `   안전 예외: /${r.safePattern}/` : ""}
@@ -78,10 +78,10 @@ export function RuleProposals({ rules }: { rules: CustomRule[] }) {
               </ul>
               {r.status === "proposed" && (
                 <div className="mt-3 flex gap-2">
-                  <Button onClick={() => decide(r, "approve")} disabled={busy !== null} aria-busy={busy === r.id}>
+                  <Button size="sm" onClick={() => decide(r, "approve")} disabled={busy !== null} aria-busy={busy === r.id}>
                     승인하기
                   </Button>
-                  <Button variant="secondary" onClick={() => decide(r, "reject")} disabled={busy !== null}>
+                  <Button size="sm" variant="secondary" onClick={() => decide(r, "reject")} disabled={busy !== null}>
                     거절하기
                   </Button>
                 </div>

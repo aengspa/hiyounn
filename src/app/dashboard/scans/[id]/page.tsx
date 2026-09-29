@@ -1,6 +1,7 @@
 ﻿import { notFound } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { HoiScene } from "@/components/mascot/HoiScene";
+import { Hoi } from "@/components/mascot/Hoi";
 import { requirePageUserId } from "@/lib/auth";
 import {
   getScan,
@@ -21,6 +22,7 @@ import { toPublicJob } from "@/lib/fixjobs/publicJob";
 import { isStale } from "@/lib/fixjobs/fixAllService";
 import { LIMITS } from "@/lib/config/limits";
 import { codeContextFor, secretValues } from "@/lib/ui/codeContext";
+import { formatKstDateTime } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 
@@ -75,19 +77,26 @@ export default async function ScanResultsPage({ params }: { params: { id: string
   const activeCount = views.length - falsePositiveCount;
 
   const projectHref = `/dashboard/projects/${scan.projectId}`;
-  const scannedAt = new Date(scan.completedAt ?? scan.startedAt).toLocaleString("ko-KR");
+  const scannedAt = formatKstDateTime(scan.completedAt ?? scan.startedAt);
 
   return (
     <>
       <PageHeader title={`${project.name} 점검 결과`} backHref={projectHref} backLabel="이전" />
       <div className="mx-auto max-w-4xl px-4 py-7 sm:px-6 sm:py-10">
         <section aria-labelledby="report-title">
-          <p className="text-sm text-ink-muted">{scannedAt} 점검</p>
-          <h2 id="report-title" className="mt-1 text-2xl font-bold text-ink">
-            {activeCount > 0
-              ? `확인할 부분 ${activeCount}개를 찾았어요`
-              : "이번 범위에서 확인할 부분을 찾지 못했어요"}
-          </h2>
+          <div className="flex items-center gap-4">
+            <Hoi mood={activeCount > 0 ? "concerned" : "cheer"} size="md" decorative className="hidden sm:block" />
+            <div className="min-w-0">
+              <p className="inline-flex rounded-full border-2 border-line bg-surface px-3 py-0.5 text-[13px] font-bold text-ink-subtle">
+                {scannedAt} 점검
+              </p>
+              <h2 id="report-title" className="mt-2 text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
+                {activeCount > 0
+                  ? `확인할 부분 ${activeCount}개를 찾았어요`
+                  : "이번 범위에서 확인할 부분을 찾지 못했어요"}
+              </h2>
+            </div>
+          </div>
           {falsePositiveCount > 0 && (
             <p className="mt-1 text-sm text-ink-muted">
               규칙 결과 중 {falsePositiveCount}개는 AI가 코드 근거를 확인해 오탐으로 판정해서 아래에 따로 모았어요.
@@ -126,7 +135,7 @@ export default async function ScanResultsPage({ params }: { params: { id: string
 
         <section className="mt-12" aria-labelledby="coverage-title">
           <h2 id="coverage-title" className="sr-only">점검 범위와 한계</h2>
-          <TechnicalDetails summary="점검 범위와 한계 보기">
+          <TechnicalDetails summary="점검 범위와 한계 보기 (전문가용 정보)">
             <ScanScopePanel scope={scan.scope} />
             {scan.plan ? <PlanPanel plan={scan.plan} /> : null}
             <dl className="mt-5 grid gap-3 border-t border-line pt-5 text-sm sm:grid-cols-2">
@@ -158,8 +167,8 @@ function AuthzTable({ rows }: { rows: RouteAuthzEntry[] }) {
   const gaps = rows.filter((r) => (r.findingIds ?? []).length > 0).length;
   return (
     <section className="mt-10" aria-labelledby="authz-title">
-      <details open={gaps > 0} className="rounded-3xl border border-line bg-surface p-4 sm:p-5">
-        <summary id="authz-title" className="cursor-pointer text-base font-bold text-ink">
+      <details open={gaps > 0} className="rounded-3xl border-2 border-line bg-surface p-4 shadow-warm sm:p-5">
+        <summary id="authz-title" className="flex min-h-11 cursor-pointer items-center text-base font-extrabold text-ink hover:text-brand-800">
           라우트 권한 확인 표 ({rows.length}개 라우트{gaps > 0 ? `, 빈틈 ${gaps}곳` : ""})
         </summary>
         <p className="mt-2 text-sm text-ink-subtle">
@@ -284,11 +293,11 @@ function ScanScopePanel({ scope }: { scope: ScanScope }) {
           ) : <p className="mt-3 text-sm text-ink-muted">별도로 기록된 미점검 분류가 없어요.</p>}
         </div>
       </div>
-      <p className="mt-6 rounded-2xl border border-[#f0d9a6] bg-warning-soft p-4 text-sm leading-relaxed text-warning">
+      <p className="mt-6 rounded-2xl border-2 border-[#f0d9a6] bg-warning-soft p-4 text-sm leading-relaxed text-warning">
         자동 점검은 모든 문제를 찾지 못해요. 이 결과는 점검한 시점의 코드와 실행한 항목에만 해당하며, 발견이 없어도 모든 위험을 찾았다는 뜻은 아니에요.
       </p>
       <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
-        <ScopeRow label="점검 시각" value={new Date(scope.scanDate).toLocaleString("ko-KR")} />
+        <ScopeRow label="점검 시각" value={`${formatKstDateTime(scope.scanDate)} (KST)`} />
         <ScopeRow label="배포 주소" value={scope.deploymentUrl ?? "연결 안 됨"} />
         <ScopeRow label="스캐너 버전" value={scope.scannerVersion} mono />
         <ScopeRow label="룰셋 버전" value={scope.rulesetVersion} mono />
@@ -313,7 +322,7 @@ function PlanPanel({ plan }: { plan: ScanPlan }) {
       {plan.selectedChecks.length === 0 ? (
         <p className="mt-2 text-sm text-ink-subtle">실행 가능한 검사가 없었어요.</p>
       ) : (
-        <div className="mt-3 overflow-x-auto rounded-2xl border border-line">
+        <div className="mt-3 overflow-x-auto rounded-2xl border-2 border-line bg-surface">
           <table className="w-full min-w-[560px] text-left text-sm">
             <thead className="bg-surface-warm text-xs text-ink-muted">
               <tr><th className="p-3">규칙</th><th className="p-3">검사</th><th className="p-3">도구</th><th className="p-3">등급</th></tr>

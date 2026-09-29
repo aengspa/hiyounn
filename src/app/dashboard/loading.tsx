@@ -11,10 +11,10 @@ export default function DashboardLoading() {
       <div
         role="status"
         aria-live="polite"
-        className="hoi-decoration flex flex-col items-center gap-5 rounded-3xl border border-line bg-surface-warm px-5 py-9 text-center shadow-warm sm:px-8"
+        className="hoi-decoration flex flex-col items-center gap-5 hoi-card-3d !bg-surface-warm px-5 py-10 text-center sm:px-8"
       >
         <Hoi mood="searching" size="lg" />
-        <p className="break-keep text-xl font-bold tracking-tight text-ink">
+        <p className="break-keep text-xl font-extrabold tracking-tight text-ink sm:text-2xl">
           호이가 화면을 준비하고 있어요…
         </p>
       </div>

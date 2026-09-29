@@ -80,11 +80,11 @@ export function RunScanButton({ projectId, label = "보안 점검 시작" }: { p
   return (
     <>
       <div className="flex flex-col items-stretch gap-2 sm:items-end">
-        <Button onClick={run} disabled={running} aria-busy={running} size="sm">
+        <Button onClick={run} disabled={running} aria-busy={running} size="md">
           {running ? "호이가 점검 중…" : error ? "다시 점검하기" : label}
         </Button>
         {error && (
-          <p role="alert" className="max-w-sm text-sm font-medium text-danger">
+          <p role="alert" className="max-w-sm rounded-2xl border-2 border-[#f3c4bd] bg-danger-soft px-3 py-2 text-sm font-semibold text-danger">
             {error}
           </p>
         )}
@@ -103,9 +103,9 @@ export function RunScanButton({ projectId, label = "보안 점검 시작" }: { p
               {steps.map((step) => (
                 <li
                   key={step.step}
-                  className="flex min-h-11 items-center gap-3 rounded-2xl border border-line bg-surface-warm px-3 py-2"
+                  className="flex min-h-11 items-center gap-3 rounded-2xl border-2 border-line bg-surface-warm px-3 py-2"
                 >
-                  <span aria-hidden="true" className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary-soft font-bold text-brand-900">
+                  <span aria-hidden="true" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-brand-300 bg-sun-soft font-bold text-brand-900">
                     {phase === "complete" ? "✓" : "•"}
                   </span>
                   <span className="min-w-0 flex-1 break-words text-sm font-bold text-ink">{step.label}</span>

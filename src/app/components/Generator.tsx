@@ -48,7 +48,7 @@ export default function Generator() {
             aria-invalid={Boolean(error)}
             aria-describedby={error ? "generator-error" : "generator-hint"}
             placeholder="무엇을 도와드릴까요?"
-            className="mt-2 min-h-32 w-full resize-y rounded-2xl border border-line-strong bg-white px-4 py-3 text-ink outline-none focus:border-brand-700 focus:ring-2 focus:ring-primary-soft"
+            className="mt-2 min-h-32 w-full resize-y rounded-2xl border-2 border-line-input bg-surface px-4 py-3 text-ink hover:border-brand-700 focus:border-brand-700"
           />
           <p id="generator-hint" className="mt-2 text-sm text-ink-muted">필요한 결과와 확인할 조건을 함께 적어 주세요.</p>
         </div>

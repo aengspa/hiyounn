@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -23,7 +23,7 @@ import {
 
 // 밝은 입력 표면. 포커스 링은 globals.css의 :focus-visible(3px --focus)을 그대로 쓴다.
 const inputClassName =
-  "min-h-12 w-full rounded-2xl border-2 border-line-input bg-surface px-4 py-3 text-base text-ink transition-colors hover:border-line-strong aria-[invalid=true]:border-danger disabled:cursor-not-allowed disabled:bg-surface-warm disabled:text-ink-muted";
+  "min-h-12 w-full rounded-2xl border-2 border-line-input bg-surface px-4 py-3 text-base text-ink transition-colors hover:border-brand-700 focus:border-brand-700 aria-[invalid=true]:border-danger disabled:cursor-not-allowed disabled:bg-surface-warm disabled:text-ink-muted";
 
 const ERROR_ID = "project-form-error";
 const ZIP_TOO_LARGE_MESSAGE = "ZIP 파일은 8MB 이하로 선택해 주세요.";
@@ -277,7 +277,7 @@ export function NewProjectForm({ mode }: { mode: ScanMode }) {
       />
       <div className="mx-auto max-w-2xl px-4 py-8 sm:px-6">
         <form onSubmit={submit} noValidate className="space-y-5" aria-busy={submitting}>
-          <Card variant="default" className="p-6">
+          <Card variant="default" className="p-6 sm:p-7">
             <Field
               id="name"
               label="프로젝트 이름"
@@ -301,8 +301,8 @@ export function NewProjectForm({ mode }: { mode: ScanMode }) {
             </Field>
           </Card>
 
-          <Card variant="default" className="p-6">
-            <h2 className="text-lg font-bold text-ink">코드 자료</h2>
+          <Card variant="default" className="p-6 sm:p-7">
+            <h2 className="text-xl font-extrabold text-ink">코드 자료</h2>
             <p className="mt-1 text-sm leading-relaxed text-ink-subtle">
               ZIP 파일 또는 붙여넣은 코드 중 하나가 꼭 필요해요. GitHub 주소만으로는 코드를 읽을 수 없어요.
             </p>
@@ -366,7 +366,7 @@ export function NewProjectForm({ mode }: { mode: ScanMode }) {
               </Field>
               {zipFile && (
                 <p
-                  className="mt-3 break-all rounded-2xl border border-[#bfe0c8] bg-success-soft px-4 py-3 text-sm font-semibold text-success"
+                  className="mt-3 break-all rounded-2xl border-2 border-[#bfe0c8] bg-success-soft px-4 py-3 text-sm font-semibold text-success"
                   role="status"
                 >
                   {zipFile.name}을 선택했어요. 이 ZIP으로 점검해요.
@@ -427,8 +427,8 @@ export function NewProjectForm({ mode }: { mode: ScanMode }) {
           </Card>
 
           {dynamic && (
-            <Card variant="default" className="p-6">
-              <h2 className="text-lg font-bold text-ink">
+            <Card variant="default" className="p-6 sm:p-7">
+              <h2 className="text-xl font-extrabold text-ink">
                 {isolated ? "테스트 서버 주소" : "서비스 주소"}
               </h2>
               <p className="mt-1 text-sm leading-relaxed text-ink-subtle">
@@ -497,8 +497,8 @@ export function NewProjectForm({ mode }: { mode: ScanMode }) {
           )}
 
           {isolated && (
-            <Card variant="default" className="p-6">
-              <h2 className="text-lg font-bold text-ink">테스트 계정 2개</h2>
+            <Card variant="default" className="p-6 sm:p-7">
+              <h2 className="text-xl font-extrabold text-ink">테스트 계정 2개</h2>
               <p className="mt-1 text-sm leading-relaxed text-ink-subtle">
                 서로 다른 일반 사용자 계정 두 개가 필요해요. 계정 A로 계정 B의 데이터에 접근할 수 있는지 확인해요.
               </p>
@@ -562,8 +562,8 @@ export function NewProjectForm({ mode }: { mode: ScanMode }) {
             </Card>
           )}
 
-          <Card variant="default" className="p-6">
-            <h2 className="text-lg font-bold text-ink">준비되면 만들어요</h2>
+          <Card variant="default" className="p-6 sm:p-7">
+            <h2 className="text-xl font-extrabold text-ink">준비되면 만들어요</h2>
             <ul className="mt-3 space-y-1.5 text-sm leading-relaxed text-ink-subtle">
               {info.covers.map((c) => (
                 <li key={c}>• {c}</li>

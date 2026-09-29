@@ -105,15 +105,18 @@ export default function QuickCheckPage() {
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6">
-      <Link href="/" className="text-sm font-bold text-brand-800 hover:underline">
-        ← 홈으로
+      <Link
+        href="/"
+        className="inline-flex min-h-11 items-center gap-1 rounded-full border-2 border-line bg-surface px-3 text-sm font-bold text-brand-800 hover:border-brand-300"
+      >
+        <span aria-hidden="true">←</span> 홈으로
       </Link>
 
-      <h1 className="mt-4 text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+      <h1 className="mt-5 text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">
         이 코드, 호이가 빠르게 살펴볼게요
       </h1>
       <p className="mt-2 text-base leading-relaxed text-ink-subtle">
-        AI가 만든 코드를 그대로 붙여 넣어도 괜찮아요.
+        궁금한 코드를 붙여 넣으면 놓치기 쉬운 부분을 쉬운 말로 알려드려요. AI가 만든 코드를 그대로 붙여 넣어도 괜찮아요.
       </p>
 
       <Card variant="default" className="mt-6 p-5 sm:p-6" aria-busy={running}>
@@ -133,7 +136,7 @@ export default function QuickCheckPage() {
           aria-invalid={Boolean(error) || overLimit}
           aria-describedby={describedBy}
           placeholder="여기에 코드를 붙여 넣으세요."
-          className="mt-3 min-h-72 w-full resize-y rounded-2xl border-2 border-line-input bg-surface p-4 font-mono text-sm leading-relaxed text-ink placeholder:text-ink-muted focus:border-brand-500"
+          className="mt-3 min-h-72 w-full resize-y rounded-2xl border-2 border-line-input bg-surface p-4 font-mono text-sm leading-relaxed text-ink placeholder:text-ink-muted hover:border-brand-700 focus:border-brand-700 focus:bg-surface-warm"
         />
         <p
           id="source-count"
@@ -143,7 +146,7 @@ export default function QuickCheckPage() {
         </p>
         <div id="source-limit" aria-live="polite" className="text-sm">
           {overLimit && (
-            <p className="mt-1 rounded-2xl border border-[#f3c4bd] bg-danger-soft px-4 py-3 font-bold text-danger">
+            <p className="mt-1 rounded-2xl border-2 border-[#f3c4bd] bg-danger-soft px-4 py-3 font-bold text-danger">
               코드가 조금 길어요. {MAX_SOURCE_CHARS.toLocaleString("en-US")}자 이하로 줄이거나 여러 번에 나눠 넣어 주세요.
             </p>
           )}
@@ -191,7 +194,7 @@ export default function QuickCheckPage() {
           aria-busy={running}
           className="mt-5 w-full sm:w-auto"
         >
-          {running ? "코드를 확인하고 있어요…" : "코드 점검하기"}
+          {running ? "코드를 확인하고 있어요…" : "코드 살펴보기"}
         </Button>
 
         <div className="mt-4">
@@ -226,7 +229,7 @@ function QuickResults({ result }: { result: QuickResult }) {
   return (
     <section className="mt-10 space-y-6" aria-labelledby="quick-results-title">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <h2 id="quick-results-title" className="text-xl font-bold tracking-tight text-ink sm:text-2xl">
+        <h2 id="quick-results-title" className="text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
           {findings.length > 0 ? `확인할 부분 ${findings.length}개를 찾았어요` : "빠른 점검 결과"}
         </h2>
         <Badge tone="info">검사한 파일 {scannedFiles.length}개</Badge>
@@ -268,9 +271,9 @@ function FindingCard({ finding, index }: { finding: SecurityFinding; index: numb
 
   return (
     <Card variant="default" className="overflow-hidden p-0">
-      <div className="border-b border-line bg-surface-warm px-5 py-4">
+      <div className="border-b-2 border-line bg-surface-warm px-5 py-4 sm:px-6">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-bold text-ink-subtle">{index + 1}번째로 살펴볼 곳</span>
+          <span className="inline-flex min-h-7 items-center rounded-full bg-ink px-3 text-[13px] font-bold text-surface">{index + 1}번째로 살펴볼 곳</span>
           <SeverityBadge severity={finding.severity} />
           <StatusBadge status={finding.status} />
           {finding.testStatus && <TestStatusBadge status={finding.testStatus} />}
@@ -282,7 +285,7 @@ function FindingCard({ finding, index }: { finding: SecurityFinding; index: numb
 
       <div className="space-y-5 p-5">
         {isAi && (
-          <p className="rounded-2xl border border-[#c9def3] bg-info-soft px-4 py-3 text-sm font-bold text-ink">
+          <p className="rounded-2xl border-2 border-[#c9def3] bg-info-soft px-4 py-3 text-sm font-bold text-ink">
             {AI_NOTICE}
           </p>
         )}
@@ -314,7 +317,7 @@ function FindingCard({ finding, index }: { finding: SecurityFinding; index: numb
 
           {finding.evidence.length > 0 && (
             <div className="mt-5 space-y-3">
-              <h4 className="text-sm font-bold text-ink">원본 근거</h4>
+              <h4 className="text-sm font-bold text-ink">호이가 확인한 근거(원문)</h4>
               {finding.evidence.map((evidence) => (
                 <div key={evidence.id}>
                   {evidence.masked && <p className="mb-2 text-xs font-bold text-ink">민감할 수 있는 값은 가려서 보여드려요.</p>}

@@ -73,7 +73,7 @@ body {
   margin: 0;
   background: var(--background);
   color: var(--text);
-  font-family: Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", system-ui,
+  font-family: "Pretendard Variable", Pretendard, "Apple SD Gothic Neo", "Noto Sans KR", system-ui,
     -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 16px;
   line-height: 1.7;
@@ -171,16 +171,37 @@ textarea.bg-code::placeholder {
   word-break: break-word;
 }
 
+h1,
+h2,
+h3,
+h4 {
+  letter-spacing: -0.02em;
+  word-break: keep-all;
+}
+
 /* 페이지 배경 장식: 입력을 막지 않고 본문 뒤에만 깔린다 */
 .hoi-page-decor {
   position: fixed;
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  opacity: 0.3;
+  opacity: 0.32;
   background:
-    radial-gradient(40rem 28rem at 12% -8%, var(--primary-soft), transparent 70%),
-    radial-gradient(34rem 24rem at 95% 8%, var(--sun-soft), transparent 70%);
+    radial-gradient(42rem 30rem at 8% -6%, var(--primary-soft), transparent 70%),
+    radial-gradient(36rem 26rem at 96% 4%, var(--sun-soft), transparent 70%),
+    radial-gradient(30rem 24rem at 50% 108%, var(--primary-soft), transparent 70%);
+}
+
+/* 아주 옅은 점 패턴. 콘텐츠 가독성을 해치지 않도록 낮은 불투명도로 겹친다 */
+.hoi-page-decor::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.5;
+  background-image: radial-gradient(var(--border-strong) 1.2px, transparent 1.3px);
+  background-size: 28px 28px;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 60%);
+  mask-image: linear-gradient(to bottom, #000 0%, transparent 60%);
 }
 
 .hoi-surface {
@@ -190,22 +211,50 @@ textarea.bg-code::placeholder {
   box-shadow: var(--shadow-sm);
 }
 
+/* 눌림 깊이가 있는 카드: 하단 4px 테두리 */
 .hoi-card-3d {
-  border: 1px solid var(--border-strong);
+  border: 2px solid var(--border);
+  border-bottom-width: 5px;
+  border-bottom-color: var(--border-strong);
   border-radius: 1.5rem;
   background: var(--surface);
-  box-shadow: 0 3px 0 var(--border-strong), var(--shadow-sm);
+  box-shadow: var(--shadow-sm);
 }
 
-/* 3D 버튼: 깊이 3px → hover 4px(2px 위) → active 1px(2px 아래) */
+/* 누를 수 있는 카드(링크 카드): hover에서 살짝 떠오른다 */
+.hoi-card-link {
+  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.hoi-card-link:hover {
+  transform: translateY(-2px);
+  border-color: var(--primary);
+  box-shadow: var(--shadow-lg);
+}
+
+.hoi-card-link:active {
+  transform: translateY(1px);
+}
+
+/* 3D 버튼: 깊이 4px → hover 5px(2px 위) → active 1px(3px 아래) */
 .hoi-button-3d {
   min-height: 44px;
   border-radius: 1rem;
-  transition: transform 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+  letter-spacing: -0.01em;
+  transition: transform 150ms ease, box-shadow 150ms ease, background-color 150ms ease,
+    border-color 150ms ease;
 }
 
 .hoi-button-3d.is-primary {
-  box-shadow: 0 3px 0 var(--primary-depth);
+  box-shadow: 0 4px 0 var(--primary-depth);
+}
+
+.hoi-button-3d.is-secondary {
+  box-shadow: 0 4px 0 var(--border-strong);
+}
+
+.hoi-button-3d.is-danger {
+  box-shadow: 0 4px 0 #7f1f1f;
 }
 
 .hoi-button-3d:hover:not(:disabled) {
@@ -213,17 +262,30 @@ textarea.bg-code::placeholder {
 }
 
 .hoi-button-3d.is-primary:hover:not(:disabled) {
-  box-shadow: 0 4px 0 var(--primary-depth);
+  box-shadow: 0 6px 0 var(--primary-depth);
   background-color: var(--primary-hover);
 }
 
+.hoi-button-3d.is-secondary:hover:not(:disabled) {
+  box-shadow: 0 6px 0 var(--border-strong);
+}
+
+.hoi-button-3d.is-danger:hover:not(:disabled) {
+  box-shadow: 0 6px 0 #7f1f1f;
+}
+
 .hoi-button-3d:active:not(:disabled) {
-  transform: translateY(2px);
+  transform: translateY(3px);
 }
 
 .hoi-button-3d.is-primary:active:not(:disabled) {
   box-shadow: 0 1px 0 var(--primary-depth);
   background-color: var(--primary-hover);
+}
+
+.hoi-button-3d.is-secondary:active:not(:disabled),
+.hoi-button-3d.is-danger:active:not(:disabled) {
+  box-shadow: 0 1px 0 var(--border-strong);
 }
 
 .hoi-button-3d:disabled {
@@ -235,6 +297,103 @@ textarea.bg-code::placeholder {
 .hoi-decoration {
   position: relative;
   isolation: isolate;
+  overflow: hidden;
+}
+
+/* 호이 장면 뒤의 햇살 원. 장식 전용 */
+.hoi-decoration::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: -6rem;
+  left: 50%;
+  width: 22rem;
+  height: 22rem;
+  transform: translateX(-50%);
+  border-radius: 9999px;
+  background: radial-gradient(circle, var(--sun-soft) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* 호이 발자국 모양 번호 원 등에 쓰는 작은 입체감 */
+.hoi-chip-3d {
+  box-shadow: 0 3px 0 var(--border-strong);
+}
+
+/* 완료 순간 1회성 작은 컨페티. 장식이라 aria-hidden 요소에만 붙인다 */
+.hoi-confetti {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.hoi-confetti > span {
+  position: absolute;
+  top: -12px;
+  width: 8px;
+  height: 12px;
+  border-radius: 2px;
+  opacity: 0;
+  animation: hoi-confetti-fall 1400ms ease-out 1 forwards;
+}
+
+.hoi-confetti > span:nth-child(3n) {
+  background: var(--sun);
+}
+
+.hoi-confetti > span:nth-child(3n + 1) {
+  background: var(--primary);
+}
+
+.hoi-confetti > span:nth-child(3n + 2) {
+  background: var(--crimson);
+  border-radius: 9999px;
+  width: 8px;
+  height: 8px;
+}
+
+@keyframes hoi-confetti-fall {
+  0% {
+    opacity: 1;
+    transform: translateY(0) rotate(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(140px) rotate(320deg);
+  }
+}
+
+/* 진행 중 점 세 개 */
+.hoi-dots > span {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin: 0 3px;
+  border-radius: 9999px;
+  background: var(--primary);
+  animation: hoi-dot 1.2s ease-in-out infinite;
+}
+
+.hoi-dots > span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.hoi-dots > span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes hoi-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
 }
 
 /* 호이 등장: 220ms, 1회 */
@@ -294,9 +453,20 @@ textarea.bg-code::placeholder {
     transition: none;
   }
 
+  .hoi-card-link,
+  .hoi-card-link:hover,
+  .hoi-card-link:active {
+    transform: none !important;
+  }
+
   .hoi-enter,
-  .hoi-search-prop {
+  .hoi-search-prop,
+  .hoi-dots > span {
     animation: none !important;
+  }
+
+  .hoi-confetti {
+    display: none;
   }
 
   *,

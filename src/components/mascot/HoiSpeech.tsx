@@ -31,11 +31,11 @@ export function HoiSpeech({
       className={`flex flex-col items-center gap-3 sm:flex-row sm:items-end ${className}`}
     >
       {!hideMascot && <Hoi mood={mood} size={size} decorative />}
-      <div className="relative min-w-0 max-w-full rounded-3xl border border-line-strong bg-surface px-5 py-4 font-bold leading-relaxed text-ink shadow-warm sm:mb-2">
+      <div className="relative min-w-0 max-w-full rounded-3xl border-2 border-line-strong bg-surface px-5 py-4 text-left font-bold leading-relaxed text-ink shadow-[0_4px_0_var(--border-strong)] sm:mb-3">
         {/* 꼬리: 모바일은 위쪽(호이 방향), sm 이상은 왼쪽 */}
         <span
           aria-hidden="true"
-          className="absolute -top-2 left-1/2 h-4 w-4 -translate-x-1/2 rotate-45 border-l border-t border-line-strong bg-surface sm:-left-2 sm:bottom-4 sm:top-auto sm:translate-x-0 sm:border-b sm:border-t-0"
+          className="absolute -top-[9px] left-1/2 h-4 w-4 -translate-x-1/2 rotate-45 border-l-2 border-t-2 border-line-strong bg-surface sm:-left-[9px] sm:bottom-5 sm:top-auto sm:translate-x-0 sm:border-b-2 sm:border-t-0"
         />
         <div className="relative break-words">{children}</div>
         {footer && (

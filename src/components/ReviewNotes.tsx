@@ -15,9 +15,9 @@ const VERDICT_TONE: Record<ReverifyVerdict, string> = {
 };
 
 const EXPLOIT_TEXT: Record<ExploitCheck["status"], string> = {
-  blocked: "원본에서는 공격이 성공했고, 수정본에서는 막혔어요",
-  still_exploitable: "수정본에서도 공격이 성공했어요",
-  not_reproduced: "원본에서도 공격이 재현되지 않아 이 테스트로는 판단하지 않았어요",
+  blocked: "고치기 전에는 같은 방식으로 문제가 생겼고, 고친 뒤에는 막혔어요",
+  still_exploitable: "고친 뒤에도 같은 방식으로 문제가 생겨요",
+  not_reproduced: "고치기 전 코드에서도 문제가 재현되지 않아 이 테스트로는 판단하지 않았어요",
   error: "테스트를 실행하지 못했어요",
   not_run: "실행하지 않았어요",
 };
@@ -27,7 +27,7 @@ function EvidenceList({ evidence }: { evidence: ReverifyEvidence[] }) {
   return (
     <ul className="mt-2 space-y-2">
       {evidence.map((e, i) => (
-        <li key={i} className="overflow-hidden rounded-xl border border-line">
+        <li key={i} className="overflow-hidden rounded-xl border-2 border-line bg-surface">
           <div className="border-b border-line bg-surface-warm px-3 py-1 font-mono text-xs text-ink-muted">{e.file}</div>
           <pre className="overflow-x-auto px-3 py-1.5 text-xs leading-5 text-ink">
             <code>{e.snippet}</code>
@@ -57,8 +57,8 @@ export function VerifyNote({ item, fallback }: { item: VerifyNoteItem; fallback?
   const ruleText = item.ruleSummary;
   const aiText = item.aiSummary;
   return (
-    <section aria-label="재검증 코멘트" className="mt-3 rounded-2xl border border-line bg-surface-warm p-3 text-sm leading-relaxed">
-      <h4 className="text-xs font-bold text-ink-muted">재검증 코멘트</h4>
+    <section aria-label="호이가 다시 확인한 내용" className="mt-4 rounded-2xl border-2 border-line bg-surface-warm p-4 text-sm leading-relaxed">
+      <h4 className="text-[13px] font-bold text-ink-subtle">호이가 다시 확인한 내용</h4>
       {ruleText && (
         <p className="mt-1.5">
           <span className="font-bold text-ink">규칙 재검사</span>
@@ -76,7 +76,7 @@ export function VerifyNote({ item, fallback }: { item: VerifyNoteItem; fallback?
       {!ruleText && !aiText && (item.summary || fallback) && <p className="mt-1.5 text-ink-subtle">{item.summary || fallback}</p>}
       {item.exploit && item.exploit.status !== "not_run" && (
         <div className="mt-1.5">
-          <span className="font-bold text-ink">공격 재현 테스트</span>
+          <span className="font-bold text-ink">같은 방식으로 다시 시도해 본 결과</span>
           <span
             className={`ml-1 font-bold ${
               item.exploit.status === "blocked" ? "text-success" : item.exploit.status === "still_exploitable" ? "text-danger" : "text-warning"
@@ -88,7 +88,7 @@ export function VerifyNote({ item, fallback }: { item: VerifyNoteItem; fallback?
           {item.exploit.testCode && (
             <details className="mt-1">
               <summary className="cursor-pointer text-xs font-bold text-brand-800">AI가 작성한 테스트 코드 보기</summary>
-              <pre className="mt-1 overflow-x-auto rounded-xl border border-line bg-surface p-2 text-xs leading-5">
+              <pre className="mt-1 overflow-x-auto rounded-xl border-2 border-line bg-surface p-2 text-xs leading-5">
                 <code>{item.exploit.testCode}</code>
               </pre>
             </details>
@@ -111,8 +111,8 @@ const ADJ_TEXT: Record<Adjudication["verdict"], string> = {
 /** 오탐 의견이 붙은 규칙 항목을 AI가 근거와 함께 다시 판정한 결과. */
 export function AdjudicationNote({ adjudication }: { adjudication: Adjudication }) {
   return (
-    <section aria-label="AI 재판정" className="mt-3 rounded-2xl border border-line bg-surface-warm p-3 text-sm leading-relaxed">
-      <h4 className="text-xs font-bold text-ink-muted">AI 재판정 (규칙 결과가 실제 취약점인지)</h4>
+    <section aria-label="AI 재판정" className="mt-4 rounded-2xl border-2 border-line bg-surface-warm p-4 text-sm leading-relaxed">
+      <h4 className="text-[13px] font-bold text-ink-subtle">AI가 다시 판단했어요 (규칙이 찾은 내용이 실제 문제인지)</h4>
       <p className="mt-1.5">
         <span
           className={`font-bold ${

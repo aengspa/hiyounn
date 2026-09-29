@@ -19,6 +19,15 @@ export default function RootLayout({
   // globals.css의 불투명한 body 배경 뒤로 숨지 않고 그 위(본문 아래)에 보이게 한다.
   return (
     <html lang="ko">
+      <head>
+        {/* Pretendard(버전 고정). 불러오지 못하면 globals.css의 시스템 한글 글꼴로 대체된다. */}
+        <link rel="preconnect" href="https://cdn.jsdelivr.net" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
+          crossOrigin="anonymous"
+        />
+      </head>
       <body className="isolate">
         <div className="hoi-page-decor" aria-hidden="true" />
         <a href="#main-content" className="skip-link">

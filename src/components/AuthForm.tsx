@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useRef } from "react";
 import { useFormState, useFormStatus } from "react-dom";
@@ -57,7 +57,7 @@ export function AuthForm({
           id={errorId}
           role="alert"
           aria-live="assertive"
-          className="rounded-2xl border border-[#f3c4bd] bg-danger-soft px-4 py-3 text-base leading-relaxed"
+          className="rounded-2xl border-2 border-[#f3c4bd] bg-danger-soft px-4 py-3 text-base leading-relaxed"
         >
           <p className="font-bold text-danger">{state.error}</p>
           <p className="mt-1 text-ink">{NEXT_ACTION}</p>
@@ -162,7 +162,7 @@ function Field({
       <input
         id={id}
         name={id}
-        className="min-h-12 w-full rounded-2xl border-2 border-line-input bg-surface px-4 py-3 text-base text-ink transition-colors placeholder:text-ink-muted hover:border-brand-500 aria-[invalid=true]:border-danger"
+        className="min-h-12 w-full rounded-2xl border-2 border-line-input bg-surface px-4 py-3 text-base text-ink transition-colors placeholder:text-ink-muted hover:border-brand-700 focus:border-brand-700 focus:bg-surface-warm aria-[invalid=true]:border-danger"
         {...props}
         aria-describedby={describedBy}
       />

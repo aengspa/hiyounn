@@ -3,6 +3,7 @@ import { deflateRawSync } from "zlib";
 import { Buffer } from "buffer";
 import type { FixAttempt, FixDiff } from "@/lib/domain/types";
 import { parseSourceBlob, sanitizeRelPath } from "@/lib/demo/sourceFiles";
+import { kstParts } from "@/lib/time";
 
 /**
  * Builds a downloadable, modified COPY of a project's source with selected
@@ -159,9 +160,11 @@ export function buildFixArtifact(
 // Minimal ZIP writer (store + deflate), Node built-ins only.
 // ─────────────────────────────────────────────────────────────
 
+// ZIP(DOS) 시각에는 시간대 정보가 없다. 서버 시간대(Vercel은 UTC)와 상관없이 KST로 기록한다.
 function dosDateTime(d = new Date()): { time: number; date: number } {
-  const time = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1);
-  const date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+  const k = kstParts(d);
+  const time = (k.hour << 11) | (k.minute << 5) | (k.second >> 1);
+  const date = ((k.year - 1980) << 9) | (k.month << 5) | k.day;
   return { time, date };
 }
 

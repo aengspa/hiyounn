@@ -2,6 +2,7 @@
 import { TopNav } from "@/components/TopNav";
 import { HoiSpeech } from "@/components/mascot/HoiSpeech";
 import { Card, buttonClassName } from "@/components/ui";
+import { ChatIcon, SearchIcon, ShieldIcon } from "@/components/icons";
 import { LIMIT_NOTICE } from "@/lib/ui/presentation";
 
 // 5단계 흐름(요구사항 5.8). 순서가 곧 의미이므로 바꾸지 않는다.
@@ -29,27 +30,47 @@ const FEATURES = [
   },
 ] as const;
 
+// 가치 카드 아이콘 배경·글자색(장식)
+const FEATURE_ICON_TONE = [
+  "bg-sun-soft text-brand-900",
+  "bg-primary-soft text-brand-900",
+  "bg-success-soft text-success",
+] as const;
+
 export default async function LandingPage() {
   return (
     <>
       <TopNav />
       <main id="main-content">
         {/* 히어로: 1280×720, 375×667 첫 화면 안에 들어가도록 높이를 콘텐츠에 맞춘다(요구사항 5.1~5.6) */}
-        <section className="bg-gradient-to-b from-canvas-soft to-canvas px-4 py-10 text-center sm:px-6 sm:py-14">
+        <section className="relative overflow-hidden bg-gradient-to-b from-canvas-soft to-canvas px-4 py-10 text-center sm:px-6 sm:py-16">
+          {/* 햇살 원 장식 */}
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute left-1/2 top-24 -z-10 h-[28rem] w-[28rem] -translate-x-1/2 rounded-full bg-sun-soft opacity-70 blur-2xl"
+          />
           <div className="mx-auto max-w-3xl">
-            <p className="text-sm font-bold text-brand-800">바이브 코더를 위한 보안 친구</p>
-            <h1 className="mt-2 break-keep text-[1.75rem] font-bold leading-[1.3] tracking-tight text-ink sm:text-5xl sm:leading-tight">
-              내 서비스, 호이와 함께 <br /> 튼튼하게 만들어요
+            <p className="inline-flex items-center gap-2 rounded-full border-2 border-brand-300 bg-surface px-4 py-1 text-sm font-bold text-brand-900 shadow-[0_3px_0_var(--border-strong)]">
+              <span aria-hidden="true" className="h-2 w-2 rounded-full bg-crimson" />
+              바이브 코더를 위한 보안 친구
+            </p>
+            <h1 className="mt-5 break-keep text-[2rem] font-extrabold leading-[1.25] tracking-tight text-ink sm:text-6xl sm:leading-[1.15]">
+              내 서비스, 호이와 함께 <br />
+              <span className="relative inline-block">
+                <span className="relative z-10">튼튼하게</span>
+                <span aria-hidden="true" className="absolute inset-x-0 bottom-1 -z-0 h-3 rounded-full bg-sun sm:h-4" />
+              </span>{" "}
+              만들어요
             </h1>
-            <p className="mx-auto mt-3 max-w-xl break-keep text-base leading-relaxed text-ink-subtle">
+            <p className="mx-auto mt-4 max-w-xl break-keep text-lg leading-relaxed text-ink-subtle">
               호이가 약한 곳을 찾아 쉬운 말로 알려드리고, 고친 뒤 한 번 더 확인해요.
             </p>
 
-            <HoiSpeech mood="welcome" size="lg" className="mt-4 justify-center">
+            <HoiSpeech mood="welcome" size="lg" className="mt-6 justify-center">
               어려운 건 제가 쉽게 설명해 드릴게요!
             </HoiSpeech>
 
-            <div className="mt-5 flex justify-center">
+            <div className="mt-7 flex justify-center">
               <Link
                 href="/dashboard"
                 className={buttonClassName({ variant: "primary", size: "lg", className: "w-full sm:w-auto" })}
@@ -57,6 +78,7 @@ export default async function LandingPage() {
                 내 프로젝트 점검하기
               </Link>
             </div>
+            <p className="mt-4 text-sm font-semibold text-ink-subtle">어려운 보안 용어는 쉽게 풀어드려요.</p>
           </div>
         </section>
 
@@ -64,12 +86,12 @@ export default async function LandingPage() {
         <section
           id="how-it-works"
           aria-labelledby="how-it-works-title"
-          className="border-t border-line bg-surface-warm px-4 py-14 sm:px-6"
+          className="border-y-2 border-line bg-surface-warm px-4 py-16 sm:px-6"
         >
           <div className="mx-auto max-w-5xl">
             <h2
               id="how-it-works-title"
-              className="text-center text-2xl font-bold tracking-tight text-ink sm:text-3xl"
+              className="text-center text-2xl font-extrabold tracking-tight text-ink sm:text-4xl"
             >
               호이와 함께 이렇게 진행해요
             </h2>
@@ -86,23 +108,27 @@ export default async function LandingPage() {
                         {/* 세로 타임라인 선(1024px 미만) */}
                         <span
                           aria-hidden="true"
-                          className="absolute -bottom-6 left-5 top-10 w-0.5 -translate-x-1/2 bg-line-strong lg:hidden"
+                          className="absolute -bottom-6 left-7 top-14 w-0 -translate-x-1/2 border-l-[3px] border-dashed border-brand-300 lg:hidden"
                         />
                         {/* 가로 연결선(1024px 이상): 다음 번호 원까지 잇는다 */}
                         <span
                           aria-hidden="true"
-                          className="absolute left-[calc(50%+1.75rem)] right-[calc(-50%+0.75rem)] top-5 hidden h-0.5 bg-line-strong lg:block"
+                          className="absolute left-[calc(50%+2.25rem)] right-[calc(-50%+1.25rem)] top-7 hidden h-0 border-t-[3px] border-dashed border-brand-300 lg:block"
                         />
                       </>
                     )}
                     <span
                       aria-hidden="true"
-                      className="relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 border-brand-300 bg-surface text-base font-bold text-brand-800"
+                      className={`relative z-10 flex h-14 w-14 shrink-0 items-center justify-center rounded-full border-2 text-xl font-extrabold ${
+                        isLast
+                          ? "border-[#bfe0c8] bg-success-soft text-success shadow-[0_4px_0_#bfe0c8]"
+                          : "border-brand-300 bg-sun-soft text-brand-900 shadow-[0_4px_0_var(--border-strong)]"
+                      }`}
                     >
-                      {index + 1}
+                      {isLast ? "✓" : index + 1}
                     </span>
-                    <div className="min-w-0 pb-1 lg:mt-3">
-                      <h3 className="text-lg font-bold text-ink">{step.title}</h3>
+                    <div className="min-w-0 pb-1 pt-2 lg:mt-3 lg:pt-0">
+                      <h3 className="text-lg font-extrabold text-ink">{step.title}</h3>
                       <p className="mt-1 break-keep text-sm leading-relaxed text-ink-subtle">
                         {step.description}
                       </p>
@@ -118,33 +144,46 @@ export default async function LandingPage() {
         <section
           id="features"
           aria-labelledby="features-title"
-          className="mx-auto max-w-5xl px-4 py-14 sm:px-6"
+          className="mx-auto max-w-5xl px-4 py-16 sm:px-6"
         >
           <h2
             id="features-title"
-            className="text-center text-2xl font-bold tracking-tight text-ink sm:text-3xl"
+            className="text-center text-2xl font-extrabold tracking-tight text-ink sm:text-4xl"
           >
             호이가 이렇게 도와드려요
           </h2>
           <ul className="mt-10 grid gap-5 md:grid-cols-3">
-            {FEATURES.map((feature) => (
+            {FEATURES.map((feature, index) => (
               <li key={feature.title}>
-                <Card variant="raised" className="h-full rounded-3xl p-6">
-                  <h3 className="text-lg font-bold text-ink">{feature.title}</h3>
+                <Card variant="raised" className="h-full rounded-3xl p-6 sm:p-7">
+                  <span
+                    aria-hidden="true"
+                    className={`mb-4 flex h-12 w-12 items-center justify-center rounded-2xl ${FEATURE_ICON_TONE[index]}`}
+                  >
+                    {index === 0 && <ChatIcon className="h-6 w-6" />}
+                    {index === 1 && <SearchIcon className="h-6 w-6" />}
+                    {index === 2 && <ShieldIcon className="h-6 w-6" />}
+                  </span>
+                  <h3 className="text-xl font-extrabold text-ink">{feature.title}</h3>
                   <p className="mt-2 break-keep leading-relaxed text-ink-subtle">{feature.body}</p>
                 </Card>
               </li>
             ))}
           </ul>
-          <p className="mx-auto mt-8 max-w-2xl break-keep rounded-2xl border border-line bg-surface-warm px-5 py-4 text-center text-sm leading-relaxed text-ink-subtle">
+          <p className="mx-auto mt-10 max-w-2xl break-keep rounded-2xl border-2 border-dashed border-line-strong bg-surface-warm px-5 py-4 text-center text-sm leading-relaxed text-ink-subtle">
             {LIMIT_NOTICE}
           </p>
         </section>
       </main>
 
-      <footer className="border-t border-line bg-canvas-soft px-4 py-8 text-center text-sm text-ink-subtle">
-        <p className="font-bold text-ink">호이 보안 코치</p>
-        <p className="mt-1">자동 점검은 입력한 자료와 지원하는 검사 범위 안에서 이루어져요.</p>
+      <footer className="border-t-2 border-line bg-canvas-soft px-4 py-10 text-center text-sm text-ink-subtle">
+        <p className="font-extrabold text-ink">
+          호이 <span className="text-brand-800">보안 코치</span>
+        </p>
+        <p className="mx-auto mt-2 max-w-xl break-keep leading-relaxed">
+          호이가 열심히 살펴보지만 자동 점검만으로 모든 위험을 찾을 수는 없어요. 중요한 서비스는 보안 전문가의 검토도 함께 받아보세요.
+        </p>
+        <p className="mt-2 text-[13px] text-ink-muted">호이 캐릭터의 권리는 고려대학교에 있어요.</p>
       </footer>
     </>
   );

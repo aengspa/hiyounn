@@ -30,16 +30,16 @@ export function SampleProjectCard({ sample }: { sample: { id: string; name: stri
   }
 
   return (
-    <div className="rounded-3xl border border-line bg-surface p-5 shadow-warm">
-      <p className="font-bold text-ink">샘플 앱으로 먼저 체험하기</p>
+    <div className="rounded-3xl border-2 border-dashed border-brand-300 bg-sun-soft p-5 sm:p-6">
+      <p className="text-lg font-extrabold text-ink">샘플 앱으로 먼저 체험하기</p>
       <p className="mt-1 text-sm leading-relaxed text-ink-subtle">
         {sample.description} 샘플을 추가하면 보통 프로젝트처럼 점검·수정·재검증이 매번 실제로 실행돼요.
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <Button onClick={add} disabled={busy} aria-busy={busy}>
+        <Button variant="secondary" onClick={add} disabled={busy} aria-busy={busy}>
           {sample.name} 추가하기
         </Button>
-        <a href={sample.zipPath} download className="text-sm font-bold text-brand-800 hover:underline">
+        <a href={sample.zipPath} download className="inline-flex min-h-11 items-center text-sm font-bold text-brand-800 hover:underline">
           ZIP으로 내려받기
         </a>
       </div>

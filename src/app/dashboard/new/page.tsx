@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { SampleProjectCard } from "@/components/SampleProjectCard";
 import { SAMPLE_APPS } from "@/lib/samples";
 import { PageHeader } from "@/components/PageHeader";
@@ -47,12 +47,12 @@ export default function ChooseScanModePage() {
 
         {/* 네이티브 details/summary: 기본 접힘, summary 포커스 시 Enter/Space로 펼치고 접힌다. */}
         <Disclosure summary="추가 점검 옵션" className="mt-6">
-          <div className="rounded-2xl border border-amber-200 bg-warning-soft p-4">
+          <div className="rounded-2xl border-2 border-[#f0d9a6] bg-warning-soft p-4">
             <p className="font-semibold text-ink">테스트 사이트에서 추가 확인</p>
             <p className="mt-1 text-sm leading-relaxed text-ink-subtle">
               테스트 계정 두 개로 다른 사람의 정보에 접근할 수 있는지 확인해요.
             </p>
-            <p className="mt-3 rounded-xl bg-white p-3 text-sm font-semibold text-danger">
+            <p className="mt-3 rounded-xl border-2 border-[#f3c4bd] bg-surface p-3 text-sm font-semibold text-danger">
               실제 서비스와 분리된 테스트 사이트에서만 사용하세요. 점검 중 데이터가 바뀔 수 있어요.
             </p>
             <Link
@@ -64,7 +64,7 @@ export default function ChooseScanModePage() {
           </div>
         </Disclosure>
 
-        <p className="mt-6 text-sm leading-relaxed text-ink-muted">
+        <p className="mt-6 rounded-2xl border-2 border-dashed border-line-strong bg-surface-warm px-4 py-3 text-sm leading-relaxed text-ink-subtle">
           어떤 방법을 골라도 자동 점검만으로 모든 위험을 찾을 수는 없어요. 선택한 범위를 넘는 검사는
           실행하지 않고 확인하지 못한 항목으로 따로 알려드려요.
         </p>
@@ -90,9 +90,9 @@ function ModeCard({
   return (
     <Card
       variant="raised"
-      className="flex flex-col rounded-3xl p-6 transition-colors hover:border-brand-300 focus-within:border-brand-500 motion-reduce:transition-none"
+      className="hoi-card-link flex flex-col rounded-3xl p-6 hover:border-brand-300 focus-within:border-brand-500 sm:p-7"
     >
-      <h2 className="text-lg font-bold text-ink">{title}</h2>
+      <h2 className="text-xl font-extrabold text-ink">{title}</h2>
       <p className="mt-2 text-sm leading-relaxed text-ink-subtle">{description}</p>
       {note && <p className="mt-3 text-sm leading-relaxed text-ink-muted">{note}</p>}
       <div className="mt-auto pt-6">

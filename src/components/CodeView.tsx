@@ -6,13 +6,13 @@ import type { CodeContext } from "@/lib/ui/codeContext";
  */
 export function CodeView({ code, caption }: { code: CodeContext; caption?: string }) {
   return (
-    <figure className="mt-3 overflow-hidden rounded-2xl border border-line bg-surface-warm">
-      <figcaption className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-1.5 text-xs text-ink-muted">
+    <figure className="mt-4 overflow-hidden rounded-2xl border-2 border-line bg-surface-warm">
+      <figcaption className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-line bg-surface px-3 py-2 text-[13px] font-semibold text-ink-subtle">
         <span className="break-all font-mono">
           {code.file}:{code.highlight[0]}
           {code.highlight.length > 1 ? `–${code.highlight[code.highlight.length - 1]}` : ""}
         </span>
-        {caption && <span>{caption}</span>}
+        {caption && <span className="rounded-full bg-danger-soft px-2.5 py-0.5 font-bold text-danger">{caption}</span>}
       </figcaption>
       <pre className="overflow-x-auto py-1 text-xs leading-5">
         <code>
@@ -20,7 +20,7 @@ export function CodeView({ code, caption }: { code: CodeContext; caption?: strin
             const n = code.startLine + i;
             const hot = code.highlight.includes(n);
             return (
-              <div key={n} className={`flex min-w-max ${hot ? "bg-danger-soft" : ""}`}>
+              <div key={n} className={`flex min-w-max border-l-4 ${hot ? "border-danger bg-danger-soft" : "border-transparent"}`}>
                 <span className="w-12 shrink-0 select-none pr-3 text-right text-ink-muted">{n}</span>
                 <span className={`whitespace-pre pr-4 ${hot ? "font-bold text-danger" : "text-ink"}`}>
                   {hot && <span className="sr-only">문제가 된 줄: </span>}

@@ -7,7 +7,7 @@ export function ScanScopeMeter({
   className?: string;
 }) {
   const label = scope === 1 ? "좁음" : scope === 2 ? "보통" : "넓음";
-  const fill = ["bg-green-500", "bg-amber-500", "bg-red-500"];
+  const fill = ["bg-success", "bg-warning", "bg-danger"];
   return (
     <div className={className}>
       <div className="flex items-center justify-between text-xs font-bold text-ink-muted">
