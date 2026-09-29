@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode, type Ref } from "react";
 import type { Severity } from "@/lib/domain/types";
 import type { PublicFixJob } from "@/lib/fixjobs/publicJob";
 import { Badge, Button, Card, Confetti, SeverityBadge, buttonClassName, type BadgeTone } from "@/components/ui";
@@ -13,8 +13,10 @@ import {
   VERIFY_BUTTON_LABEL,
   fixStatusFor,
   fixStepsFor,
+  reverifySummaryFor,
   type FixStatus,
   type FixStatusKey,
+  type ReverifySummary,
   type FixStep,
 } from "@/lib/ui/fixStatus";
 import type { CodeContext } from "@/lib/ui/codeContext";
@@ -115,16 +117,32 @@ export function FixAllPanel({
   findings,
   initialJob,
   canFix,
+  header,
 }: {
   scanId: string;
   findings: FindingView[];
   initialJob?: PublicFixJob;
   /** 이 점검이 소스 버전을 기록했을 때만 전체 수정이 가능하다. */
   canFix: boolean;
+  /** 처음 점검 결과 제목. 재검증 요약 바로 아래에 둔다. */
+  header?: ReactNode;
 }) {
   const [job, setJob] = useState<PublicFixJob | undefined>(initialJob);
   const [busy, setBusy] = useState<"fix" | "verify" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const summaryRef = useRef<HTMLElement>(null);
+  const [focusSummary, setFocusSummary] = useState(false);
+
+  // 재검증이 끝나면 맨 위 요약으로 이동하고 초점을 옮긴다.
+  useEffect(() => {
+    if (!focusSummary || busy !== null) return;
+    setFocusSummary(false);
+    const el = summaryRef.current;
+    if (!el) return;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+    el.focus({ preventScroll: true });
+  }, [focusSummary, busy]);
 
   async function poll(jobId: string, until: (j: PublicFixJob) => boolean): Promise<PublicFixJob | undefined> {
     for (let i = 0; i < POLL_MAX; i++) {
@@ -182,8 +200,10 @@ export function FixAllPanel({
       const data = await readJson(res);
       if (res.status === 409 && data?.error === "verify_in_progress") {
         const done = await poll(job.id, (j) => j.verification?.status !== "running");
-        if (done) setJob(done);
-        else setError("재검증이 아직 끝나지 않았어요. 잠시 후 새로고침해 주세요.");
+        if (done) {
+          setJob(done);
+          setFocusSummary(true);
+        } else setError("재검증이 아직 끝나지 않았어요. 잠시 후 새로고침해 주세요.");
         return;
       }
       if (!res.ok || !data?.job) {
@@ -193,6 +213,7 @@ export function FixAllPanel({
         return;
       }
       setJob(data.job as PublicFixJob);
+      setFocusSummary(true);
     } catch {
       setError("연결이 잠깐 끊겼어요. 인터넷 연결을 확인하고 다시 시도해 주세요.");
     } finally {
@@ -233,8 +254,14 @@ export function FixAllPanel({
   const falsePositiveGroups = groupFindings(falsePositives);
   const showFixButton = findings.length > 0 && canFix && (!job || job.status === "failed");
 
+  // 재검증 요약: 저장된 결과가 있을 때만. 다시 실행하는 동안에는 예전 결과 대신 진행 중으로 보여 준다.
+  const summary = busy === "verify" ? ({ state: "running" } as const) : reverifySummaryFor(verification);
+
   return (
     <>
+      {summary && <ReverifySummaryCard sectionRef={summaryRef} summary={summary} />}
+      {header}
+
       {/* 맨 위: 전체 수정하기 (화면의 유일한 주요 버튼) */}
       {findings.length > 0 && (
         <section aria-labelledby="fix-all-title" className="mt-6">
@@ -277,7 +304,7 @@ export function FixAllPanel({
       {/* 항목 목록 */}
       <section aria-labelledby="findings-title" className="mt-10">
         <h2 id="findings-title" className="text-xl font-extrabold text-ink sm:text-2xl">
-          호이가 찾은 부분 <span className="text-brand-800">({countText(activeGroups.length, active.length)})</span>
+          처음 발견한 문제와 수정 후 상태 <span className="text-brand-800">({countText(activeGroups.length, active.length)})</span>
         </h2>
         <ol className="mt-4 space-y-3">
           {activeGroups.map((g) => (
@@ -312,6 +339,75 @@ export function FixAllPanel({
         }
       />
     </>
+  );
+}
+
+const REVERIFY_NOTICE = "수정본 코드를 확인한 결과이며, 받은 파일을 반영하고 다시 배포해야 실제 사이트에 적용돼요.";
+
+/** 페이지 맨 위 재검증 요약. 저장된 재검증 결과만으로 센다. */
+function ReverifySummaryCard({
+  summary,
+  sectionRef,
+}: {
+  summary: Pick<ReverifySummary, "state"> & Partial<ReverifySummary>;
+  sectionRef: Ref<HTMLElement>;
+}) {
+  const s = summary;
+  const title =
+    s.state === "completed"
+      ? "호이가 수정한 코드를 다시 확인했어요"
+      : s.state === "failed"
+        ? "재검증을 끝내지 못했어요"
+        : "수정한 코드를 다시 확인하고 있어요";
+  const confirmed = s.resolvedConfirmed ?? 0;
+  const executed = s.resolvedExecuted ?? 0;
+  const rows: { mark: string; label: string; value: number }[] = [
+    { mark: FIX_STATUS_MARK.resolved, label: "해결 확인 · 실행·규칙으로 확인", value: confirmed },
+    { mark: FIX_STATUS_MARK.resolved_ai, label: "해결 확인 · AI가 코드로 판단", value: s.resolvedAi ?? 0 },
+    { mark: FIX_STATUS_MARK.still_present, label: "아직 남음", value: s.stillPresent ?? 0 },
+    { mark: FIX_STATUS_MARK.needs_check, label: "확인 불가", value: s.unknown ?? 0 },
+  ];
+  return (
+    <section
+      ref={sectionRef}
+      tabIndex={-1}
+      aria-labelledby="reverify-summary-title"
+      aria-live="polite"
+      className="mb-6 scroll-mt-6 rounded-3xl outline-none focus-visible:ring-4 focus-visible:ring-brand-300"
+    >
+      <Card variant={s.state === "failed" ? "danger" : "raised"} className="min-w-0 p-5 sm:p-6">
+        <p className="inline-flex rounded-full bg-sun-soft px-3 py-0.5 text-[13px] font-bold text-brand-900">수정 후 다시 확인한 결과</p>
+        <h2 id="reverify-summary-title" className="mt-2 break-words text-xl font-extrabold text-ink sm:text-2xl">
+          <span aria-hidden="true" className="mr-1.5">
+            {s.state === "completed" ? "✓" : s.state === "failed" ? "✕" : "…"}
+          </span>
+          {title}
+        </h2>
+        {s.state === "failed" && s.reason && <p className="mt-2 break-words text-base leading-relaxed text-ink">{s.reason}</p>}
+        {s.state === "completed" && (
+          <ul className="mt-4 grid gap-2 sm:grid-cols-2">
+            {rows.map((r) => (
+              <li key={r.label} className="flex min-w-0 items-center justify-between gap-3 rounded-2xl border-2 border-line bg-surface-warm px-4 py-2 text-base text-ink">
+                <span className="flex min-w-0 items-center gap-1.5 font-bold">
+                  <span aria-hidden="true" className="inline-block w-4 shrink-0 text-center">
+                    {r.mark}
+                  </span>
+                  <span className="min-w-0 break-words">{r.label}</span>
+                </span>
+                <span className="shrink-0 font-extrabold">{r.value}개</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {s.state === "completed" && executed > 0 && (
+          <p className="mt-2 text-sm leading-relaxed text-ink-subtle">실행·규칙으로 확인한 {confirmed}개 중 {executed}개는 공격 재현 테스트를 실행해 확인했어요.</p>
+        )}
+        {s.state === "completed" && (s.falsePositive ?? 0) > 0 && (
+          <p className="mt-2 text-sm leading-relaxed text-ink-subtle">AI가 오탐으로 판정한 {s.falsePositive}개는 해결로 세지 않았어요.</p>
+        )}
+        <p className="mt-4 rounded-2xl border-2 border-[#c9def3] bg-info-soft p-3 text-base font-semibold leading-relaxed text-info">{REVERIFY_NOTICE}</p>
+      </Card>
+    </section>
   );
 }
 

@@ -332,3 +332,62 @@ export function fixStepsFor(findingId: string, input: FixStatusInput): FixStep[]
   else step("verify", "unknown", "결론 없음");
   return steps;
 }
+
+// ─────────────────────────────────────────────────────────────
+// 재검증 결과 요약(화면 맨 위): 저장된 verification만으로 센다.
+// ─────────────────────────────────────────────────────────────
+
+export interface ReverifySummary {
+  state: "running" | "completed" | "failed";
+  /** 해결 확인: 규칙 재검사 또는 공격 재현 테스트로 확인(fixStatusFor의 resolved). */
+  resolvedConfirmed: number;
+  /** 그중 공격 재현 테스트를 실행해 확인한 수. */
+  resolvedExecuted: number;
+  /** 해결 확인: AI가 코드를 읽고 판단(fixStatusFor의 resolved_ai). */
+  resolvedAi: number;
+  /** 아직 남음(still_present). */
+  stillPresent: number;
+  /** 확인 불가: 결론 없음(inconclusive) + 판단이 엇갈림(disputed). */
+  unknown: number;
+  /** AI가 오탐으로 판정(false_positive). 해결로 세지 않는다. */
+  falsePositive: number;
+  /** 실패했을 때 저장된 이유. */
+  reason?: string;
+}
+
+/**
+ * 저장된 재검증 결과를 화면 맨 위 요약용으로 센다. 분류는 fixStatusFor와 같다.
+ * 재검증 기록이 없으면 undefined(예전 결과를 새 결과처럼 보여 주지 않는다).
+ */
+export function reverifySummaryFor(
+  verification: { status: "running" | "completed" | "failed"; items: FixStatusVerifyItem[]; errorMessage?: string } | undefined
+): ReverifySummary | undefined {
+  if (!verification) return undefined;
+  const out: ReverifySummary = {
+    state: verification.status,
+    resolvedConfirmed: 0,
+    resolvedExecuted: 0,
+    resolvedAi: 0,
+    stillPresent: 0,
+    unknown: 0,
+    falsePositive: 0,
+  };
+  if (verification.status === "failed") {
+    if (verification.errorMessage) out.reason = verification.errorMessage;
+    return out;
+  }
+  if (verification.status === "running") return out;
+  for (const it of verification.items) {
+    if (it.reasonCode === "disputed") out.unknown += 1;
+    else if (it.verdict === "fixed_in_source") {
+      if (it.executed) {
+        out.resolvedConfirmed += 1;
+        out.resolvedExecuted += 1;
+      } else if (it.method === "llm") out.resolvedAi += 1;
+      else out.resolvedConfirmed += 1;
+    } else if (it.verdict === "still_present") out.stillPresent += 1;
+    else if (it.verdict === "false_positive") out.falsePositive += 1;
+    else out.unknown += 1;
+  }
+  return out;
+}

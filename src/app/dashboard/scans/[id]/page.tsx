@@ -87,16 +87,14 @@ export default async function ScanResultsPage({ params }: { params: { id: string
   const projectHref = `/dashboard/projects/${scan.projectId}`;
   const scannedAt = formatKstDateTime(scan.completedAt ?? scan.startedAt);
 
-  return (
-    <>
-      <PageHeader title={`${project.name} 점검 결과`} backHref={projectHref} backLabel="이전" />
-      <div className="mx-auto max-w-4xl px-4 py-7 sm:px-6 sm:py-10">
+  // 처음 점검 결과 제목. 재검증 요약이 있으면 FixAllPanel이 그 아래에 둔다.
+  const report = (
         <section aria-labelledby="report-title">
           <div className="flex items-center gap-4">
             <Hoi mood={activeCount > 0 ? "concerned" : "cheer"} size="md" decorative className="hidden sm:block" />
             <div className="min-w-0">
               <p className="inline-flex rounded-full border-2 border-line bg-surface px-3 py-0.5 text-[13px] font-bold text-ink-subtle">
-                {scannedAt} 점검
+                {scannedAt} 점검 (처음 점검 기준)
               </p>
               <h2 id="report-title" className="mt-2 text-2xl font-extrabold tracking-tight text-ink sm:text-3xl">
                 {activeCount > 0
@@ -112,7 +110,14 @@ export default async function ScanResultsPage({ params }: { params: { id: string
               규칙 결과 중 {falsePositiveCount}개는 AI가 코드 근거를 확인해 오탐으로 판정해서 아래에 따로 모았어요.
             </p>
           )}
-          {scan.scope.aiCoverage && <AiCoverageNotice coverage={scan.scope.aiCoverage} />}
+          {scan.scope.aiCoverage && (
+            <>
+              <p className="mt-3 inline-flex rounded-full border-2 border-line bg-surface px-3 py-0.5 text-[13px] font-bold text-ink-subtle">
+                AI 분석 범위 (처음 점검 기준)
+              </p>
+              <AiCoverageNotice coverage={scan.scope.aiCoverage} />
+            </>
+          )}
           {scan.scope.semgrep?.status === "ran" && <SemgrepNotice semgrep={scan.scope.semgrep} />}
           {scan.scope.tools && <ToolsNotice tools={scan.scope.tools} />}
           {scan.scope.incremental && (
@@ -123,6 +128,13 @@ export default async function ScanResultsPage({ params }: { params: { id: string
             </p>
           )}
         </section>
+  );
+
+  return (
+    <>
+      <PageHeader title={`${project.name} 점검 결과`} backHref={projectHref} backLabel="이전" />
+      <div className="mx-auto max-w-4xl px-4 py-7 sm:px-6 sm:py-10">
+        {findings.length === 0 && report}
 
         {findings.length === 0 ? (
           <HoiScene
@@ -138,6 +150,7 @@ export default async function ScanResultsPage({ params }: { params: { id: string
             findings={views}
             initialJob={initialJob}
             canFix={Boolean(scan.sourceVersionId)}
+            header={report}
           />
         )}
 
@@ -357,7 +370,7 @@ function ScanScopePanel({ scope }: { scope: ScanScope }) {
         자동 점검은 모든 문제를 찾지 못해요. 이 결과는 점검한 시점의 코드와 실행한 항목에만 해당하며, 발견이 없어도 모든 위험을 찾았다는 뜻은 아니에요.
       </p>
       <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
-        <ScopeRow label="점검 시각" value={formatKstDateTime(scope.scanDate)} />
+        <ScopeRow label="점검 시각 (처음 점검 기준)" value={formatKstDateTime(scope.scanDate)} />
         <ScopeRow label="배포 주소" value={scope.deploymentUrl ?? "연결 안 됨"} />
         <ScopeRow label="스캐너 버전" value={scope.scannerVersion} mono />
         <ScopeRow label="룰셋 버전" value={scope.rulesetVersion} mono />
